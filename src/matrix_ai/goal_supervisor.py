@@ -211,6 +211,7 @@ class GoalSupervisor:
                             "Complete only this node. Do not claim the overall goal is complete. "
                             "Use the normal MATRIX tools and approval process."
                         )
+                        task_id: str | None = None
                         try:
                             existing = self.store.get_goal_node_task(goal_id, node_id)
                             if existing is not None:
@@ -232,7 +233,7 @@ class GoalSupervisor:
                             await self.orchestrator.enqueue(task_id)
                             dispatched.append(task_id)
                         except Exception as exc:
-                            if "task_id" in locals():
+                            if task_id is not None:
                                 link = self.store.get_goal_node_for_task(task_id)
                                 if link is None:
                                     try:
