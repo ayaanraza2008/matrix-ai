@@ -2,8 +2,8 @@
 
 This release ships the permission-critical half of the voice stack: an explicit
 session, a visible listening/speaking state, instant mute, push-to-talk
-semantics and barge-in cancellation. Speech engines (faster-whisper/Piper) are
-optional adapters; when absent the API says so instead of faking a transcript.
+semantics and barge-in cancellation. Speech engines (faster-whisper/Windows SAPI)
+are optional adapters; when absent the API says so instead of faking a transcript.
 """
 
 from __future__ import annotations
@@ -246,8 +246,8 @@ class VoiceSessionManager:
         text = (text or "").strip()
         if self.tts_engine is None:
             raise ToolUnavailable(
-                "No text-to-speech engine is installed. Install Piper (or another local TTS engine) "
-                "to enable spoken replies."
+                "No text-to-speech engine is enabled. On Windows, set MATRIX_TTS_PROVIDER=windows-sapi "
+                "to use an installed local voice."
             )
         if self._speak_task is not None and not self._speak_task.done():
             raise ConflictError("already speaking; barge in first")
