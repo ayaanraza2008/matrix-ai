@@ -30,7 +30,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
 | Local speech-to-text | **Implemented (optional)** | Browser push-to-talk + lazy CPU/INT8 faster-whisper; `test_a11_voice.py` |
 | Voice conversation | **Partial** | Send recognized transcripts to Chat; opt-in browser/system speech for final replies |
-| Server-side text-to-speech | **Planned** | Local Piper adapter remains separate from browser speech |
+| Server-side text-to-speech | **Implemented (optional Windows)** | Local Windows SAPI adapter; `docs/LOCAL_VOICE.md` |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
@@ -86,7 +86,7 @@ $env:MATRIX_STT_LANGUAGE = "hi"
 matrix serve
 ```
 
-Open **Voice**, start a session, record a short utterance, then choose **Finish & transcribe**. MATRIX processes audio in memory with CPU/INT8 faster-whisper, returns the transcript, and stores neither the audio nor transcript in its audit log. Choose **Send transcript to chat** to submit the recognized words. Enable **Automatically speak final MATRIX replies** to use a browser/system voice, or press **Speak** under any assistant message. The first STT use downloads the selected model. Browser voice availability and offline behavior depend on the installed browser/OS voices; server-side Piper TTS remains planned.
+Open **Voice**, start a session, record a short utterance, then choose **Finish & transcribe**. MATRIX processes audio in memory with CPU/INT8 faster-whisper, returns the transcript, and stores neither the audio nor transcript in its audit log. Choose **Send transcript to chat** to submit the recognized words. Enable **Automatically speak final MATRIX replies** or press **Speak** under an assistant message. MATRIX uses the optional local Windows SAPI engine when enabled, otherwise it falls back to browser/system speech. The first STT use downloads the selected model; SAPI uses an installed Windows voice and needs no Python TTS package. See [`docs/LOCAL_VOICE.md`](docs/LOCAL_VOICE.md).
 
 ---
 
@@ -102,6 +102,7 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_FILE_ROOTS` | `<home>\workspace` | `;`-separated roots that file tools may touch |
 | `MATRIX_MODEL_PROVIDER` | `none` | `none`, `ollama`, or `openai`-compatible local server |
 | `MATRIX_MODEL_RAM_BUDGET_MB` | `2500` | Model memory ceiling (8 GB PC discipline) |
+| `MATRIX_TTS_PROVIDER` | `none` | `windows-sapi` enables optional local Windows speech output |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
 | `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool (SSRF-guarded) |
@@ -161,7 +162,8 @@ src/matrix_ai/
   storage/        SQLite schema + repositories
   security/       auth, pairing, rate limiting, redaction, prompt-injection defence
   integrations/   optional adapters with honest health states
-  voice/ vision/  permission-gated session managers
+  voice/          push-to-talk, local STT and optional local Windows TTS
+  vision/         permission-gated capture and OCR controls
   web/            JARVIS dashboard (vanilla HTML/CSS/JS, no build step)
 android/          Kotlin + Compose companion scaffold
 docs/             architecture, security, baseline, capability matrix, roadmap, acceptance
@@ -185,7 +187,7 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **Speech-to-text is optional.** Install `.[voice]`; faster-whisper downloads its selected model on first use and runs CPU/INT8. Browser/system speech reads replies where supported; voice quality and offline availability depend on installed voices. Server-side local TTS is not yet integrated.
+- **Speech engines are optional.** Install `.[voice]` for local CPU/INT8 faster-whisper input. On Windows, set `MATRIX_TTS_PROVIDER=windows-sapi` for local server speech output through an installed Windows voice; it plays on the MATRIX PC. Other clients can use browser/system speech, whose offline behavior depends on the selected voice.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
