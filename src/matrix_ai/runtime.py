@@ -151,7 +151,7 @@ class MatrixRuntime:
         checks = {
             "database": database,
             "model": model.status,
-            "voice": self.voice.status().stt_provider,
+            "voice": f"stt:{self.voice.status().stt_provider},tts:{self.voice.status().tts_provider}",
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
