@@ -181,3 +181,89 @@ async def test_authenticated_route_preview_returns_metadata_without_prompt_bodie
 
     missing_worker = await client.get("/api/workers/this-worker-does-not-exist")
     assert missing_worker.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_worker_reports_flow_into_policy_checked_real_tool_execution(client, runtime, monkeypatch):
+    import matrix_ai.models.planner as planner_module
+
+    selected = [
+        {
+            "slug": "engineering-frontend-developer",
+            "name": "Frontend Developer",
+            "division": "engineering",
+            "routing_role": "lead",
+            "description": "Engineering specialist",
+            "content": "Review deliverables and file output.",
+            "relevance_score": 2.0,
+            "matched_terms": ["engineering"],
+            "selection_reason": "Lead role",
+        }
+    ]
+    monkeypatch.setattr(planner_module, "route_agency_agents", lambda _query: selected)
+
+    runtime.config.model_provider = "openai"
+    runtime.config.model_name = "fake-model"
+    provider = FakePlanProvider(runtime.config)
+    provider.plan = {
+        "goal": "Create and verify the engineering report",
+        "steps": [
+            {
+                "title": "Write engineering report",
+                "kind": "tool",
+                "tool_name": "files.write_text",
+                "arguments": {
+                    "path": "worker-output.txt",
+                    "content": "Created through the central MATRIX tool broker.",
+                    "overwrite": False,
+                },
+            }
+        ],
+    }
+    runtime.models.provider = provider
+
+    async def fake_worker_team(_request, selected_agents):
+        return [
+            {
+                "worker_slug": agent["slug"],
+                "worker_name": agent["name"],
+                "division": agent["division"],
+                "status": "completed",
+                "summary": "A report file is an appropriate deliverable.",
+                "findings": ["Use the approved workspace for output."],
+                "risks": ["Existing files must not be overwritten without approval."],
+                "suggested_tools": ["files.write_text"],
+                "duration_ms": 1.0,
+            }
+            for agent in selected_agents
+        ]
+
+    monkeypatch.setattr(runtime.worker_pool, "run_team", fake_worker_team)
+
+    response = await client.post(
+        "/api/chat",
+        json={"message": "Prepare an engineering delivery report for this task and save it in the workspace."},
+    )
+    assert response.status_code == 202, response.text
+    task_id = response.json()["task"]["id"]
+    completed = await wait_for_task(client, task_id)
+
+    assert completed["state"] == "COMPLETE"
+    result_file = runtime.config.workspace_dir / "worker-output.txt"
+    assert result_file.is_file()
+    assert result_file.read_text(encoding="utf-8") == "Created through the central MATRIX tool broker."
+
+    calls = completed["tool_calls"]
+    assert len(calls) == 1
+    assert calls[0]["tool_name"] == "files.write_text"
+    assert calls[0]["status"] == "succeeded"
+    evidence = calls[0]["evidence"]
+    assert evidence["ok"] is True
+    assert "read_back_hash_matches" in evidence["checks"]
+
+    audit = (await client.get(f"/api/tasks/{task_id}/audit")).json()
+    kinds = [event["event_type"] for event in audit]
+    assert "task.agent_worker_run" in kinds
+    assert "tool.policy" in kinds
+    assert "tool.executed" in kinds
+    assert "tool.verified" in kinds
