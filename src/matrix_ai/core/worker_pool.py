@@ -80,6 +80,7 @@ class AgentWorker:
         }
         self._lock = asyncio.Lock()
         self.status = "idle"
+        self._running = False
         self.queued = 0
         self.completed_runs = 0
         self.failed_runs = 0
@@ -97,48 +98,60 @@ class AgentWorker:
         timeout_seconds: int,
     ) -> dict[str, Any]:
         self.queued += 1
-        self.status = "queued"
-        async with self._lock:
-            self.queued = max(0, self.queued - 1)
-            async with slots:
-                started = time.perf_counter()
-                self.status = "running"
-                self.last_error = None
-                try:
-                    report = await asyncio.wait_for(
-                        executor(self.profile, request[:8000]),
-                        timeout=max(5, min(int(timeout_seconds), 300)),
-                    )
-                    if not isinstance(report, dict) or not str(report.get("summary", "")).strip():
-                        raise ValueError("worker returned an empty report")
-                    self.completed_runs += 1
-                    self.last_status = "completed"
+        self._refresh_status()
+        acquired = False
+        try:
+            async with self._lock:
+                acquired = True
+                self.queued = max(0, self.queued - 1)
+                async with slots:
+                    started = time.perf_counter()
+                    self._running = True
+                    self._refresh_status()
                     self.last_error = None
-                    return {
-                        **report,
-                        "worker_slug": self.profile["slug"],
-                        "worker_name": self.profile["name"],
-                        "division": self.profile["division"],
-                        "status": "completed",
-                        "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-                    }
-                except asyncio.TimeoutError:
-                    self.failed_runs += 1
-                    self.last_status = "timeout"
-                    self.last_error = "worker_timeout"
-                    return self._failure("timeout", "worker_timeout", started)
-                except asyncio.CancelledError:
-                    self.last_status = "cancelled"
-                    raise
-                except Exception as exc:  # isolate a specialist failure from the task team
-                    self.failed_runs += 1
-                    self.last_status = "failed"
-                    self.last_error = type(exc).__name__
-                    return self._failure("failed", type(exc).__name__, started)
-                finally:
-                    self.last_run_at = _now_iso()
-                    self.last_duration_ms = round((time.perf_counter() - started) * 1000, 1)
-                    self.status = "idle"
+                    try:
+                        report = await asyncio.wait_for(
+                            executor(self.profile, request[:8000]),
+                            timeout=max(5, min(int(timeout_seconds), 300)),
+                        )
+                        if not isinstance(report, dict) or not str(report.get("summary", "")).strip():
+                            raise ValueError("worker returned an empty report")
+                        self.completed_runs += 1
+                        self.last_status = "completed"
+                        self.last_error = None
+                        return {
+                            **report,
+                            "worker_slug": self.profile["slug"],
+                            "worker_name": self.profile["name"],
+                            "division": self.profile["division"],
+                            "status": "completed",
+                            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                        }
+                    except asyncio.TimeoutError:
+                        self.failed_runs += 1
+                        self.last_status = "timeout"
+                        self.last_error = "worker_timeout"
+                        return self._failure("timeout", "worker_timeout", started)
+                    except asyncio.CancelledError:
+                        self.last_status = "cancelled"
+                        raise
+                    except Exception as exc:  # isolate a specialist failure from the task team
+                        self.failed_runs += 1
+                        self.last_status = "failed"
+                        self.last_error = type(exc).__name__
+                        return self._failure("failed", type(exc).__name__, started)
+                    finally:
+                        self.last_run_at = _now_iso()
+                        self.last_duration_ms = round((time.perf_counter() - started) * 1000, 1)
+                        self._running = False
+                        self._refresh_status()
+        finally:
+            if not acquired:
+                self.queued = max(0, self.queued - 1)
+                self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        self.status = "running" if self._running else ("queued" if self.queued else "idle")
 
     def _failure(self, status: str, code: str, started: float) -> dict[str, Any]:
         return {
@@ -200,14 +213,11 @@ class AgentWorkerPool:
             if profile.get("slug") or profile.get("id")
         }
         self._slots = asyncio.Semaphore(self.max_concurrent)
+        self._closed = False
 
     @property
     def worker_count(self) -> int:
         return len(self._workers)
-
-    @property
-    def ready_count(self) -> int:
-        return self.worker_count if self.models.configured else 0
 
     def list_workers(self) -> list[dict[str, Any]]:
         configured = bool(self.models.configured)
@@ -225,7 +235,7 @@ class AgentWorkerPool:
         active = sum(worker.status in {"running", "queued"} for worker in workers)
         return {
             "worker_count": len(workers),
-            "ready_count": self.ready_count,
+            "configured_worker_count": self.worker_count if self.models.configured else 0,
             "active_count": active,
             "queued_count": sum(worker.queued for worker in workers),
             "completed_runs": sum(worker.completed_runs for worker in workers),
@@ -263,9 +273,13 @@ class AgentWorkerPool:
                 timeout_seconds=self.timeout_seconds,
             )
 
-        if not self.models.configured:
+        if self._closed or not self.models.configured:
             return []
         return list(await asyncio.gather(*(run_one(profile) for profile in selected_agents)))
+
+    async def shutdown(self) -> None:
+        """Prevent new worker runs; active calls are cancelled with their parent task."""
+        self._closed = True
 
     async def _consult_agent(
         self, profile: dict[str, Any], request: str

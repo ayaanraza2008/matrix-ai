@@ -96,3 +96,47 @@ def test_worker_catalog_never_exposes_prompt_bodies():
     assert snapshot is not None
     assert "content" not in snapshot
     assert "DO NOT EXPOSE" not in str(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_worker_queue_metrics_return_to_idle_when_cancelled(monkeypatch):
+    profiles = [
+        {"slug": "one", "name": "One", "division": "testing", "description": "", "content": ""}
+    ]
+    pool = AgentWorkerPool(FakeModels(), build_registry(), profiles=profiles)
+    started = asyncio.Event()
+
+    async def slow_consult(_profile, _request):
+        started.set()
+        await asyncio.sleep(10)
+        return {"summary": "late"}
+
+    monkeypatch.setattr(pool, "_consult_agent", slow_consult)
+    task = asyncio.create_task(pool.run_team("task", profiles))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    worker = pool.get_worker("one")
+    assert worker["status"] == "idle"
+    assert worker["queued"] == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_disables_new_worker_runs(monkeypatch):
+    profiles = [
+        {"slug": "one", "name": "One", "division": "testing", "description": "", "content": ""}
+    ]
+    pool = AgentWorkerPool(FakeModels(), build_registry(), profiles=profiles)
+    called = False
+
+    async def fake_consult(_profile, _request):
+        nonlocal called
+        called = True
+        return {"summary": "done"}
+
+    monkeypatch.setattr(pool, "_consult_agent", fake_consult)
+    await pool.shutdown()
+    assert await pool.run_team("task", profiles) == []
+    assert called is False
