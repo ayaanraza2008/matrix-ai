@@ -88,7 +88,7 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
-        goal_supervisor = GoalSupervisor(store, orchestrator)
+        goal_supervisor = GoalSupervisor(store, orchestrator, models)
         auth = AuthService(store, config)
         auth.bootstrap()
         limiter = RateLimiter(config.rate_limit_per_minute)
