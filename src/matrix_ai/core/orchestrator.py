@@ -226,6 +226,7 @@ class Orchestrator:
         Any other in-flight state is stopped and reported for manual review.
         """
         result = {"resumed": 0, "awaiting_approval": 0, "failed": 0}
+        repaired_nodes = self.store.reconcile_goal_node_tasks()
         for task in self.store.nonterminal_tasks():
             task_id = str(task["id"])
             state = TaskState(task["state"])
@@ -323,6 +324,15 @@ class Orchestrator:
             )
             result["failed"] += 1
 
+        for goal_id in self.store.schedulable_goal_ids():
+            try:
+                result["resumed"] += len(await self.dispatch_goal_ready_nodes(goal_id))
+            except Exception as exc:
+                self.store.audit(
+                    "goal.recovery_error", actor="scheduler", status="failed",
+                    detail={"goal_id": goal_id, "error": f"{type(exc).__name__}: {exc}"[:500]},
+                )
+        result["goal_nodes_reconciled"] = repaired_nodes
         self.store.audit(
             "system.recovery_completed",
             actor="system",
