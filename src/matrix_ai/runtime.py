@@ -34,6 +34,7 @@ from .tools.base import ToolContext
 from .tools.registry import ToolRegistry, build_registry
 from .vision.manager import VisionSessionManager
 from .voice.manager import TtsEngine, VoiceSessionManager
+from .voice.tts import create_tts_engine
 
 
 @dataclass
@@ -90,7 +91,9 @@ class MatrixRuntime:
             orchestrator=orchestrator,
             auth=auth,
             limiter=RateLimiter(config.rate_limit_per_minute),
-            voice=VoiceSessionManager(config, tts_engine),
+            voice=VoiceSessionManager(
+                config, tts_engine if tts_engine is not None else create_tts_engine(config)
+            ),
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
             scheduler=Scheduler(
