@@ -303,7 +303,7 @@ class Store:
         if not goal_id:
             return
         state = {
-            TaskState.COMPLETE.value: "completed",
+            TaskState.COMPLETE.value: "awaiting_verification",
             TaskState.PARTIAL.value: "partial",
             TaskState.FAILED.value: "failed",
             TaskState.CANCELLED.value: "cancelled",
@@ -314,7 +314,7 @@ class Store:
             evidence = json.loads(task["evidence_json"] or "{}")
         except (TypeError, ValueError):
             evidence = {}
-        verified = bool(evidence.get("verified")) and state == "completed"
+        verified = bool(evidence.get("verified")) and state == "awaiting_verification"
         verification_status = "task_steps_verified" if verified else (
             "task_steps_not_verified" if state in {"partial", "failed"} else "not_applicable"
         )
