@@ -38,4 +38,4 @@ Uploads default to **private**. Public or unlisted visibility must be specified 
 - The Google API may reject uploads for quota, channel, account or policy reasons. MATRIX reports provider failure rather than claiming success.
 - Public comments, uploads and other writes remain approval-gated. No automatic reply or public publishing is enabled without an explicit owner-approved task.
 - OAuth setup requires the owner to create the Google Cloud OAuth client and complete the consent screen. MATRIX cannot authorize itself into a personal Google account.
-- This connector does not yet provide livestream management, analytics reports, thumbnails, playlists, Shorts-specific publishing or scheduled publishing.
+- This connector does not yet provide livestream management, YouTube Analytics reports, thumbnails, or playlist management. Scheduled uploads use the video resource's `publishAt` field.
