@@ -165,3 +165,24 @@ async def test_first_degraded_health_observation_is_audited(tmp_path):
     assert len(store.audits) == 1
     assert store.audits[0][0][0] == "system.health_transition"
     assert store.audits[0][1]["detail"]["previous"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_database_integrity_exception_marks_health_degraded(tmp_path):
+    config = MatrixConfig(home=tmp_path)
+    store = FakeStore(job(1))
+
+    def broken_integrity_check():
+        raise OSError("database unavailable")
+
+    store.db = SimpleNamespace(integrity_check=broken_integrity_check)
+    scheduler = Scheduler(
+        store=store, orchestrator=Unused(), models=FakeModels(),
+        memory=Unused(), config=config,
+    )
+
+    result = await scheduler.monitor_health()
+
+    assert result["status"] == "degraded"
+    assert result["database"] == "error:OSError"
+    assert len(store.audits) == 1
