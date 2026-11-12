@@ -379,7 +379,7 @@ class Store:
     def reconcile_goal_node_tasks(self) -> int:
         """Recover the create-task/link crash window using the unique node identity."""
         rows = self.db.query(
-            "SELECT id, goal_id, goal_node_id FROM tasks "
+            "SELECT id, goal_id, goal_node_id, state FROM tasks "
             "WHERE goal_id IS NOT NULL AND goal_node_id IS NOT NULL"
         )
         repaired = 0
@@ -391,6 +391,15 @@ class Store:
                     (task["id"], iso(), task["goal_id"], task["goal_node_id"]),
                 )
                 repaired += cursor.rowcount
+        terminal_states = {
+            TaskState.COMPLETE.value,
+            TaskState.PARTIAL.value,
+            TaskState.FAILED.value,
+            TaskState.CANCELLED.value,
+        }
+        for task in rows:
+            if task["state"] in terminal_states:
+                self.sync_goal_for_task(str(task["id"]))
         return repaired
 
     def begin_cancel_goal_plan(self, goal_id: str) -> list[str]:
