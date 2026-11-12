@@ -55,7 +55,7 @@ A task is terminal when `state` is one of `COMPLETE`, `PARTIAL`, `FAILED`, `CANC
 ## Build steps (on a machine with Android Studio)
 
 1. Open the `android/` folder in Android Studio (Giraffe/Koala or newer).
-2. Let Gradle sync (compileSdk 34, minSdk 26, Kotlin 1.9.24, Compose BOM 2024.06.00).
+2. Let Gradle sync (compileSdk 34, minSdk 26, Kotlin 2.0.21 (Compose compiler plugin), Compose BOM 2024.06.00).
 3. Point the app at your PC:
    - Debug emulator: `http://10.0.2.2:8765` (debug build only).
    - Debug physical device: `http://<PC LAN IP>:8765` on a trusted LAN only.
