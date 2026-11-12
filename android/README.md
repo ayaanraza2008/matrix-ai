@@ -25,7 +25,7 @@ Then install:
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Emulator networking: the PC is reachable at `http://10.0.2.2:8765`. On a physical device, use the PC's
+For debug emulator networking, enter `http://10.0.2.2:8765` as the PC base URL (cleartext is permitted in the debug build only). Release builds require an HTTPS URL. On a physical device, use the PC's
 private-network address (Tailscale recommended) and keep MATRIX bound to a private interface with TLS in
 front of it for anything beyond development.
 
@@ -33,5 +33,5 @@ front of it for anything beyond development.
 
 - The token is kept in memory in this scaffold. Before shipping, store it in `EncryptedSharedPreferences`
   and add biometric/device-lock gating.
-- `usesCleartextTraffic="true"` exists only for loopback/LAN development; disable it for release.
+- Cleartext HTTP is allowed only by `src/debug/AndroidManifest.xml`; the main/release manifest explicitly disables it. Release builds should use HTTPS (for example, Tailscale Serve).
 - Camera, notifications, offline cache and WorkManager are not implemented yet (Phase 6).
