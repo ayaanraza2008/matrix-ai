@@ -28,14 +28,15 @@ audit*.jsonl
 owner_token.txt
 
 # ---- model weights / large artifacts ----
-models/
+# Root-anchored on purpose: src/matrix_ai/models/ is source code, not weights.
+/models/
 *.gguf
 *.bin
 *.onnx
 *.pt
 *.safetensors
-whisper/
-piper-voices/
+/whisper/
+/piper-voices/
 
 # ---- python ----
 __pycache__/
