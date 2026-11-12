@@ -24,6 +24,8 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
@@ -36,7 +38,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check .
+        run: ruff check . --exclude agency-agents
 
       - name: Secret scan
         run: python -m matrix_ai.security.secret_scan .
