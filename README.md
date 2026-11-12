@@ -28,7 +28,8 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Local speech-to-text | **Implemented (optional)** | Browser push-to-talk + lazy CPU/INT8 faster-whisper; `test_a11_voice.py` |
+| Text-to-speech | **Blocked** | No local TTS engine is wired yet; API returns `503` honestly |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
@@ -74,6 +75,17 @@ matrix serve
 ```
 
 MATRIX works without a model: deterministic tools, memory, approvals and verification keep working. Free-form chat degrades to an honest message instead of hallucinating. To measure a configured local model on English/Hindi plans without executing them, run matrix benchmark-model; see docs/SETUP.md.
+
+Optional local voice input (free, on-device after the first model download):
+```powershell
+pip install -e ".[voice]"
+$env:MATRIX_STT_MODEL = "tiny"       # tiny / tiny.en / base / base.en
+# Optional: force English or Hindi; omit for automatic language detection.
+$env:MATRIX_STT_LANGUAGE = "hi"
+matrix serve
+```
+
+Open **Voice**, start a session, record a short utterance, then choose **Finish & transcribe**. MATRIX processes audio in memory with CPU/INT8 faster-whisper, returns the transcript, and stores neither the audio nor transcript in its audit log. The first use downloads the selected model. Text-to-speech remains a separate, not-yet-integrated feature.
 
 ---
 
@@ -172,7 +184,7 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **No speech engines yet.** Voice session state, mute and barge-in are real and tested; STT/TTS adapters return `503` until you install faster-whisper / Piper.
+- **Speech-to-text is optional.** Install `.[voice]`; faster-whisper downloads its selected model on first use and runs CPU/INT8. Text-to-speech is not yet integrated and still returns `503`.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
