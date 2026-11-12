@@ -26,7 +26,8 @@ reproducible demonstration — not when code exists.
 
 ### M1 — Model on the 8 GB PC (Phase 2 exit)
 - Pull `qwen2.5:0.5b-instruct-q4_K_M`; keep ≤ 2 500 MB budget.
-- Add a benchmark script: tool-selection accuracy, JSON validity, Hindi/English prompts, p50 latency, peak RSS.
+- [x] Add matrix benchmark-model: schema-valid plan rate, expected tool selection, English/Hindi prompts, p50/p90 latency and sampled RSS; no tool execution or cloud calls.
+- [ ] Run the benchmark on the target PC and choose the largest model that stays inside the measured memory budget.
 - Acceptance: ≥ 90 % valid JSON plans on the MATRIX prompt set; peak RSS within budget; `/api/models` reports `working`.
 
 ### M2 — Voice engines (Phase 3 exit)

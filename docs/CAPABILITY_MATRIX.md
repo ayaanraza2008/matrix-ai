@@ -13,6 +13,7 @@ gap · **scaffold** = structure only, not runnable here · **blocked** = waiting
 | Emergency stop | 1 | done | `test_a06_cancellation.py` | — | — |
 | SQLite persistence, WAL, backup/restore | 1 | done | `storage/db.py`, `test_a23_backup_restore.py` | No scheduled backups | Scheduler job for daily backup |
 | Local model provider abstraction | 2 | done | `models/base.py`, `test_a02_model_offline.py` | Only Ollama + OpenAI-compatible | Add llama.cpp direct binding if needed |
+| Local model benchmark (English/Hindi plans, schema validation, latency and RSS sampling) | 2 | done | models/benchmark.py, test_model_benchmark.py | Real results depend on the owner's local model and PC | Run matrix benchmark-model on target hardware |
 | Hardware-aware model manager | 2 | done | `models/manager.py`, `test_a24_resource_budget.py` | Profiles are declared, not auto-benchmarked | Benchmark harness (Phase 2 exit) |
 | Tool-call JSON parsing/validation | 2 | done | `models/planner.py`, `test_planner.py` | No constrained grammar decoding | Evaluate GBNF/ollama grammar support |
 | Local chat + deterministic intent routing | 2 | partial | `HeuristicPlanner`, `PlannerService` | No model configured by default; no embeddings | Benchmark Qwen 0.5B/1.5B on the 8 GB PC |
