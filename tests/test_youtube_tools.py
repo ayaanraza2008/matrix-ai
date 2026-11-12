@@ -10,8 +10,6 @@ from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.youtube_tools import (
     YouTubeGetChannelTool,
     YouTubeListCommentsTool,
-    YouTubeReplyCommentTool,
-    YouTubeUploadVideoTool,
 )
 
 
