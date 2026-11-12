@@ -182,8 +182,8 @@ class MatrixConfig:
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
-        if not self.stt_model_size.strip():
-            raise ConfigError("MATRIX_STT_MODEL must not be empty")
+        if self.stt_model_size not in {"tiny", "tiny.en", "base", "base.en"}:
+            raise ConfigError("MATRIX_STT_MODEL must be one of: tiny, tiny.en, base, base.en")
         if not 1 <= self.stt_cpu_threads <= 16:
             raise ConfigError("MATRIX_STT_CPU_THREADS must be between 1 and 16")
         if not 1 <= self.stt_max_audio_seconds <= 600:
