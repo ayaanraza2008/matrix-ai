@@ -132,3 +132,18 @@ matrix doctor
 ```
 
 CI runs the same suite on Windows and Ubuntu Python 3.12 (`.github/workflows/ci.yml`).
+
+## 7. Independent verification log
+
+| Check | Result |
+|---|---|
+| GitHub Actions, run `43189181318` (commit `675c3fc`) | **success** — `test (windows-latest, py3.12)`, `test (ubuntu-latest, py3.12)`, advisory dependency audit |
+| Clean clone of `main` into a fresh directory | 116 tracked files; `matrix_ai` imports; `141 tests collected`, **140 passed / 1 skipped**; secret scan clean |
+| Live server smoke test (`uvicorn`, `127.0.0.1:8790`, temporary home) | `GET /api/health` → `ok`; dashboard `200` with strict CSP; assets `200` |
+| Live task over HTTP (no test harness) | “system status” → `COMPLETE`, evidence `verified=true`; write file → `COMPLETE`; delete → `WAITING_FOR_USER` (risk `high`) → approve → `COMPLETE` with “confirmed it is gone” |
+| Secret handling | owner token read from the generated file; never printed by health/status/settings |
+| Repository | public, default branch `main`, description + topics set, MIT license, README rendered |
+
+The live HTTP run exercised the same code path as the acceptance tests but through real sockets, the real
+dashboard assets and the real CLI bootstrap — no mocked transport.
+
