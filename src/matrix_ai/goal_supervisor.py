@@ -127,8 +127,9 @@ class GoalSupervisor:
                         GoalNode(node["node_id"], tuple(node["depends_on"])) for node in nodes
                     )
 
-                    # Reconcile node tasks first. A task paused for owner approval
-                    # remains durable and is never treated as completed.
+                    # Reconcile existing node tasks. If one node is paused for
+                    # owner approval, still let other already-dispatched branches finish.
+                    paused_for_approval = False
                     for node in nodes:
                         if node["state"] != "running" or not node["task_id"]:
                             continue
@@ -136,28 +137,26 @@ class GoalSupervisor:
                         state = TaskState(task["state"])
                         if state in {TaskState.COMPLETE, TaskState.PARTIAL, TaskState.FAILED, TaskState.CANCELLED}:
                             self._sync_node(goal_id, node, task)
+                            continue
+                        if state is TaskState.WAITING_FOR_USER:
+                            pending = self.store.pending_approval(node["task_id"])
+                            if pending is not None and pending["status"] == "pending":
+                                paused_for_approval = True
+                                continue
+                        await self.orchestrator.enqueue(node["task_id"])
+                        runner = self.orchestrator._runners.get(node["task_id"])
+                        if runner is not None:
+                            await runner
+                        task = self.store.get_task_row(node["task_id"])
+                        state = TaskState(task["state"])
+                        if state in {TaskState.COMPLETE, TaskState.PARTIAL, TaskState.FAILED, TaskState.CANCELLED}:
+                            self._sync_node(goal_id, node, task)
                         elif state is TaskState.WAITING_FOR_USER:
                             pending = self.store.pending_approval(node["task_id"])
                             if pending is not None and pending["status"] == "pending":
-                                return
-                            await self.orchestrator.enqueue(node["task_id"])
-                            runner = self.orchestrator._runners.get(node["task_id"])
-                            if runner is not None:
-                                await runner
-                            task = self.store.get_task_row(node["task_id"])
-                            if TaskState(task["state"]) is TaskState.WAITING_FOR_USER:
-                                return
-                            self._sync_node(goal_id, node, task)
-                        else:
-                            await self.orchestrator.enqueue(node["task_id"])
-                            runner = self.orchestrator._runners.get(node["task_id"])
-                            if runner is not None:
-                                await runner
-                            task = self.store.get_task_row(node["task_id"])
-                            if TaskState(task["state"]) is TaskState.WAITING_FOR_USER:
-                                return
-                            if TaskState(task["state"]) in {TaskState.COMPLETE, TaskState.PARTIAL, TaskState.FAILED, TaskState.CANCELLED}:
-                                self._sync_node(goal_id, node, task)
+                                paused_for_approval = True
+                    if paused_for_approval:
+                        return
 
                     nodes = self.store.get_goal_graph(goal_id)
                     completed = {node["node_id"] for node in nodes if node["state"] == "completed"}
@@ -180,7 +179,9 @@ class GoalSupervisor:
                         await self._verify_goal_criteria(goal_id)
                         return
 
-                    ready = graph.ready_nodes(completed, running=running, failed=failed, limit=1)
+                    ready = graph.ready_nodes(
+                        completed, running=running, failed=failed, limit=4
+                    )
                     if not ready:
                         if running:
                             return
@@ -195,45 +196,57 @@ class GoalSupervisor:
                         )
                         return
 
-                    node_id = ready[0]
-                    node = next(item for item in nodes if item["node_id"] == node_id)
-                    if not self.store.claim_goal_node(goal_id, node_id):
-                        continue
-                    remaining = None
-                    if deadline:
-                        remaining = max(1.0, (deadline - datetime.now(UTC)).total_seconds())
-                    request = (
-                        f"Goal: {goal['title']}\n"
-                        f"Goal success criteria: {goal['success_criteria']}\n"
-                        f"Execute this single goal node: {node['title']}\n"
-                        "Complete only this node. Do not claim the overall goal is complete. "
-                        "Use the normal MATRIX tools and approval process."
-                    )
-                    try:
-                        task_id = self.orchestrator.create_task(
-                            request=request,
-                            user_id=goal["owner_id"],
-                            kind="goal_node",
-                            deadline_seconds=remaining,
+                    dispatched: list[str] = []
+                    for node_id in ready:
+                        node = next(item for item in nodes if item["node_id"] == node_id)
+                        if not self.store.claim_goal_node(goal_id, node_id, limit=4):
+                            continue
+                        remaining = None
+                        if deadline:
+                            remaining = max(1.0, (deadline - datetime.now(UTC)).total_seconds())
+                        request = (
+                            f"Goal: {goal['title']}\\n"
+                            f"Goal success criteria: {goal['success_criteria']}\\n"
+                            f"Execute this single goal node: {node['title']}\\n"
+                            "Complete only this node. Do not claim the overall goal is complete. "
+                            "Use the normal MATRIX tools and approval process."
                         )
-                        self.store.attach_goal_node_task(goal_id, node_id, task_id)
-                        self.store.audit(
-                            "goal.node_dispatched", actor="goal-supervisor", task_id=task_id,
-                            status="running", detail={"goal_id": goal_id, "node_id": node_id},
-                        )
-                        await self.orchestrator.enqueue(task_id)
-                        runner = self.orchestrator._runners.get(task_id)
-                        if runner is not None:
-                            await runner
-                    except Exception as exc:
-                        self.store.update_goal_node(
-                            goal_id, node_id, state="failed",
-                            error=f"dispatch_failed: {type(exc).__name__}: {exc}",
-                        )
-                        self.store.audit(
-                            "goal.node_dispatch_failed", actor="goal-supervisor", status="failed",
-                            detail={"goal_id": goal_id, "node_id": node_id, "error": str(exc)[:500]},
-                        )
+                        try:
+                            existing = self.store.get_goal_node_task(goal_id, node_id)
+                            if existing is not None:
+                                task_id = str(existing["id"])
+                            else:
+                                task_id = self.orchestrator.create_task(
+                                    request=request,
+                                    user_id=goal["owner_id"],
+                                    kind="goal_node",
+                                    goal_id=goal_id,
+                                    goal_node_id=node_id,
+                                    deadline_seconds=remaining,
+                                )
+                            self.store.attach_goal_node_task(goal_id, node_id, task_id)
+                            self.store.audit(
+                                "goal.node_dispatched", actor="goal-supervisor", task_id=task_id,
+                                status="running", detail={"goal_id": goal_id, "node_id": node_id},
+                            )
+                            await self.orchestrator.enqueue(task_id)
+                            dispatched.append(task_id)
+                        except Exception as exc:
+                            self.store.fail_goal_node_dispatch(
+                                goal_id, node_id, f"{type(exc).__name__}: {exc}"
+                            )
+                            self.store.audit(
+                                "goal.node_dispatch_failed", actor="goal-supervisor", status="failed",
+                                detail={"goal_id": goal_id, "node_id": node_id, "error": str(exc)[:500]},
+                            )
+
+                    runners = [
+                        self.orchestrator._runners[task_id]
+                        for task_id in dispatched
+                        if task_id in self.orchestrator._runners
+                    ]
+                    if runners:
+                        await asyncio.gather(*runners)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
