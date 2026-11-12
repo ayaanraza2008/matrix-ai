@@ -76,6 +76,8 @@ def test_store_blocks_transitive_descendants_of_failed_step(runtime):
     assert runtime.store.step_row(task_id, 0)["status"] == StepStatus.BLOCKED.value
     assert runtime.store.step_row(task_id, 2)["status"] == StepStatus.BLOCKED.value
     assert runtime.store.step_row(task_id, 3)["status"] == StepStatus.PENDING.value
+    runtime.store.update_step(task_id, 3, status=StepStatus.COMPLETED.value)
+    assert runtime.store.next_pending_step_index(task_id) is None
 
 
 @pytest.mark.asyncio
