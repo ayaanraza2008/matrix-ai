@@ -57,6 +57,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_background:
+            await runtime.goal_supervisor.recover_cancellations()
             await runtime.orchestrator.recover_after_restart()
             await runtime.goal_supervisor.recover_after_restart()
             runtime.start_background()
