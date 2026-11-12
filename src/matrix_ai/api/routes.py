@@ -387,6 +387,8 @@ async def start_goal_plan(
     goal = runtime.store.get_goal(goal_id)
     if goal["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal {goal_id} not found")
+    if not runtime.store.get_goal_graph(goal_id):
+        raise HTTPException(status_code=409, detail="goal has no persisted DAG plan")
     if goal["state"] not in {"planned", "running"}:
         raise HTTPException(status_code=409, detail="goal plan is not startable")
     dispatched = await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
