@@ -51,6 +51,7 @@ class VoiceSessionManager:
         self._speak_task: asyncio.Task | None = None
         self._stt_model: Any | None = None
         self._stt_model_lock = threading.Lock()
+        self._stt_inference_lock = threading.Lock()
         self.stt_provider = self._detect_stt()
         self.tts_provider = tts_engine.name if tts_engine is not None else self._detect_tts()
 
@@ -148,34 +149,36 @@ class VoiceSessionManager:
             raise ValidationFailure("audio must be base64-encoded") from exc
         if len(payload) > MAX_AUDIO_BYTES:
             raise ValidationFailure("audio exceeds the 8 MB limit")
-        # Audio is decoded from memory; raw audio is never written to disk.
-        model = self._load_stt_model()
-        try:
-            segments, info = model.transcribe(
-                io.BytesIO(payload),
-                language=self.config.stt_language,
-                task="transcribe",
-                beam_size=1,
-                best_of=1,
-                temperature=0,
-                condition_on_previous_text=False,
-                without_timestamps=True,
-            )
-            duration = float(info.duration)
-            if duration <= 0:
-                raise ValidationFailure("audio contains no decodable speech")
-            if duration > self.config.stt_max_audio_seconds:
-                raise ValidationFailure(
-                    f"audio is longer than the {self.config.stt_max_audio_seconds}-second limit"
+        # faster-whisper is configured with one worker; serialize calls to bound RAM.
+        with self._stt_inference_lock:
+            # Audio is decoded from memory; raw audio is never written to disk.
+            model = self._load_stt_model()
+            try:
+                segments, info = model.transcribe(
+                    io.BytesIO(payload),
+                    language=self.config.stt_language,
+                    task="transcribe",
+                    beam_size=1,
+                    best_of=1,
+                    temperature=0,
+                    condition_on_previous_text=False,
+                    without_timestamps=True,
                 )
-            transcript = " ".join(
-                str(segment.text).strip() for segment in segments if str(segment.text).strip()
-            ).strip()
-        except ValidationFailure:
-            raise
-        except Exception as exc:  # noqa: BLE001 - codec errors vary by media container
-            raise ValidationFailure("audio could not be decoded; try recording again") from exc
-
+                duration = float(info.duration)
+                if duration <= 0:
+                    raise ValidationFailure("audio contains no decodable speech")
+                if duration > self.config.stt_max_audio_seconds:
+                    raise ValidationFailure(
+                        f"audio is longer than the {self.config.stt_max_audio_seconds}-second limit"
+                    )
+                transcript = " ".join(
+                    str(segment.text).strip() for segment in segments if str(segment.text).strip()
+                ).strip()
+            except ValidationFailure:
+                raise
+            except Exception as exc:  # noqa: BLE001 - codec errors vary by media container
+                raise ValidationFailure("audio could not be decoded; try recording again") from exc
+    
         if not transcript:
             raise ValidationFailure("no speech was detected in the audio")
         return {
