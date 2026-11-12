@@ -68,6 +68,7 @@ class YouTubeGetChannelTool(Tool):
     permission_scope = "youtube.read"
     risk = Risk.LOW
     idempotent = True
+    returns_untrusted = True
     timeout_seconds = 30
     input_model = StrictModel
 
@@ -112,6 +113,7 @@ class YouTubeListVideosTool(Tool):
     permission_scope = "youtube.read"
     risk = Risk.LOW
     idempotent = True
+    returns_untrusted = True
     timeout_seconds = 45
     input_model = YouTubeListVideosInput
 
@@ -158,6 +160,7 @@ class YouTubeListCommentsTool(Tool):
     permission_scope = "youtube.read"
     risk = Risk.LOW
     idempotent = True
+    returns_untrusted = True
     timeout_seconds = 45
     input_model = YouTubeListCommentsInput
 
@@ -176,7 +179,7 @@ class YouTubeListCommentsTool(Tool):
             comments.append({
                 "comment_id": item.get("snippet", {}).get("topLevelComment", {}).get("id"),
                 "video_id": args.video_id,
-                "text": snippet.get("textDisplay", "")[:5000],
+                "text": snippet.get("textOriginal") or snippet.get("textDisplay", "")[:5000],
                 "author": snippet.get("authorDisplayName"),
                 "published_at": snippet.get("publishedAt"),
                 "like_count": snippet.get("likeCount", 0),
