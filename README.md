@@ -142,6 +142,22 @@ A model can propose a plan; it cannot mark work complete. `COMPLETE` is only rea
 
 ---
 
+## Astryx Studio (optional React dashboard)
+
+MATRIX includes an optional React 19 + Meta Astryx frontend alongside the classic dashboard. The existing dashboard remains at `/`; Astryx Studio is served at `/studio/` after its frontend build is generated.
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+matrix serve
+```
+
+Open `http://127.0.0.1:8765/studio/`. The studio reuses the existing local bearer token and authenticated MATRIX API. It is a separate presentation layer: orchestration, tools, approvals, memory, and security remain in the Python backend. See [Astryx Studio integration notes](docs/ASTRYX_STUDIO.md).
+
+---
+
 ## Repository layout
 
 ```text
