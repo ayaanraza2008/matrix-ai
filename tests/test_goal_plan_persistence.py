@@ -165,6 +165,7 @@ def test_task_goal_node_identity_is_unique_and_persisted(tmp_path):
         user_id="owner", original_request="Step", kind="goal_node",
         goal_id=goal_id, goal_node_id="step",
     )
+    assert store.claim_goal_node(goal_id, "step")
     store.attach_goal_node_task(goal_id, "step", task_id)
     assert store.get_task_row(task_id)["goal_node_id"] == "step"
     assert store.get_goal_node_task(goal_id, "step")["id"] == task_id
@@ -195,6 +196,7 @@ def test_verified_goal_node_unlocks_its_dependent_node(tmp_path):
         user_id="owner", original_request="First", kind="goal_node",
         goal_id=goal_id, goal_node_id="first",
     )
+    assert store.claim_goal_node(goal_id, "first")
     store.attach_goal_node_task(goal_id, "first", task_id)
     store.update_task(
         task_id, state="COMPLETE", evidence_json='{"verified": true}', summary="First verified"
