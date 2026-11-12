@@ -165,7 +165,7 @@ class TelegramChatBridge:
             "telegram.message_received", actor="telegram", status="accepted",
             detail={"message_length": min(len(text), 8000)},
         )
-        command = text.split(maxsplit=1)[0].lower().split("@", 1)[0]
+        command = text.split(maxsplit=1)[0].lower().split("@", 1)[0] if text else ""
         if command == "/start":
             await self._send("MATRIX is connected. Send me a task in plain language.")
             return
