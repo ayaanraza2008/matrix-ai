@@ -8,7 +8,13 @@ from ..core.models import Risk, ToolSpec
 from ..errors import ToolNotFound
 from .app_tools import CloseAppTool, OpenAppTool
 from .base import Tool, ToolContext
-from .github_tools import (\n    GitHubGetPullRequestTool,\n    GitHubGetRepositoryTool,\n    GitHubListIssuesTool,\n    GitHubWhoAmITool,\n)\nfrom .file_tools import (
+from .github_tools import (
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
+)
+from .file_tools import (
     DeleteFileTool,
     ListFilesTool,
     MovePathTool,
