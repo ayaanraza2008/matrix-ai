@@ -12,9 +12,9 @@ import json
 from datetime import UTC, datetime
 
 from .core.goal_graph import GoalGraph, GoalNode
-from .core.models import TaskState, iso, parse_dt
-from .storage.store import Store
+from .core.models import TaskState, parse_dt
 from .core.orchestrator import Orchestrator
+from .storage.store import Store
 
 
 class GoalSupervisor:
@@ -62,6 +62,9 @@ class GoalSupervisor:
         for node in self.store.get_goal_graph(goal_id):
             if node["state"] == "running" and node["task_id"]:
                 await self.orchestrator.cancel(node["task_id"])
+                self.store.update_goal_node(
+                    goal_id, node["node_id"], state="cancelled", error="goal_cancelled"
+                )
             elif node["state"] in {"pending", "dispatching"}:
                 self.store.update_goal_node(goal_id, node["node_id"], state="cancelled", error="goal_cancelled")
         self.store.finish_goal_graph(goal_id, state="cancelled", summary="Goal cancelled by its owner.")
