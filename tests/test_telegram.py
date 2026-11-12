@@ -132,3 +132,24 @@ async def test_telegram_unknown_commands_do_not_become_tasks(tmp_path):
 
     assert orchestrator.created == []
     assert sent == ["Unknown command. Send /help for available commands."]
+
+
+async def test_startup_drain_advances_offset_between_full_batches(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    payloads = []
+
+    async def fake_api(method, payload):
+        assert method == "getUpdates"
+        payloads.append(dict(payload))
+        if len(payloads) == 1:
+            return {"result": [{"update_id": i} for i in range(100)]}
+        return {"result": [{"update_id": 100}]}
+
+    bridge._api = fake_api
+    await bridge._discard_pending_updates()
+
+    assert payloads == [
+        {"timeout": 0, "limit": 100},
+        {"timeout": 0, "limit": 100, "offset": 100},
+    ]
+    assert bridge._offset == 101
