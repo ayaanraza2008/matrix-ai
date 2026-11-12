@@ -333,6 +333,10 @@ class YouTubeUploadVideoTool(Tool):
     input_model = YouTubeUploadVideoInput
 
     def run_sync(self, args: YouTubeUploadVideoInput, ctx: ToolContext) -> dict[str, Any]:
+        if args.publish_at:
+            scheduled = datetime.fromisoformat(args.publish_at.replace("Z", "+00:00"))
+            if scheduled.tzinfo is None or scheduled <= datetime.now(UTC):
+                raise ToolExecutionError("Scheduled publish time must remain in the future and include a timezone.")
         path = ctx.resolve_path(args.path, must_exist=True)
         if not path.is_file():
             raise ToolExecutionError("The upload source must be a regular file.")
