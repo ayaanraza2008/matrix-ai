@@ -36,6 +36,10 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
     assert latest["state"] == "completed"
     assert latest["finished_at"]
     assert latest["result_summary"]
+    assert latest["verification_status"] == "task_steps_verified"
+    # Semantic success criteria are not yet evaluated; never infer them from task completion.
+    assert latest["criteria_status"] == "not_evaluated"
+    assert latest["evidence_json"]
 
 
 @pytest.mark.asyncio
@@ -165,3 +169,37 @@ async def test_owner_can_cancel_goal_waiting_for_approval(client):
     cancelled = await client.post(f"/api/goals/{goal['id']}/cancel")
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["state"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_goal_deadline_is_persisted_and_bounded_by_runtime_config(client, runtime):
+    response = await client.post(
+        "/api/goals",
+        json={
+            "title": "Check system health",
+            "success_criteria": "Return verified system health information.",
+            "deadline_seconds": 10,
+        },
+    )
+    assert response.status_code == 202, response.text
+    goal = response.json()
+    assert goal["deadline"]
+    task = runtime.store.get_task_row(goal["task_id"])
+    assert task["deadline"] == goal["deadline"]
+
+
+def test_schema_v2_goals_migrate_verification_metadata(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "schema-v2.sqlite"
+    initial = Database(path)
+    for column in ("deadline", "verification_status", "criteria_status", "evidence_json"):
+        initial.execute(f"ALTER TABLE goals DROP COLUMN {column}")
+    initial.execute("PRAGMA user_version=2")
+    initial.close()
+
+    upgraded = Database(path)
+    columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goals)")}
+    assert {"deadline", "verification_status", "criteria_status", "evidence_json"} <= columns
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
