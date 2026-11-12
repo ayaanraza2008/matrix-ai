@@ -12,8 +12,8 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
     response = await client.post(
         "/api/goals",
         json={
-            "title": "Tell me a short story about a helpful robot",
-            "success_criteria": "Return a short story and verify task completion.",
+            "title": "What is my system status?",
+            "success_criteria": "Return the current system status and verify completion.",
         },
     )
     assert response.status_code == 202, response.text
@@ -63,7 +63,7 @@ async def test_goal_cannot_be_attached_to_multiple_tasks(runtime):
         request="tell me a story", user_id="owner", kind="goal", goal_id=goal_id
     )
     second = runtime.orchestrator.create_task(
-        request="tell me another story", user_id="owner", kind="goal", goal_id=goal_id
+        request="what is my system status again?", user_id="owner", kind="goal", goal_id=goal_id
     )
 
     runtime.store.attach_goal_task(goal_id, first)
@@ -79,7 +79,7 @@ async def test_terminal_task_state_is_reflected_in_goal(runtime):
         owner_id="owner", title="Task linkage", success_criteria="Done"
     )
     task_id = runtime.orchestrator.create_task(
-        request="tell me a short story", user_id="owner", kind="goal", goal_id=goal_id
+        request="what is my system status?", user_id="owner", kind="goal", goal_id=goal_id
     )
     runtime.store.attach_goal_task(goal_id, task_id)
     await runtime.orchestrator.enqueue(task_id)
