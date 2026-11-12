@@ -1,8 +1,8 @@
 # Always-available MATRIX and safe autonomy
 
-This guide adds two explicit, free-first options to the local MATRIX service:
-a Windows per-user startup task and private Tailscale Serve. It does not turn
-MATRIX into a cloud service and cannot make a powered-off PC reachable.
+This guide adds explicit, free-first options to the local MATRIX service: a Windows
+per-user startup task, private Tailscale Serve, and persistent core-health monitoring.
+It does not turn MATRIX into a cloud service and cannot make a powered-off PC reachable.
 
 ## 1. Keep MATRIX running after sign-in
 
@@ -62,7 +62,7 @@ The scheduler now respects the job's requested level up to the global configurat
 ceiling. It does **not** weaken the policy engine: HIGH/CRITICAL calls still need
 exact, time-limited owner approval; missing scopes, emergency stop, schema failures,
 tool timeouts, verification failures and task deadlines continue to block or fail
-work. Matrix must not grant itself new permissions, approve its own requests,
+work. MATRIX must not grant itself new permissions, approve its own requests,
 invent credentials or silently repeat a non-idempotent action.
 
 Example owner-created recurring goal (authenticated request):
@@ -84,7 +84,34 @@ Content-Type: application/json
 Do not use broad prompts such as "do anything necessary". Define the workspace,
 allowed actions, cadence and forbidden actions. Keep emergency stop available.
 
-## 4. Important limits
+## 4. Persistent health monitoring and Telegram alerts
+
+The background scheduler checks the local database integrity, model availability
+and emergency-stop state every minute. It persists the last health state in SQLite
+and records transitions in the audit log. A degraded state or recovery is recorded
+once per transition, rather than generating an alert every poll.
+
+Telegram alerts are optional. Configure a bot and the one destination chat you
+control using environment variables before starting MATRIX:
+
+```powershell
+$env:MATRIX_TELEGRAM_BOT_TOKEN = "<your-bot-token>"
+$env:MATRIX_TELEGRAM_CHAT_ID = "<your-chat-id>"
+matrix serve
+```
+
+The monitor sends only the state and component statuses (database, model and
+emergency stop). It never includes task prompts, file contents, owner tokens or
+integration credentials. If Telegram is not configured, health transitions are
+still persisted and audited locally. A failed Telegram delivery is audited and
+does not stop the scheduler. Do not commit bot credentials to the repository.
+
+This monitor cannot send an alert while the host is powered off, asleep, offline,
+or MATRIX is not running. It currently checks core service health; it does not
+claim to monitor Windows hardware, Tailscale reachability, or every third-party
+integration.
+
+## 5. Important limits
 
 - Tailscale is an additional private-network dependency; MATRIX core, model, memory
   and scheduled jobs remain self-hosted.
@@ -94,11 +121,11 @@ allowed actions, cadence and forbidden actions. Keep emergency stop available.
   on your network is a different capability and remains a separate milestone.
 - Voice engines are optional. Real microphone/speaker, camera and Android hardware
   validation must still be done on the target devices.
-- This feature does not authorize Matrix to change its own permissions, bypass
+- This feature does not authorize MATRIX to change its own permissions, bypass
   authentication, disable the emergency stop or publish content without the
   configured tool/policy/approval checks.
 
-## 5. Verification
+## 6. Verification
 
 ```powershell
 matrix doctor
