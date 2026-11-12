@@ -34,10 +34,15 @@ def test_https_connection_pins_ip_but_keeps_hostname_for_tls_sni(monkeypatch):
     calls = []
     raw_socket = _Socket()
 
+    class TLSSocket(_Socket):
+        pass
+
+    tls_socket = TLSSocket()
+
     class Context:
         def wrap_socket(self, sock, *, server_hostname):
             calls.append(("sni", server_hostname))
-            return ("tls", sock, server_hostname)
+            return tls_socket
 
     monkeypatch.setattr(web_tools._PinnedHTTPSConnection, "_create_connection",
                         staticmethod(lambda address, timeout, source: calls.append(("tcp", address)) or raw_socket))
@@ -52,5 +57,6 @@ def test_https_connection_pins_ip_but_keeps_hostname_for_tls_sni(monkeypatch):
         ("tcp", ("93.184.216.34", 443)),
         ("sni", "public.example"),
     ]
-    assert connection.sock == ("tls", raw_socket, "public.example")
+    assert connection.sock is tls_socket
     connection.close()
+    assert tls_socket.closed
