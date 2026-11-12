@@ -328,6 +328,130 @@ class Store:
             ),
         )
 
+    def save_goal_graph(self, goal_id: str, nodes: list[dict[str, Any]]) -> None:
+        """Persist a validated DAG as a plan; this does not dispatch any work."""
+        goal = self.get_goal(goal_id)
+        if goal["task_id"] is not None or goal["state"] not in {"queued", "planned"}:
+            raise ValueError("a goal graph can only be changed before task execution starts")
+        now = iso()
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM goal_nodes WHERE goal_id=?", (goal_id,))
+            for node in nodes:
+                conn.execute(
+                    "INSERT INTO goal_nodes(goal_id, node_id, title, depends_on_json, state, created_at, updated_at) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (
+                        goal_id, node["node_id"], node["title"],
+                        canonical_json(node["depends_on"]), "pending", now, now,
+                    ),
+                )
+            conn.execute(
+                "UPDATE goals SET state='planned', updated_at=? WHERE id=?",
+                (now, goal_id),
+            )
+
+    def get_goal_graph(self, goal_id: str) -> list[dict[str, Any]]:
+        self.get_goal(goal_id)
+        rows = self.db.query(
+            "SELECT node_id, title, depends_on_json, state, task_id, attempt_count, error, evidence_json "
+            "FROM goal_nodes WHERE goal_id=? ORDER BY rowid",
+            (goal_id,),
+        )
+        result = []
+        for row in rows:
+            result.append({
+                "node_id": row["node_id"],
+                "title": row["title"],
+                "depends_on": _json_load(row["depends_on_json"], []),
+                "state": row["state"],
+                "task_id": row["task_id"],
+                "attempt_count": row["attempt_count"],
+                "error": row["error"],
+                "evidence": _json_load(row["evidence_json"], None),
+            })
+        return result
+    def start_goal_graph(self, goal_id: str) -> None:
+        goal = self.get_goal(goal_id)
+        if goal["state"] not in {"planned", "running"}:
+            raise ValueError("only a planned or interrupted running goal can be started")
+        if not self.get_goal_graph(goal_id):
+            raise ValueError("goal has no persisted execution plan")
+        self.db.execute(
+            "UPDATE goals SET state='running', updated_at=? WHERE id=? AND state IN ('planned','running')",
+            (iso(), goal_id),
+        )
+
+    def claim_goal_node(self, goal_id: str, node_id: str) -> bool:
+        """Atomically claim one ready node; dispatch itself happens after commit."""
+        with self.db.transaction() as conn:
+            rows = conn.execute(
+                "SELECT node_id, depends_on_json, state FROM goal_nodes WHERE goal_id=?",
+                (goal_id,),
+            ).fetchall()
+            states = {row["node_id"]: row["state"] for row in rows}
+            target = next((row for row in rows if row["node_id"] == node_id), None)
+            if target is None or target["state"] != "pending":
+                return False
+            dependencies = _json_load(target["depends_on_json"], [])
+            if any(states.get(dep) != "completed" for dep in dependencies):
+                return False
+            cursor = conn.execute(
+                "UPDATE goal_nodes SET state='dispatching', attempt_count=attempt_count+1, "
+                "updated_at=? WHERE goal_id=? AND node_id=? AND state='pending'",
+                (iso(), goal_id, node_id),
+            )
+            return cursor.rowcount == 1
+
+    def attach_goal_node_task(self, goal_id: str, node_id: str, task_id: str) -> None:
+        task = self.get_task_row(task_id)
+        goal = self.get_goal(goal_id)
+        if task["user_id"] != goal["owner_id"] or task["kind"] != "goal_node":
+            raise ValueError("goal node task owner or kind does not match")
+        cursor = self.db.execute(
+            "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
+            "WHERE goal_id=? AND node_id=? AND state='dispatching' AND task_id IS NULL",
+            (task_id, iso(), goal_id, node_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("goal node is not in a dispatchable state")
+
+    def update_goal_node(
+        self, goal_id: str, node_id: str, *, state: str, error: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        if state not in {"pending", "dispatching", "running", "completed", "failed", "blocked", "cancelled"}:
+            raise ValueError("invalid goal node state")
+        self.db.execute(
+            "UPDATE goal_nodes SET state=?, error=?, evidence_json=?, updated_at=? "
+            "WHERE goal_id=? AND node_id=?",
+            (state, error[:1000] if error else None, canonical_json(evidence) if evidence else None,
+             iso(), goal_id, node_id),
+        )
+
+    def recover_goal_graphs(self) -> list[dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT id, owner_id, state FROM goals WHERE state IN ('planned','running') "
+            "AND task_id IS NULL ORDER BY created_at"
+        )
+        return [{"id": row["id"], "owner_id": row["owner_id"], "state": row["state"]} for row in rows]
+
+    def finish_goal_graph(self, goal_id: str, *, state: str, summary: str) -> None:
+        if state not in {"awaiting_verification", "partial", "failed", "cancelled"}:
+            raise ValueError("invalid terminal goal state")
+        nodes = self.get_goal_graph(goal_id)
+        if not nodes:
+            raise ValueError("goal has no execution nodes")
+        all_completed = all(node["state"] == "completed" for node in nodes)
+        if state == "awaiting_verification" and not all_completed:
+            raise ValueError("goal cannot await verification until every node completes")
+        self.db.execute(
+            "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
+            "criteria_status='not_evaluated', updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
+            (state, summary[:1000], "pending_independent_review" if all_completed else "not_verified",
+             iso(), iso(), goal_id),
+        )
+
+
     # -- plans & steps ----------------------------------------------------
     def save_plan(self, task_id: str, plan: Plan) -> None:
         with self.db.transaction() as conn:
