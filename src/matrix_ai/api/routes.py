@@ -376,9 +376,7 @@ async def get_goal_graph(
     return {
         "goal_id": goal_id,
         "nodes": runtime.store.get_goal_graph(goal_id),
-        "execution_status": "running" if goal["state"] == "running" else (
-            "awaiting_verification" if goal["state"] == "awaiting_verification" else "plan_only"
-        ),
+        "execution_status": "plan_only" if goal["state"] == "planned" else goal["state"],
     }
 
 
