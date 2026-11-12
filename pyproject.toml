@@ -65,7 +65,7 @@ markers = [
   "acceptance: maps to the MATRIX acceptance suite (A01-A25)",
   "requires_network: needs outbound network access",
   "requires_windows: only runs on Windows",
-  "optional_deps: needs optional third-party dependencies",
+  "optional_deps: needs an optional third-party dependency",
 ]
 
 [tool.ruff]
