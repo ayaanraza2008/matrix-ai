@@ -172,41 +172,47 @@ class Orchestrator:
         ready = self.store.ready_goal_nodes(goal_id, limit=4)
         dispatched: list[str] = []
         for node in ready:
-            existing = self.store.get_goal_node_task(goal_id, node["node_id"])
-            if existing is not None:
-                task_id = str(existing["id"])
-            else:
-                try:
+            node_id = node["node_id"]
+            if not self.store.claim_goal_node(goal_id, node_id, limit=4):
+                continue
+            try:
+                existing = self.store.get_goal_node_task(goal_id, node_id)
+                if existing is not None:
+                    task_id = str(existing["id"])
+                else:
                     task_id = self.create_task(
                         request=(
                             f"Goal: {goal['title']}\n"
                             f"Node: {node['title']}\n"
-                            f"Node ID: {node['node_id']}\n"
+                            f"Node ID: {node_id}\n"
                             f"Overall success criteria: {goal['success_criteria']}\n"
                             "Complete only this node; do not claim the entire goal is complete."
                         ),
                         user_id=goal["owner_id"],
                         kind="goal_node",
                         goal_id=goal_id,
-                        goal_node_id=node["node_id"],
+                        goal_node_id=node_id,
                         deadline_seconds=min(remaining, self.config.task_deadline_seconds),
                     )
-                except sqlite3.IntegrityError:
-                    existing = self.store.get_goal_node_task(goal_id, node["node_id"])
-                    if existing is None:
-                        raise
-                    task_id = str(existing["id"])
-            self.store.attach_goal_node_task(goal_id, node["node_id"], task_id)
-            task = self.store.get_task_row(task_id)
-            if TaskStateMachine.is_terminal(task["state"]):
-                self.store.sync_goal_for_task(task_id)
-            else:
-                await self.enqueue(task_id)
-            dispatched.append(task_id)
-            self.store.audit(
-                "goal.node_dispatched", actor="scheduler", task_id=task_id,
-                status="running", detail={"goal_id": goal_id, "node_id": node["node_id"]},
-            )
+                self.store.attach_goal_node_task(goal_id, node_id, task_id)
+                task = self.store.get_task_row(task_id)
+                if TaskStateMachine.is_terminal(task["state"]):
+                    self.store.sync_goal_for_task(task_id)
+                else:
+                    await self.enqueue(task_id)
+                dispatched.append(task_id)
+                self.store.audit(
+                    "goal.node_dispatched", actor="scheduler", task_id=task_id,
+                    status="running", detail={"goal_id": goal_id, "node_id": node_id},
+                )
+            except Exception as exc:
+                self.store.fail_goal_node_dispatch(
+                    goal_id, node_id, f"{type(exc).__name__}: {exc}"
+                )
+                self.store.audit(
+                    "goal.node_dispatch_failed", actor="scheduler", status="failed",
+                    detail={"goal_id": goal_id, "node_id": node_id, "error": str(exc)[:500]},
+                )
         return dispatched
 
     async def enqueue(self, task_id: str) -> None:
@@ -227,6 +233,8 @@ class Orchestrator:
         """
         result = {"resumed": 0, "awaiting_approval": 0, "failed": 0}
         repaired_nodes = self.store.reconcile_goal_node_tasks()
+        for goal_id in self.store.schedulable_goal_ids():
+            self.store.reset_orphaned_goal_node_claims(goal_id)
         for task in self.store.nonterminal_tasks():
             task_id = str(task["id"])
             state = TaskState(task["state"])
