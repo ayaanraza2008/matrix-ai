@@ -130,20 +130,23 @@ async def test_health_monitor_persists_transitions_without_repeating_alert_event
     healthy = await scheduler.monitor_health()
     assert healthy["status"] == "healthy"
     assert store.flags["health_monitor_state"] == "healthy"
-    assert store.audits == []
+    # Record the first observed baseline (unknown -> healthy) without alerting.
+    assert len(store.audits) == 1
+    assert store.audits[0][0][0] == "system.health_transition"
+    assert store.audits[0][1]["detail"]["previous"] == "unknown"
 
     models.current_status = "degraded"
     degraded = await scheduler.monitor_health()
     assert degraded["status"] == "degraded"
     assert store.flags["health_monitor_state"] == "degraded"
-    assert len(store.audits) == 1
-    assert store.audits[0][0][0] == "system.health_transition"
+    assert len(store.audits) == 2
+    assert store.audits[1][0][0] == "system.health_transition"
 
     await scheduler.monitor_health()
-    assert len(store.audits) == 1
+    assert len(store.audits) == 2
 
     models.current_status = "working"
     recovered = await scheduler.monitor_health()
     assert recovered["status"] == "healthy"
     assert store.flags["health_monitor_state"] == "healthy"
-    assert len(store.audits) == 2
+    assert len(store.audits) == 3
