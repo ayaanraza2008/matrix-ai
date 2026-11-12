@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 import random
+import sqlite3
 import time
 from typing import Any
 
