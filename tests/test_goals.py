@@ -23,7 +23,7 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
     assert created["task_id"]
     assert created["task"]["goal_id"] == created["id"]
 
-    terminal = {"completed", "partial", "failed", "cancelled"}
+    terminal = {"awaiting_verification", "partial", "failed", "cancelled"}
     latest = created
     for _ in range(200):
         check = await client.get(f"/api/goals/{created['id']}")
@@ -33,7 +33,7 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
             break
         await asyncio.sleep(0.025)
 
-    assert latest["state"] == "completed"
+    assert latest["state"] == "awaiting_verification"
     assert latest["finished_at"]
     assert latest["result_summary"]
     assert latest["verification_status"] == "task_steps_verified"
@@ -95,7 +95,7 @@ async def test_terminal_task_state_is_reflected_in_goal(runtime):
         await asyncio.sleep(0.025)
 
     goal = runtime.store.get_goal(goal_id)
-    assert goal["state"] == "completed"
+    assert goal["state"] == "awaiting_verification"
     assert goal["finished_at"]
 
 
@@ -135,7 +135,7 @@ async def test_startup_recovery_resumes_received_goal_task(runtime):
 
     for _ in range(200):
         goal = runtime.store.get_goal(goal_id)
-        if goal["state"] in {"completed", "partial", "failed", "cancelled"}:
+        if goal["state"] in {"awaiting_verification", "partial", "failed", "cancelled"}:
             break
         await asyncio.sleep(0.025)
 
