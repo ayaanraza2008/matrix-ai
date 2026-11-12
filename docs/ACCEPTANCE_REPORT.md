@@ -110,7 +110,7 @@ that is already busy. Nothing was loaded or swapped in.
 | Item | Status | Owner action |
 |---|---|---|
 | Local model | Not configured | Install Ollama, `ollama pull qwen2.5:0.5b-instruct-q4_K_M`, set `MATRIX_MODEL_PROVIDER=ollama` |
-| Speech engines | Blocked | Install faster-whisper + Piper (Phase 3) |
+| Speech engines | Optional adapters implemented in stacked PR #14; not yet merged | Install `matrix-ai[voice]`, configure a local Piper voice, then complete real Windows microphone/speaker E2E validation |
 | OCR | Blocked | Install Tesseract + `pip install "matrix-ai[vision]"` |
 | Android APK | Scaffold | Build with Android Studio (see `docs/ANDROID.md`) |
 | Optional integrations | Unconfigured | Provide least-privilege credentials |
@@ -147,3 +147,23 @@ CI runs the same suite on Windows and Ubuntu Python 3.12 (`.github/workflows/ci.
 The live HTTP run exercised the same code path as the acceptance tests but through real sockets, the real
 dashboard assets and the real CLI bootstrap — no mocked transport.
 
+
+
+## 8. Stacked implementation and CI addendum (not yet merged into main)
+
+This report's measured baseline above describes the `main` branch. The following
+incremental work exists on the dependent draft-PR chain and must not be treated as
+released until the full chain is reviewed and merged in order:
+
+| PR | Increment | Current verification | Remaining proof |
+|---|---|---|---|
+| [#14](https://github.com/ayaanraza2008/matrix-ai/pull/14) | Optional faster-whisper STT + Piper TTS adapters | Windows + Ubuntu Python 3.12 CI passed | Real target-PC microphone/speaker test, model download/cache and cancellation |
+| [#16](https://github.com/ayaanraza2008/matrix-ai/pull/16) | Owner-bounded recurring jobs, Windows per-user logon task, private Tailscale Serve | Windows + Ubuntu Python 3.12 CI passed | Real Task Scheduler and tailnet ACL/Serve validation |
+| [#18](https://github.com/ayaanraza2008/matrix-ai/pull/18) | Persistent core-health state and optional Telegram health alerts | Windows + Ubuntu Python 3.12 CI passed | Live Telegram delivery/recovery and host-offline behaviour |
+| [#19](https://github.com/ayaanraza2008/matrix-ai/pull/19) | Private two-way Telegram chat bridge | Windows + Ubuntu Python 3.12 CI passed | Live bot delivery, reconnect, task-result and stop validation |
+
+All four PRs are drafts and stacked in dependency order (#14 → #16 → #18 → #19).
+Their CI success proves the committed test suite on GitHub-hosted Windows/Ubuntu
+runners; it does not prove physical-device, real audio, configured external-service,
+Android, installer or production-uptime behaviour. See the PRs for the exact
+head commits and latest workflow results.
