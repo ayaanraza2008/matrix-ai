@@ -104,6 +104,10 @@ def _make_tool(
             ctx.ensure_active()
             if addon_id == "hexstrike-ai":
                 targets = _extract_targets(args.model_dump(mode="json", exclude_none=True))
+                if not targets:
+                    raise ToolExecutionError(
+                        "HexStrike operation requires an explicit target covered by MATRIX_HEXSTRIKE_ALLOWED_TARGETS"
+                    )
                 blocked = sorted(target for target in targets if target not in target_allowlist)
                 if blocked:
                     raise ToolExecutionError(
