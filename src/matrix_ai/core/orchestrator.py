@@ -233,6 +233,11 @@ class Orchestrator:
         """
         result = {"resumed": 0, "awaiting_approval": 0, "failed": 0}
         repaired_nodes = self.store.reconcile_goal_node_tasks()
+        for goal_id in self.store.cancelling_goal_ids():
+            for task_id in self.store.goal_node_task_ids(goal_id):
+                await self.cancel(task_id)
+            self.store.finish_cancel_goal_plan(goal_id)
+            result["failed"] += 1
         for goal_id in self.store.schedulable_goal_ids():
             self.store.reset_orphaned_goal_node_claims(goal_id)
         for task in self.store.nonterminal_tasks():
