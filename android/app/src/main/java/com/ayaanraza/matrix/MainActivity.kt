@@ -51,10 +51,10 @@ fun MatrixApp() {
     val scope = rememberCoroutineScope()
     val client = remember { MatrixClient("") }
 
-    var baseUrl by rememberSaveable { mutableStateOf("http://10.0.2.2:8765") }
+    var baseUrl by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
-    var token by rememberSaveable { mutableStateOf<String?>(null) }
+    var token by remember { mutableStateOf<String?>(null) }
     var lastTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf("Not connected. Start MATRIX on the PC and run: matrix pair-code") }
     var busy by remember { mutableStateOf(false) }
