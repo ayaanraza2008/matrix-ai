@@ -256,3 +256,34 @@ async def test_goal_cancellation_closes_dispatch_gate_before_cancelling_tasks(cl
     assert runtime.store.claim_goal_node(goal_id, "second") is False
     runtime.store.finish_goal_graph(goal_id, state="cancelled", summary="Cancelled in test.")
     assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_startup_finishes_cancellation_after_task_create_link_crash(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Recover interrupted cancellation",
+            "nodes": [{"node_id": "status", "title": "what is my system status?"}],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+    owner_id = planned.json()["owner_id"]
+
+    assert runtime.store.claim_goal_node(goal_id, "status") is True
+    task_id = runtime.orchestrator.create_task(
+        request="node task pending",
+        user_id=owner_id,
+        kind="goal_node",
+        goal_id=goal_id,
+        goal_node_id="status",
+    )
+    runtime.store.begin_cancel_goal_graph(goal_id)
+
+    assert runtime.store.get_goal_node_for_task(task_id) is not None
+    assert runtime.store.get_goal(goal_id)["state"] == "cancelling"
+    await runtime.goal_supervisor.recover_cancellations()
+
+    assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
+    assert runtime.store.get_task_row(task_id)["state"] == "CANCELLED"
