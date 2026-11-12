@@ -147,3 +147,17 @@ CI runs the same suite on Windows and Ubuntu Python 3.12 (`.github/workflows/ci.
 The live HTTP run exercised the same code path as the acceptance tests but through real sockets, the real
 dashboard assets and the real CLI bootstrap — no mocked transport.
 
+## 8. Supplemental voice milestone — PR #10
+
+**Branch:** `feat/local-whisper-transcription`
+**Scope:** optional faster-whisper local STT, browser push-to-talk recording, API event-loop isolation, metadata-only audit.
+
+Three regression tests were added:
+- `test_local_transcription_loads_cpu_model_once_and_keeps_audio_in_memory` — verifies cached lazy model loading, CPU/INT8 settings, in-memory audio and returned transcript metadata using a test double.
+- `test_local_transcription_rejects_audio_over_duration_limit` — verifies the configured audio-duration guard.
+- `test_transcribe_api_offloads_and_audits_metadata` — verifies route delegation and that the audit record contains provider/language/duration only, not transcript content.
+
+**GitHub Actions:** run `43206453437`, commit `c5819a3cbef5697658302471c102b89d132b39fd` — **PASS** on Windows and Ubuntu, Python 3.12. Lint, secret scan, full pytest suite, byte-compilation and CLI smoke test passed on both operating systems; the advisory dependency audit also passed.
+
+**Not yet verified:** the CI tests use a mocked Whisper model. Actual microphone access, first-run model download, English/Hindi recognition quality, CPU latency and peak RAM must still be measured on the owner's Windows PC. The optional dependency is not installed by default. Text-to-speech remains blocked/not implemented.
+
