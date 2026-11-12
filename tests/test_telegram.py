@@ -271,8 +271,8 @@ async def test_telegram_voice_download_is_bounded_and_transcribed_in_memory(tmp_
 
 
 async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
-    from matrix_ai.voice.manager import MAX_AUDIO_BYTES
     from matrix_ai.errors import ValidationFailure
+    from matrix_ai.voice.manager import MAX_AUDIO_BYTES
 
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
     bridge.voice_manager = SimpleNamespace(stt_engine=object())
