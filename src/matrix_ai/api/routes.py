@@ -6,6 +6,7 @@ never evaluate policy themselves and never fabricate provider confirmations.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any
 
@@ -36,7 +37,8 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError
+from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure
+from ..integrations.addons import AddonError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
@@ -110,6 +112,10 @@ class JobToggleBody(BaseModel):
 
 class ApprovalDecisionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+
+class AddonInstallBody(BaseModel):
+    allow_large: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +219,9 @@ async def task_agents(
         {**event.detail, "status": event.status}
         for event in events if event.event_type == "task.agent_worker_run"
     ]
+    addon_selection = next(
+        (event for event in events if event.event_type == "task.addons_selected"), None
+    )
     return {
         "task_id": task_id,
         "selected_agents": selection.detail.get("agents", []) if selection else [],
@@ -221,6 +230,8 @@ async def task_agents(
         "worker_runs": worker_runs,
         "worker_count": len(worker_runs),
         "successful_workers": sum(run.get("status") == "completed" for run in worker_runs),
+        "selected_addons": addon_selection.detail.get("addons", []) if addon_selection else [],
+        "addon_context_used": bool(addon_selection and addon_selection.detail.get("context_injected")),
         "status": selection.status if selection else "not_routed",
     }
 
@@ -552,6 +563,75 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
             "total": runtime.integrations.total_count,
         },
     }
+
+
+def _require_owner(principal: Principal) -> None:
+    if not principal.is_owner or principal.scope != "owner":
+        raise PermissionDenied("Only the MATRIX owner can manage external add-ons.")
+
+
+@router.get("/addons", tags=["add-ons"])
+async def list_addons(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    return runtime.addon_manager.status()
+
+
+@router.get("/addons/route", tags=["add-ons"])
+async def route_addons(
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+    q: str = Query(min_length=1, max_length=8000),
+) -> dict[str, Any]:
+    matches = runtime.addon_manager.route(q, limit=6)
+    return {"query": q, "count": len(matches), "addons": matches}
+
+
+@router.get("/addons/tools", tags=["add-ons"])
+async def addon_tools(principal: PrincipalDep, runtime: RuntimeDep) -> list[dict[str, Any]]:
+    return [
+        spec.model_dump(mode="json")
+        for spec in runtime.registry.catalog()
+        if spec.name.startswith("addon.")
+    ]
+
+
+@router.post("/addons/{addon_id}/install", status_code=200, tags=["add-ons"])
+async def install_addon(
+    addon_id: str,
+    body: AddonInstallBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    _require_owner(principal)
+    try:
+        result = await asyncio.to_thread(
+            runtime.addon_manager.install, addon_id, allow_large=body.allow_large
+        )
+    except AddonError as exc:
+        raise ValidationFailure(exc.args[0]) from exc
+    runtime.store.audit(
+        "addon.source_installed", actor=principal.user_id, status="installed",
+        detail={"addon_id": addon_id, "commit": result.get("commit"), "source_only": True},
+    )
+    return result
+
+
+@router.post("/addons/{addon_id}/connect", status_code=200, tags=["add-ons"])
+async def connect_addon(
+    addon_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    _require_owner(principal)
+    try:
+        return await runtime.addon_manager.connect(addon_id, runtime.registry)
+    except AddonError as exc:
+        raise ValidationFailure(exc.args[0]) from exc
+
+
+@router.delete("/addons/{addon_id}/connect", tags=["add-ons"])
+async def disconnect_addon(
+    addon_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    _require_owner(principal)
+    return await runtime.addon_manager.disconnect(addon_id, runtime.registry)
 
 
 @router.get("/workers", tags=["agents"])

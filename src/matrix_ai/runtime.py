@@ -23,6 +23,7 @@ from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
 from .integrations.registry import IntegrationRegistry
+from .integrations.addons import AddonManager
 from .memory.service import MemoryService
 from .models.manager import ModelManager
 from .models.planner import PlannerService
@@ -54,6 +55,7 @@ class MatrixRuntime:
     voice: VoiceSessionManager
     vision: VisionSessionManager
     integrations: IntegrationRegistry
+    addon_manager: AddonManager
     scheduler: Scheduler
     started_at: float = field(default_factory=time.time)
     version: str = __version__
@@ -68,13 +70,16 @@ class MatrixRuntime:
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
+        addon_manager = AddonManager(config, store=store)
         worker_pool = AgentWorkerPool(
             models,
             registry,
             max_concurrent=config.agent_max_concurrent_workers,
             timeout_seconds=config.agent_worker_timeout_seconds,
         )
-        planner = PlannerService(registry, models, store, worker_pool=worker_pool)
+        planner = PlannerService(
+            registry, models, store, worker_pool=worker_pool, addon_manager=addon_manager
+        )
         orchestrator = Orchestrator(
             config=config,
             store=store,
@@ -102,6 +107,7 @@ class MatrixRuntime:
             voice=VoiceSessionManager(config, tts_engine),
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
+            addon_manager=addon_manager,
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
@@ -160,6 +166,7 @@ class MatrixRuntime:
             "voice": self.voice.status().stt_provider,
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
+            "addons": f"{self.addon_manager.status()[\"installed_count\"]} installed / {self.addon_manager.status()[\"connected_count\"]} connected",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}
@@ -186,5 +193,6 @@ class MatrixRuntime:
         self.vision.stop_all()
         await self.orchestrator.shutdown()
         await self.worker_pool.shutdown()
+        await self.addon_manager.disconnect_all(self.registry)
         self.store.audit("system.stopped", actor="system", status="ok")
         self.db.close()
