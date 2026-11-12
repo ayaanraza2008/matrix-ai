@@ -135,7 +135,7 @@ class PlanStep(BaseModel):
         if any(isinstance(item, bool) or item < 0 for item in value):
             raise ValueError("step dependencies must be non-negative integer indexes")
         if len(value) != len(set(value)):
-            raise ValueError("step dependencies must not contain duplicates")
+            raise ValueError("duplicate dependencies are not allowed")
         return value
 
     @field_validator("tool_name")
