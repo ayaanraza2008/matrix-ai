@@ -91,6 +91,7 @@ class MatrixRuntime:
         goal_supervisor = GoalSupervisor(store, orchestrator, models)
         auth = AuthService(store, config)
         auth.bootstrap()
+        voice = VoiceSessionManager(config, tts_engine)
         limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
@@ -106,14 +107,15 @@ class MatrixRuntime:
             goal_supervisor=goal_supervisor,
             auth=auth,
             limiter=limiter,
-            voice=VoiceSessionManager(config, tts_engine),
+            voice=voice,
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
             telegram=TelegramChatBridge(
-                config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
+                config=config, orchestrator=orchestrator, store=store,
+                rate_limiter=limiter, voice_manager=voice,
             ),
         )
         store.audit(
