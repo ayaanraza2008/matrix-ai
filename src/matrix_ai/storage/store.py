@@ -387,7 +387,7 @@ class Store:
             for task in rows:
                 cursor = conn.execute(
                     "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
-                    "WHERE goal_id=? AND node_id=? AND task_id IS NULL AND state='pending'",
+                    "WHERE goal_id=? AND node_id=? AND task_id IS NULL AND state IN ('pending','dispatching')",
                     (task["id"], iso(), task["goal_id"], task["goal_node_id"]),
                 )
                 repaired += cursor.rowcount
