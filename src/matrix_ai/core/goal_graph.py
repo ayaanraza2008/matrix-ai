@@ -8,8 +8,8 @@ remain owned by the orchestrator.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Iterable, Mapping
 
 MAX_GOAL_NODES = 64
 MAX_DEPENDENCIES_PER_NODE = 16
@@ -68,7 +68,7 @@ class GoalGraph:
         self._topological_order = self._sort()
 
     @classmethod
-    def from_mapping(cls, specification: Mapping[str, Iterable[str]]) -> "GoalGraph":
+    def from_mapping(cls, specification: Mapping[str, Iterable[str]]) -> GoalGraph:
         if not isinstance(specification, Mapping):
             raise GoalGraphError("goal graph must be a mapping of node IDs to dependencies")
         def make_node(node_id: str, dependencies: Iterable[str]) -> GoalNode:
