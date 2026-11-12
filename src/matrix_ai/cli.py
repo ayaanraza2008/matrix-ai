@@ -97,7 +97,7 @@ async def _doctor() -> int:
             "integrations": [view.model_dump(mode="json") for view in runtime.integrations.views()],
             "database": str(runtime.config.db_path),
             "settings": runtime.config.public_dict(),
-            "remote_access": RemoteAccessManager().status(),
+            "remote_access": RemoteAccessManager(port=runtime.config.port).status(),
             "startup": StartupTaskManager().status(),
         }
         print(json.dumps(payload, indent=2))
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "backup":
             return _backup(args.out)
         if args.command == "remote-access":
-            manager = RemoteAccessManager()
+            manager = RemoteAccessManager(port=config.port)
             result = (
                 manager.status() if args.action == "status"
                 else manager.enable() if args.action == "enable"
