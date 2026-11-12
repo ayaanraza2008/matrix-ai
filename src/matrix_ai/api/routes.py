@@ -37,6 +37,7 @@ from ..core.models import (
     VoiceStatusView,
 )
 from ..errors import AuthenticationError, NotFoundError
+from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
 router = APIRouter(prefix="/api")
@@ -507,7 +508,7 @@ async def models(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]
     return {
         "status": await runtime.models.status(),
         "hardware": runtime.models.hardware(),
-        "prompt_versions": {"plan": "plan.v1", "chat": "chat.v1"},
+        "prompt_versions": {"plan": PROMPT_VERSION, "chat": "chat.v1"},
     }
 
 
