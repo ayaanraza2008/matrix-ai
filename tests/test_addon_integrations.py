@@ -14,6 +14,7 @@ from matrix_ai.integrations.addons import AddonError
 from matrix_ai.integrations.mcp_addons import MCPStdioClient
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.external_mcp import build_mcp_tools
+from fakes import FakePlanProvider
 from matrix_ai.integrations.youtube_automation import build_youtube_tools
 
 
@@ -431,3 +432,72 @@ def test_unknown_license_catalogues_cannot_be_cloned(runtime):
         runtime.addon_manager.install("free-for-dev")
     with pytest.raises(AddonError, match="link-only catalogue"):
         runtime.addon_manager.install("build-your-own-x")
+
+
+class CapturingPlanProvider(FakePlanProvider):
+    async def complete(self, messages, *, temperature=0.2, max_tokens=512, json_mode=False):
+        self.messages = messages
+        return await super().complete(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+        )
+
+
+@pytest.mark.asyncio
+async def test_planner_prepares_selected_addon_and_injects_only_untrusted_context(runtime, monkeypatch):
+    import matrix_ai.models.planner as planner_module
+
+    monkeypatch.setattr(planner_module, "route_agency_agents", lambda _query: [])
+    runtime.config.model_provider = "openai"
+    runtime.config.model_name = "fake-local"
+    provider = CapturingPlanProvider(runtime.config)
+    provider.plan = {
+        "goal": "Build the requested prototype",
+        "steps": [
+            {
+                "title": "Respond with prototype plan",
+                "kind": "answer",
+                "answer": "The prototype plan is ready for execution review.",
+            }
+        ],
+    }
+    runtime.models.provider = provider
+
+    selected = [
+        {
+            "id": "craft-anything",
+            "name": "Craft Anything",
+            "repository": "storytold/craft-anything",
+            "installed": False,
+            "context_loaded": False,
+        }
+    ]
+    prepared = []
+
+    async def fake_prepare(items, registry):
+        prepared.extend(item["id"] for item in items)
+
+    def fake_search_context(_query, *, max_docs, max_total_chars):
+        assert max_docs == 3
+        assert max_total_chars == 5000
+        return (
+            [{"addon_id": "craft-anything", "path": "README.md", "characters": 75}],
+            "[UNTRUSTED ADD-ON REFERENCE: Craft Anything / README.md]\nBuild from a verified plan.\n",
+        )
+
+    monkeypatch.setattr(runtime.addon_manager, "route", lambda _query, limit=5: selected)
+    monkeypatch.setattr(runtime.addon_manager, "prepare_selected", fake_prepare)
+    monkeypatch.setattr(runtime.addon_manager, "search_context", fake_search_context)
+
+    intent = await runtime.planner.plan("Build a small web app prototype from this request.")
+
+    assert prepared == ["craft-anything"]
+    assert intent.selected_addons[0]["context_loaded"] is True
+    assert intent.addon_context_used is True
+    assert provider.messages
+    system_prompt = provider.messages[0].content
+    assert "UNTRUSTED ADD-ON REFERENCE" in system_prompt
+    assert "not tools or permissions" in system_prompt
+    assert "Never run code" in system_prompt
