@@ -62,7 +62,7 @@ class _PinnedHTTPSConnection(_PinnedHTTPConnection):
         self._context = ssl.create_default_context()
 
     def connect(self) -> None:
-        raw_socket = self._create_connection(
+        raw_socket = socket.create_connection(
             (self._pinned_address, self.port), self.timeout, self.source_address
         )
         try:
