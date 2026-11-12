@@ -5,10 +5,12 @@ import pytest
 from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
-from matrix_ai.core.models import Risk
+from matrix_ai.core.models import DEFAULT_SCOPES, Risk
 from matrix_ai.errors import ToolExecutionError, ToolUnavailable
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
     GitHubEmptyInput,
     GitHubGetPullRequestTool,
     GitHubGetRepositoryTool,
@@ -160,3 +162,73 @@ def test_github_network_error_does_not_leak_request_headers(tmp_path, monkeypatc
     monkeypatch.setattr("matrix_ai.tools.github_tools.httpx.get", fail)
     with pytest.raises(ToolExecutionError, match="GitHub request failed"):
         GitHubWhoAmITool().run_sync(GitHubEmptyInput(), make_context(tmp_path))
+
+
+
+def test_github_writes_are_high_risk_and_not_default_granted():
+    create = GitHubCreateIssueTool()
+    comment = GitHubCommentIssueTool()
+    assert create.risk == Risk.HIGH
+    assert comment.risk == Risk.HIGH
+    assert create.permission_scope == "github.write"
+    assert comment.permission_scope == "github.write"
+    assert "github.write" not in DEFAULT_SCOPES
+    assert create.spec().idempotent is False
+    assert comment.spec().idempotent is False
+
+
+def test_github_create_issue_posts_only_after_tool_execution(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.update(url=url, headers=headers, json=json)
+        return response(status=201, payload={
+            "number": 23,
+            "title": "Bug report",
+            "state": "open",
+            "html_url": "https://github.com/owner/repo/issues/23",
+        })
+
+    monkeypatch.setattr("matrix_ai.tools.github_tools.httpx.post", fake_post)
+    tool = GitHubCreateIssueTool()
+    args = tool.validate({
+        "repository": "owner/repo",
+        "title": "Bug report",
+        "body": "Steps to reproduce",
+        "labels": ["bug"],
+    })
+    result = tool.run_sync(args, make_context(tmp_path))
+    assert calls["url"].endswith("/repos/owner/repo/issues")
+    assert calls["json"]["title"] == "Bug report"
+    assert result["data"]["number"] == 23
+
+
+def test_github_comment_issue_posts_to_validated_issue_path(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.update(url=url, json=json)
+        return response(status=201, payload={
+            "id": 99,
+            "html_url": "https://github.com/owner/repo/issues/4#issuecomment-99",
+            "created_at": "2026-11-12T18:00:00Z",
+        })
+
+    monkeypatch.setattr("matrix_ai.tools.github_tools.httpx.post", fake_post)
+    tool = GitHubCommentIssueTool()
+    args = tool.validate({"repository": "owner/repo", "number": 4, "body": "Reviewed."})
+    result = tool.run_sync(args, make_context(tmp_path))
+    assert calls["url"].endswith("/repos/owner/repo/issues/4/comments")
+    assert calls["json"] == {"body": "Reviewed."}
+    assert result["data"]["id"] == 99
+
+
+def test_github_write_rejects_missing_provider_confirmation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "matrix_ai.tools.github_tools.httpx.post",
+        lambda *args, **kwargs: response(status=201, payload={"number": 1}),
+    )
+    tool = GitHubCreateIssueTool()
+    args = tool.validate({"repository": "owner/repo", "title": "No confirmation"})
+    with pytest.raises(ToolExecutionError, match="did not confirm"):
+        tool.run_sync(args, make_context(tmp_path))
