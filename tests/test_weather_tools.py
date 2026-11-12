@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
-from matrix_ai.core.models import Risk
+from matrix_ai.core.models import DEFAULT_SCOPES, Risk
 from matrix_ai.errors import ToolExecutionError
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
@@ -39,6 +39,7 @@ def test_weather_tool_is_registered_with_read_only_scope():
     assert tool.permission_scope == "weather.read"
     assert tool.risk == Risk.LOW
     assert tool.spec().idempotent is True
+    assert "weather.read" in DEFAULT_SCOPES
 
 
 def test_weather_input_rejects_invalid_coordinates_and_unknown_fields():
