@@ -520,6 +520,25 @@ class Store:
         )
         return cursor.rowcount
 
+    def begin_cancel_goal_graph(self, goal_id: str) -> list[str]:
+        """Make a goal non-dispatchable before cancelling any live node tasks."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goals SET state='cancelling', updated_at=? "
+                "WHERE id=? AND state IN ('planned','running') AND task_id IS NULL",
+                (iso(), goal_id),
+            )
+            conn.execute(
+                "UPDATE goal_nodes SET state='cancelled', error='goal cancelled by owner', updated_at=? "
+                "WHERE goal_id=? AND state IN ('pending','dispatching')",
+                (iso(), goal_id),
+            )
+            rows = conn.execute(
+                "SELECT task_id FROM goal_nodes WHERE goal_id=? AND state='running' AND task_id IS NOT NULL",
+                (goal_id,),
+            ).fetchall()
+        return [str(row["task_id"]) for row in rows]
+
     def finish_goal_graph(self, goal_id: str, *, state: str, summary: str) -> None:
         if state not in {"completed", "awaiting_verification", "partial", "failed", "cancelled"}:
             raise ValueError("invalid terminal goal state")
