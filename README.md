@@ -36,7 +36,9 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
 | Signed release / installer | **Planned** | Phase 9 |
 
-Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).\n\nMATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, routing, and safety details.
+Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
+
+MATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, routing, and safety details.
 
 ---
 
