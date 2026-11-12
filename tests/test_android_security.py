@@ -25,7 +25,7 @@ def test_debug_manifest_is_the_only_cleartext_override():
 def test_android_pairing_token_is_not_saved_in_instance_state():
     activity = ROOT / "main" / "java" / "com" / "ayaanraza" / "matrix" / "MainActivity.kt"
     source = activity.read_text(encoding="utf-8")
-    assert "var token by remember { mutableStateOf<String?>(null) }" in source
+    assert "var token by remember { mutableStateOf(tokenVault.load()) }" in source
     assert "var token by rememberSaveable" not in source
 
 
