@@ -1,8 +1,8 @@
 # Android Companion — Scaffold Status
 
-> **Honest status:** the Android app is a **scaffold**. It has not been compiled in this environment because
-> no Android SDK/Gradle toolchain is installed on the build machine. It is committed so the companion can be
-> built and iterated in Android Studio without redesigning the API contract.
+> **Honest status:** the Android app is a **scaffold**. The project initially had no Android build job; draft PR #21 adds
+> a GitHub Actions job that assembles debug and release variants. That CI result and a physical-device acceptance run
+> are still required before this can be called a working companion.
 
 ## What is in `android/`
 
