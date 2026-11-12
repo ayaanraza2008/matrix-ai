@@ -461,6 +461,14 @@ class Store:
         by_id = {item["node_id"]: item for item in nodes}
         return [by_id[node_id] for node_id in ready]
 
+    def schedulable_goal_ids(self) -> list[str]:
+        rows = self.db.query(
+            "SELECT id FROM goals WHERE state IN ('planned','running') "
+            "AND EXISTS (SELECT 1 FROM goal_nodes WHERE goal_nodes.goal_id=goals.id) "
+            "ORDER BY created_at"
+        )
+        return [str(row["id"]) for row in rows]
+
     def refresh_blocked_goal_nodes(self, goal_id: str) -> int:
         """Persist descendants that can never run after a prerequisite failed."""
         nodes = self.get_goal_graph(goal_id)
