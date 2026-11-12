@@ -2,7 +2,7 @@
 
 > **Honest status:** the Android app is a **scaffold**. The project initially had no Android build job; draft PR #21 adds
 > a GitHub Actions job that assembles debug and release variants. That CI result and a physical-device acceptance run
-> are still required before this can be called a working companion.
+> are still required before this can be called a working companion. The CI workflow uploads debug and unsigned release APKs as the `matrix-android-apks` artifact for seven days.
 
 ## What is in `android/`
 
