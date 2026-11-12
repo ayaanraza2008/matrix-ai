@@ -73,11 +73,15 @@ def _meta_profile(config) -> dict[str, Any]:
 
 def _linkedin_author(config) -> str:
     author = config.linkedin_organization_urn or config.linkedin_person_urn
-    if not author or not author.startswith(("urn:li:person:", "urn:li:organization:")):
-        raise ToolExecutionError(
-            "Set MATRIX_LINKEDIN_PERSON_URN or MATRIX_LINKEDIN_ORGANIZATION_URN to the authorized author."
-        )
-    return author
+    if author:
+        if not author.startswith(("urn:li:person:", "urn:li:organization:")):
+            raise ToolExecutionError("LinkedIn author URN must be a person or organization URN.")
+        return author
+    profile, _ = linkedin_request(config, "GET", "/rest/me")
+    member_id = profile.get("id")
+    if not member_id:
+        raise ToolExecutionError("LinkedIn did not return a member ID for the connected account.")
+    return f"urn:li:person:{member_id}"
 
 
 class InstagramGetProfileTool(Tool):
