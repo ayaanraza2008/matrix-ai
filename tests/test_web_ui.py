@@ -33,7 +33,7 @@ async def test_dashboard_assets_are_served(anon_client):
     assert "localStorage" in script.text
     assert "SpeechSynthesisUtterance" in script.text
     assert "matrix_speak_replies" in script.text
-    assert "Send transcript to chat" in script.text
+    assert "voice-send-transcript" in script.text
 
     styles = await anon_client.get("/assets/styles.css")
     assert styles.status_code == 200
