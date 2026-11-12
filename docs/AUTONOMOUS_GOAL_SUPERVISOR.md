@@ -128,3 +128,10 @@ The next implementation slice adds schema v4 persistence for bounded goal graph 
 - `GET /api/goals/{goal_id}/graph` returns the persisted plan for its owner.
 - Invalid cycles, unknown dependencies, duplicate IDs, and configured graph limits are rejected before a goal is written.
 - Plans are explicitly marked `execution_status=plan_only`. This endpoint does **not** dispatch tasks or claim autonomous multi-task execution. The persistent scheduler, node-to-task dispatch, pause/resume, bounded replanning and goal-level verification remain follow-up work.
+
+
+### Durable DAG execution slice
+
+Schema v5 links each goal-node task to a unique `(goal_id, goal_node_id)` identity. The owner can explicitly start a persisted plan with `POST /api/goals/{goal_id}/start`. MATRIX dispatches at most four dependency-ready nodes, creates normal orchestrator tasks for them, and only unlocks dependants after a node task reaches terminal completion with verified step evidence. Failed or cancelled prerequisites block descendants. Node/task linkage is reconciled during startup recovery, and completed nodes trigger the next ready wave automatically.
+
+This is bounded node-level execution, not yet full goal autonomy: there is no semantic success-criteria verifier, pause/resume endpoint, retry/replanning budget, or cross-process lease protocol. In-flight tool effects retain the orchestrator's conservative manual-review recovery behavior.
