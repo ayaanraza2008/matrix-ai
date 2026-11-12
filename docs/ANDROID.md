@@ -15,7 +15,8 @@ android/
     ├── build.gradle.kts
     ├── proguard-rules.pro
     └── src/main/
-        ├── AndroidManifest.xml
+        ├── AndroidManifest.xml      main/release manifest (cleartext disabled)
+        ├── debug/AndroidManifest.xml (debug-only cleartext override)
         ├── java/com/ayaanraza/matrix/
         │   ├── MainActivity.kt      Compose UI: connect, chat, task state, approvals
         │   ├── MatrixClient.kt      Tiny HTTP client (HttpURLConnection, no extra deps)
@@ -26,11 +27,13 @@ android/
 ## Security design (intended)
 
 - Pairing uses a single-use 6-digit code (`matrix pair-code`), exchanged for a device token.
-- The token is stored in `EncryptedSharedPreferences` in the production build (the scaffold keeps it in
-  memory; add the dependency before shipping).
+- The scaffold keeps the paired token in transient UI memory only; it is not written to saved instance state.
+  EncryptedSharedPreferences/Android Keystore integration is still required before shipping.
 - Each request sends `Authorization: Bearer <device token>`.
 - Device revocation on the PC invalidates the token immediately (`auth.verify_token`).
 - No secrets are embedded in the APK.
+- Cleartext HTTP is permitted only in debug builds; the main/release manifest sets `usesCleartextTraffic=false`.
+  Release builds must use HTTPS (for example, a private Tailscale Serve URL).
 - Camera capture must be explicit, permission-gated and stopped when the screen/session ends.
 
 ## API contract used by the app
@@ -54,9 +57,9 @@ A task is terminal when `state` is one of `COMPLETE`, `PARTIAL`, `FAILED`, `CANC
 1. Open the `android/` folder in Android Studio (Giraffe/Koala or newer).
 2. Let Gradle sync (compileSdk 34, minSdk 26, Kotlin 1.9.24, Compose BOM 2024.06.00).
 3. Point the app at your PC:
-   - Emulator: `http://10.0.2.2:8765`
-   - Physical device on the same network: `http://<PC LAN IP>:8765` **only for testing**; otherwise use
-     Tailscale and a private IP.
+   - Debug emulator: `http://10.0.2.2:8765` (debug build only).
+   - Debug physical device: `http://<PC LAN IP>:8765` on a trusted LAN only.
+   - Release build: use an HTTPS endpoint such as the private Tailscale Serve URL; plaintext HTTP is blocked.
    - For non-loopback binds, set `MATRIX_HOST` accordingly and understand the TLS caveat in `docs/SETUP.md`.
 4. Build: `./gradlew assembleDebug` (Windows: `gradlew.bat assembleDebug`).
 5. Install and pair with a code from `matrix pair-code`.
