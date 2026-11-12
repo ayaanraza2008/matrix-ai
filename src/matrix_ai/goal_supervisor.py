@@ -62,16 +62,16 @@ class GoalSupervisor:
 
     async def cancel(self, goal_id: str) -> dict:
         goal = self.store.get_goal(goal_id)
-        if goal["state"] not in {"planned", "running"}:
+        if goal["state"] not in {"planned", "running", "cancelling"}:
             return self.status(goal_id)
-        for node in self.store.get_goal_graph(goal_id):
-            if node["state"] == "running" and node["task_id"]:
-                await self.orchestrator.cancel(node["task_id"])
+        task_ids = self.store.begin_cancel_goal_graph(goal_id)
+        for task_id in task_ids:
+            await self.orchestrator.cancel(task_id)
+            link = self.store.get_goal_node_for_task(task_id)
+            if link:
                 self.store.update_goal_node(
-                    goal_id, node["node_id"], state="cancelled", error="goal_cancelled"
+                    goal_id, link["node_id"], state="cancelled", error="goal_cancelled"
                 )
-            elif node["state"] in {"pending", "dispatching"}:
-                self.store.update_goal_node(goal_id, node["node_id"], state="cancelled", error="goal_cancelled")
         self.store.finish_goal_graph(goal_id, state="cancelled", summary="Goal cancelled by its owner.")
         self.store.audit("goal.cancelled", actor="owner", status="cancelled", detail={"goal_id": goal_id})
         return self.status(goal_id)
