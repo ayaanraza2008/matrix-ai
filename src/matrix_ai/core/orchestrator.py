@@ -120,6 +120,7 @@ class Orchestrator:
             status="received",
             detail={
                 "kind": kind,
+                "goal_id": goal_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
