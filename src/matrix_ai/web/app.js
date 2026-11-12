@@ -441,6 +441,35 @@ function populateBrowserVoices() {
   select.value = voices.some((voice) => voice.voiceURI === selected) ? selected : '';
 }
 
+async function speakAssistantText(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  try {
+    // Server preflight reuses the backend credential detector for both local
+    // Windows speech and the browser fallback.
+    await api('/voice/check-speech', { method: 'POST', body: { text: text.slice(0, 2000) } });
+    const status = await api('/voice/status');
+    if (status.tts_provider !== 'unavailable') {
+      stopBrowserSpeech();
+      if (!voiceSessionId) {
+        const session = await api('/voice/start', { method: 'POST', body: { muted: false } });
+        voiceSessionId = session.session_id;
+      }
+      await api('/voice/speak', {
+        method: 'POST',
+        body: { text: text.slice(0, 2000), session_id: voiceSessionId },
+      });
+      await loadVoice().catch(() => {});
+      toast('Speaking with MATRIX local voice', 'ok');
+      return true;
+    }
+    return speakBrowserText(text);
+  } catch (error) {
+    toast(error.message, 'error');
+    return false;
+  }
+}
+
 function speakBrowserText(value) {
   const text = String(value || '').trim();
   if (!text) return false;
@@ -485,7 +514,7 @@ function appendMessage(role, body, meta = []) {
   if (role === 'assistant' && browserSpeechSupported()) {
     const speak = el('button', 'small ghost', 'Speak');
     speak.type = 'button';
-    speak.addEventListener('click', () => speakBrowserText(content.textContent));
+    speak.addEventListener('click', () => speakAssistantText(content.textContent));
     metaRow.appendChild(speak);
   }
   wrapper.appendChild(metaRow);
@@ -538,7 +567,7 @@ $('#chat-form').addEventListener('submit', async (event) => {
     const finalReply = task.summary || '(no summary returned)';
     setMessageBody(pending, finalReply);
     setMessageMeta(pending, task);
-    if (STATE.speakReplies) speakBrowserText(finalReply);
+    if (STATE.speakReplies) speakAssistantText(finalReply);
     const pendingApproval = (task.approvals || []).find((entry) => entry.status === 'pending');
     if (pendingApproval) {
       appendApproval(task);
@@ -897,10 +926,12 @@ async function loadVoice() {
   }
   $('#voice-detail').textContent =
     status.detail || 'Microphone state is server-side. A muted session refuses capture with HTTP 409.';
+  const canSpeak = status.tts_provider !== 'unavailable' || browserSpeechSupported();
   $('#voice-speak-replies').checked = STATE.speakReplies;
-  $('#voice-speak-replies').disabled = !browserSpeechSupported();
-  $('#voice-speak-text').disabled = !browserSpeechSupported();
-  $('#voice-speak-form').querySelector('button').disabled = !browserSpeechSupported();
+  $('#voice-speak-replies').disabled = !canSpeak;
+  $('#voice-speak-text').disabled = !canSpeak;
+  $('#voice-speak-form').querySelector('button').disabled = !canSpeak;
+  $('#voice-output-voice').disabled = !browserSpeechSupported();
   populateBrowserVoices();
 }
 
@@ -1083,8 +1114,9 @@ $('#voice-speak-replies').addEventListener('change', (event) => {
 $('#voice-output-voice').addEventListener('change', (event) => {
   localStorage.setItem('matrix_speech_voice', event.target.value);
 });
-$('#voice-stop-speech').addEventListener('click', () => {
+$('#voice-stop-speech').addEventListener('click', async () => {
   stopBrowserSpeech();
+  if (voiceSessionId) await voiceAction('barge-in');
   toast('Speech stopped', 'info');
 });
 $('#voice-send-transcript').addEventListener('click', () => {
@@ -1097,7 +1129,7 @@ $('#voice-send-transcript').addEventListener('click', () => {
 $('#voice-speak-form').addEventListener('submit', (event) => {
   event.preventDefault();
   const text = $('#voice-speak-text').value.trim();
-  if (speakBrowserText(text)) toast('Browser voice started', 'ok');
+  speakAssistantText(text);
 });
 
 /* ------------------------------------------------------------------ */
