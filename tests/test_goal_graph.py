@@ -68,3 +68,13 @@ def test_ready_nodes_reject_invalid_limits_and_foreign_state():
         graph.ready_nodes([], limit=5)
     with pytest.raises(GoalGraphError, match="outside"):
         graph.ready_nodes(["foreign"])
+
+
+
+def test_goal_graph_rejects_string_as_dependency_sequence_and_invalid_ids():
+    with pytest.raises(GoalGraphError, match="sequence"):
+        GoalGraph.from_mapping({"a": "bc", "b": [], "c": []})
+    with pytest.raises(GoalGraphError, match="invalid dependency"):
+        GoalGraph([GoalNode("a", (" ",))])
+    with pytest.raises(GoalGraphError, match="node IDs"):
+        GoalGraph([GoalNode("   ")])
