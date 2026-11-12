@@ -193,19 +193,33 @@ class TelegramChatBridge:
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
-        for _ in range(180):
-            await asyncio.sleep(5)
-            view = self.store.task_view(task_id)
-            if view.state == TaskState.APPROVAL_REQUIRED:
-                await self._send(
-                    f"Task {task_id} needs owner approval for a protected action. "
-                    "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
-                )
-                return
-            if view.state in TERMINAL_TASK_STATES:
-                result = view.summary or view.error or f"Task finished: {view.state.value}"
-                await self._send(f"MATRIX {view.state.value}:\n{result}")
-                return
-        await self._send(
-            f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."
-        )
+        try:
+            for _ in range(180):
+                await asyncio.sleep(5)
+                view = self.store.task_view(task_id)
+                # The orchestrator moves APPROVAL_REQUIRED to WAITING_FOR_USER
+                # immediately after creating the pending approval record.
+                if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+                    await self._send(
+                        f"Task {task_id} needs owner approval for a protected action. "
+                        "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
+                    )
+                    return
+                if view.state in TERMINAL_TASK_STATES:
+                    result = view.summary or view.error or f"Task finished: {view.state.value}"
+                    await self._send(f"MATRIX {view.state.value}:\\n{result}")
+                    return
+            await self._send(
+                f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - background reports must not leak task exceptions
+            self.store.audit(
+                "telegram.task_report_failed",
+                actor="telegram",
+                task_id=task_id,
+                status="failed",
+                detail={"error": type(exc).__name__},
+            )
+            log.warning("Telegram task report failed: %s", type(exc).__name__)
