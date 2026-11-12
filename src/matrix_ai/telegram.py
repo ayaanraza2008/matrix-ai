@@ -82,35 +82,50 @@ class TelegramChatBridge:
 
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
+        announced = False
         try:
-            # Drop old updates at startup so MATRIX never replays stale commands.
             while True:
-                initial = await self._api("getUpdates", {"timeout": 0, "limit": 100})
-                updates = initial.get("result", [])
-                if updates:
-                    self._offset = max(item["update_id"] for item in updates) + 1
-                if len(updates) < 100:
-                    break
-            await self._send(
-                "MATRIX Telegram bridge is online. Send a message to create a task. "
-                "Use /status, /stop, or /help."
-            )
-            while True:
-                data = await self._api("getUpdates", {
-                    "timeout": 25, "limit": 20, "offset": self._offset,
-                    "allowed_updates": ["message"],
-                })
-                for update in data.get("result", []):
-                    self._offset = update["update_id"] + 1
-                    await self._handle_update(update)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - bridge must not crash MATRIX
-            self.store.audit(
-                "telegram.bridge_failed", actor="telegram", status="failed",
-                detail={"error": type(exc).__name__},
-            )
-            log.warning("Telegram bridge stopped: %s", type(exc).__name__)
+                try:
+                    if not announced:
+                        # Drop old updates at startup so queued commands are not replayed.
+                        while True:
+                            initial = await self._api("getUpdates", {"timeout": 0, "limit": 100})
+                            updates = initial.get("result", [])
+                            if updates:
+                                self._offset = max(item["update_id"] for item in updates) + 1
+                            if len(updates) < 100:
+                                break
+                        await self._send(
+                            "MATRIX Telegram bridge is online. Send a message to create a task. "
+                            "Use /status, /stop, or /help."
+                        )
+                        announced = True
+
+                    data = await self._api("getUpdates", {
+                        "timeout": 25, "limit": 20, "offset": self._offset,
+                        "allowed_updates": ["message"],
+                    })
+                    for update in data.get("result", []):
+                        self._offset = update["update_id"] + 1
+                        try:
+                            await self._handle_update(update)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:  # noqa: BLE001 - isolate malformed updates
+                            self.store.audit(
+                                "telegram.update_failed", actor="telegram", status="failed",
+                                detail={"error": type(exc).__name__},
+                            )
+                            log.warning("Telegram update failed: %s", type(exc).__name__)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - transient network/API errors retry
+                    self.store.audit(
+                        "telegram.bridge_retry", actor="telegram", status="degraded",
+                        detail={"error": type(exc).__name__},
+                    )
+                    log.warning("Telegram bridge retrying after %s", type(exc).__name__)
+                    await asyncio.sleep(5)
         finally:
             if self._client:
                 await self._client.aclose()
