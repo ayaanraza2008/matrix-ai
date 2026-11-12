@@ -222,18 +222,21 @@ class TelegramChatBridge:
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
+        approval_notified = False
         try:
             for _ in range(180):
                 await asyncio.sleep(5)
                 view = self.store.task_view(task_id)
-                # The orchestrator moves APPROVAL_REQUIRED to WAITING_FOR_USER
-                # immediately after creating the pending approval record.
+                # Notify once, but keep watching so the owner receives the result
+                # after approving or denying the action in the MATRIX dashboard.
                 if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
-                    await self._send(
-                        f"Task {task_id} needs owner approval for a protected action. "
-                        "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
-                    )
-                    return
+                    if not approval_notified:
+                        await self._send(
+                            f"Task {task_id} needs owner approval for a protected action. "
+                            "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
+                        )
+                        approval_notified = True
+                    continue
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
                     await self._send(f"MATRIX {view.state.value}:\n{result}")
