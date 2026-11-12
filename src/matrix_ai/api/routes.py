@@ -376,7 +376,30 @@ async def get_goal_graph(
     return {
         "goal_id": goal_id,
         "nodes": runtime.store.get_goal_graph(goal_id),
-        "execution_status": "plan_only",
+        "execution_status": "running" if goal["state"] == "running" else (
+            "awaiting_verification" if goal["state"] == "awaiting_verification" else "plan_only"
+        ),
+    }
+
+
+@router.post("/goals/{goal_id}/start", status_code=202, tags=["goals"])
+async def start_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    if goal["state"] not in {"planned", "running"}:
+        raise HTTPException(status_code=409, detail="goal plan is not startable")
+    dispatched = await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
+    refreshed = runtime.store.get_goal(goal_id)
+    nodes = runtime.store.get_goal_graph(goal_id)
+    return {
+        "goal_id": goal_id,
+        "state": refreshed["state"],
+        "nodes": nodes,
+        "dispatched_task_ids": dispatched,
+        "execution_status": "running" if dispatched or any(n["state"] == "running" for n in nodes) else refreshed["state"],
     }
 
 
