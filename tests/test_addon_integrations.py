@@ -6,7 +6,6 @@ import sys
 from dataclasses import replace
 
 import pytest
-
 from fakes import FakePlanProvider
 from matrix_ai.core.models import Risk
 from matrix_ai.errors import ConfigError, ToolExecutionError, ToolUnavailable, ValidationFailure

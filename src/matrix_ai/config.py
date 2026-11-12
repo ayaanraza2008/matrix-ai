@@ -236,7 +236,7 @@ class MatrixConfig:
                 ipaddress.ip_address(host)
             except ValueError:
                 if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*", host):
-                    raise ConfigError(f"Invalid HexStrike target hostname: {host}")
+                    raise ConfigError(f"Invalid HexStrike target hostname: {host}") from None
             result.add(host)
         return tuple(sorted(result))
 
