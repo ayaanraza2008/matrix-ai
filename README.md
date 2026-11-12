@@ -36,7 +36,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Scheduled owner goals | **Implemented** | Bounded recurring jobs, global autonomy ceiling and policy/approval enforcement |
 | Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
 | External integrations | **Partial** | Credential/connectivity probes exist; Telegram chat bridge is in the stacked PR chain. Full Gmail/Calendar, GitHub, Home Assistant, FCM and telephony action workflows are not complete |
-| Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
+| Android companion | **Scaffolded** | Debug/release assemble job added in draft PR #21; physical-device tests and signed APK pending |
 | Signed release / installer | **Planned** | Phase 9 |
 
 Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
