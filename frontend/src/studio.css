@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap');
-
 :root { color-scheme: dark; font-family: Figtree, Inter, system-ui, sans-serif; background: #101115; color: #f0f0f3; }
 body { margin: 0; min-width: 320px; background: #101115; font-family: Figtree, Inter, system-ui, sans-serif; }
 button, input, textarea { font: inherit; }
