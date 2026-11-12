@@ -49,7 +49,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         self._pinned_address = address
 
     def connect(self) -> None:
-        self.sock = self._create_connection(
+        self.sock = socket.create_connection(
             (self._pinned_address, self.port), self.timeout, self.source_address
         )
 
