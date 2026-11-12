@@ -129,6 +129,15 @@ class PlanStep(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     depends_on: list[int] = Field(default_factory=list)
 
+    @field_validator("depends_on")
+    @classmethod
+    def _valid_dependencies(cls, value: list[int]) -> list[int]:
+        if any(isinstance(item, bool) or item < 0 for item in value):
+            raise ValueError("step dependencies must be non-negative integer indexes")
+        if len(value) != len(set(value)):
+            raise ValueError("step dependencies must not contain duplicates")
+        return value
+
     @field_validator("tool_name")
     @classmethod
     def _tool_required_for_tool_steps(cls, value: str | None, info) -> str | None:
@@ -150,6 +159,16 @@ class Plan(BaseModel):
         for expected, step in enumerate(steps):
             if step.idx != expected:
                 raise ValueError("plan steps must be indexed 0..n-1 in order")
+        if steps:
+            from .goal_graph import GoalGraph, GoalGraphError, GoalNode
+
+            try:
+                GoalGraph(
+                    GoalNode(str(step.idx), tuple(str(dep) for dep in step.depends_on))
+                    for step in steps
+                )
+            except GoalGraphError as exc:
+                raise ValueError(f"invalid plan dependencies: {exc}") from exc
         return steps
 
 
