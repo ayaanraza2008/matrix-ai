@@ -165,6 +165,7 @@ class MatrixConfig:
     firebase_credentials_path: str | None = None
     youtube_client_secrets_path: str | None = None
     youtube_token_path: str | None = None
+    youtube_max_upload_bytes: int = 2_000_000_000
 
     def __post_init__(self) -> None:
         self.home = Path(self.home).expanduser().resolve()
@@ -308,4 +309,5 @@ class MatrixConfig:
             firebase_credentials_path=_env("MATRIX_FIREBASE_CREDENTIALS"),
             youtube_client_secrets_path=_env("MATRIX_YOUTUBE_CLIENT_SECRETS"),
             youtube_token_path=_env("MATRIX_YOUTUBE_TOKEN_FILE"),
+            youtube_max_upload_bytes=_env_int("MATRIX_YOUTUBE_MAX_UPLOAD_BYTES", 2_000_000_000),
         )
