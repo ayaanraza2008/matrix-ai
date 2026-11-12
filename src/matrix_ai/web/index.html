@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>MATRIX · Personal AI Core</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div id="login" class="login hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <form id="login-form" class="login-card">
+      <div class="login-mark" aria-hidden="true">◈</div>
+      <h1 id="login-title">MATRIX</h1>
+      <p class="muted">Local-first personal AI core. Paste your owner token to connect.</p>
+      <label for="token-input">Owner token</label>
+      <input id="token-input" type="password" autocomplete="off" spellcheck="false"
+             placeholder="from %LOCALAPPDATA%\MATRIX\owner_token.txt">
+      <button type="submit">Connect</button>
+      <p class="hint" id="login-hint">The token stays in this browser only. It is never sent anywhere except 127.0.0.1.</p>
+    </form>
+  </div>
+
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <canvas id="core-canvas" width="72" height="72" aria-hidden="true"></canvas>
+        <div>
+          <h1>MATRIX</h1>
+          <p id="brand-status">local-first core</p>
+        </div>
+      </div>
+
+      <nav id="nav" aria-label="Sections">
+        <button data-nav="dashboard" class="active"><span class="glyph">◈</span>Dashboard</button>
+        <button data-nav="chat"><span class="glyph">▣</span>Chat</button>
+        <button data-nav="tasks"><span class="glyph">▤</span>Tasks</button>
+        <button data-nav="memory"><span class="glyph">◍</span>Memory</button>
+        <button data-nav="voice"><span class="glyph">◉</span>Voice</button>
+        <button data-nav="vision"><span class="glyph">◐</span>Vision</button>
+        <button data-nav="agents"><span class="glyph">⬡</span>Agents</button>
+        <button data-nav="tools"><span class="glyph">⚙</span>Tools</button>
+        <button data-nav="devices"><span class="glyph">▭</span>Devices</button>
+        <button data-nav="integrations"><span class="glyph">⧉</span>Integrations</button>
+        <button data-nav="security"><span class="glyph">⛨</span>Security</button>
+        <button data-nav="settings"><span class="glyph">☰</span>Settings</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="stop-btn" class="danger">Emergency stop</button>
+        <button id="lock-btn" class="ghost">Lock dashboard</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="view-title">Dashboard</h2>
+          <p id="view-subtitle" class="muted">System state, active work and quick actions</p>
+        </div>
+        <div class="topbar-right">
+          <span id="link-status" class="pill">connecting</span>
+          <span id="clock" class="mono muted"></span>
+        </div>
+      </header>
+
+      <div id="views">
+        <!-- DASHBOARD -->
+        <section class="view" data-view="dashboard">
+          <div class="hero panel">
+            <div class="hero-core">
+              <canvas id="hero-canvas" width="360" height="360" aria-hidden="true"></canvas>
+              <span id="core-state" class="core-state mono">IDLE</span>
+            </div>
+            <div class="hero-copy">
+              <span class="eyebrow">MATRIX CORE</span>
+              <h3 id="hero-title">Standing by</h3>
+              <p id="hero-text">Ask for a status check, list the workspace, or query governed memory. Sensitive actions stop for your approval.</p>
+              <div class="quick-actions">
+                <button data-quick="system status">System status</button>
+                <button data-quick="list files">List workspace</button>
+                <button data-quick="what do you remember about MATRIX">Search memory</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="cards" id="health-cards"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Recent tasks</h3>
+              <button class="ghost" data-refresh="tasks">Refresh</button>
+            </div>
+            <div id="recent-tasks" class="list"></div>
+          </div>
+        </section>
+
+        <!-- CHAT -->
+        <section class="view hidden" data-view="chat">
+          <div class="panel chat-panel">
+            <div id="chat-log" class="chat-log">
+              <div class="empty">No messages yet. MATRIX only claims what it can verify.</div>
+            </div>
+            <form id="chat-form" class="composer">
+              <textarea id="chat-input" rows="2" placeholder="Message MATRIX…" aria-label="Message"></textarea>
+              <button type="submit" id="chat-send">Send</button>
+            </form>
+            <p class="hint">Deterministic requests (status, files, memory) run without a language model. High-risk actions ask for exact approval.</p>
+          </div>
+        </section>
+
+        <!-- TASKS -->
+        <section class="view hidden" data-view="tasks">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>Task queue</h3>
+                <button class="ghost" data-refresh="tasks">Refresh</button>
+              </div>
+              <div id="task-list" class="list"></div>
+            </div>
+            <div class="panel" id="task-detail-panel">
+              <div class="panel-head"><h3>Task detail</h3><span id="task-detail-id" class="mono muted"></span></div>
+              <div id="task-detail"><div class="empty">Select a task to inspect its plan, tool trace and evidence.</div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- MEMORY -->
+        <section class="view hidden" data-view="memory">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head"><h3>Add memory</h3></div>
+              <form id="memory-form" class="stack">
+                <label for="memory-kind">Kind</label>
+                <select id="memory-kind">
+                  <option value="preference">preference</option>
+                  <option value="project">project</option>
+                  <option value="knowledge" selected>knowledge</option>
+                  <option value="task">task</option>
+                  <option value="summary">summary</option>
+                </select>
+                <label for="memory-title">Title</label>
+                <input id="memory-title" maxlength="200" required>
+                <label for="memory-content">Content</label>
+                <textarea id="memory-content" rows="5" maxlength="20000" required></textarea>
+                <p class="hint">Credentials are refused by the memory service. Approved items carry provenance.</p>
+                <button type="submit">Store memory</button>
+              </form>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3>Browse</h3>
+                <button class="ghost" id="memory-export">Export JSON</button>
+              </div>
+              <form id="memory-search-form" class="row">
+                <input id="memory-search" placeholder="Search memory…" aria-label="Search memory">
+                <button type="submit">Search</button>
+              </form>
+              <div id="memory-list" class="list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VOICE -->
+        <section class="view hidden" data-view="voice">
+          <div class="cards" id="voice-cards"></div>
+          <div class="panel">
+            <div class="panel-head"><h3>Push-to-talk session</h3><span id="mic-indicator" class="pill">microphone idle</span></div>
+            <div class="row wrap">
+              <button id="voice-start">Start session</button>
+              <button id="voice-mute" class="ghost">Mute mic</button>
+              <button id="voice-unmute" class="ghost">Unmute mic</button>
+              <button id="voice-barge" class="ghost">Barge in</button>
+              <button id="voice-stop" class="danger">Stop session</button>
+            </div>
+            <p class="hint" id="voice-detail">Microphone state is server-side. A muted session refuses audio capture with HTTP 409.</p>
+            <form id="voice-speak-form" class="row">
+              <input id="voice-speak-text" placeholder="Text to speak (requires a local TTS engine)" maxlength="2000">
+              <button type="submit">Speak</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- VISION -->
+        <section class="view hidden" data-view="vision">
+          <div class="cards" id="vision-cards"></div>
+          <div class="panel">
+            <div class="panel-head"><h3>Capture session</h3><span id="vision-indicator" class="pill">idle</span></div>
+            <label class="check"><input type="checkbox" id="vision-permission"> Camera permission granted (explicit, per session)</label>
+            <div class="row wrap">
+              <button id="vision-start">Start session</button>
+              <button id="vision-capture" class="ghost">Capture frame</button>
+              <button id="vision-stop" class="danger">Stop session</button>
+            </div>
+            <p class="hint" id="vision-detail">Frames are processed on demand and never persisted by default.</p>
+          </div>
+        </section>
+
+        <!-- AGENTS -->
+        <section class="view hidden" data-view="agents">
+          <div class="panel">
+            <div class="panel-head"><h3>Logical roles</h3><span class="pill">one model runtime</span></div>
+            <div id="agents-grid" class="grid"></div>
+          </div>
+        </section>
+
+        <!-- TOOLS -->
+        <section class="view hidden" data-view="tools">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head"><h3>Tool registry</h3><button class="ghost" data-refresh="tools">Refresh</button></div>
+              <div id="tool-list" class="list"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Execute tool</h3><span class="pill">policy-checked</span></div>
+              <form id="tool-form" class="stack">
+                <label for="tool-select">Tool</label>
+                <select id="tool-select"></select>
+                <label for="tool-args">Arguments (JSON)</label>
+                <textarea id="tool-args" rows="5" spellcheck="false">{}</textarea>
+                <label for="tool-scopes">Scopes (comma separated, blank = defaults)</label>
+                <input id="tool-scopes" placeholder="system.read, files.read">
+                <button type="submit">Run tool</button>
+              </form>
+              <div id="tool-result" class="result"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- DEVICES -->
+        <section class="view hidden" data-view="devices">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head"><h3>Pair a device</h3></div>
+              <p class="muted">Generate a single-use code, then enter it in the Android companion. Codes expire after five minutes.</p>
+              <button id="pairing-code-btn">Generate pairing code</button>
+              <div id="pairing-output" class="result"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Paired devices</h3><button class="ghost" data-refresh="devices">Refresh</button></div>
+              <div id="device-list" class="list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- INTEGRATIONS -->
+        <section class="view hidden" data-view="integrations">
+          <div class="panel">
+            <div class="panel-head"><h3>Optional integrations</h3><button class="ghost" data-refresh="integrations">Refresh</button></div>
+            <p class="muted">Unconfigured integrations never break the core. Health checks only run when you ask for them.</p>
+            <div id="integrations-grid" class="grid"></div>
+          </div>
+        </section>
+
+        <!-- SECURITY -->
+        <section class="view hidden" data-view="security">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head"><h3>Policy</h3><button class="ghost" data-refresh="policy">Refresh</button></div>
+              <div id="policy-list" class="list"></div>
+              <div class="row">
+                <button id="emergency-btn" class="danger">Activate emergency stop</button>
+              </div>
+              <p class="hint">Emergency stop cancels running tasks and blocks new execution until cleared.</p>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Audit trail</h3><button class="ghost" data-refresh="audit">Refresh</button></div>
+              <div id="audit-list" class="list audit"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="view hidden" data-view="settings">
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head"><h3>Runtime settings</h3><button class="ghost" data-refresh="settings">Refresh</button></div>
+              <pre id="settings-json" class="code">Loading…</pre>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Model &amp; hardware budget</h3><button class="ghost" data-refresh="models">Refresh</button></div>
+              <div id="model-status" class="list"></div>
+              <pre id="hardware-json" class="code">Loading…</pre>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
