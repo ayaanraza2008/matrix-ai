@@ -127,6 +127,7 @@ async def test_barge_in_stops_engine_when_engine_supports_stop(config):
 @pytest.mark.asyncio
 async def test_windows_sapi_timeout_terminates_child(monkeypatch):
     process = FakeProcess()
+    process.returncode = None
 
     async def slow_communicate(input=None):
         await asyncio.Event().wait()
