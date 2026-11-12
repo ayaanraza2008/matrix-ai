@@ -19,7 +19,7 @@ def test_http_connection_uses_only_the_validated_numeric_address(monkeypatch):
         calls.append((address, timeout, source_address))
         return sock
 
-    monkeypatch.setattr(web_tools._PinnedHTTPConnection, "_create_connection", staticmethod(connect))
+    monkeypatch.setattr(web_tools.socket, "create_connection", connect)
     connection = web_tools._PinnedHTTPConnection(
         "public.example", 443, "93.184.216.34", timeout=8.0
     )
@@ -44,8 +44,8 @@ def test_https_connection_pins_ip_but_keeps_hostname_for_tls_sni(monkeypatch):
             calls.append(("sni", server_hostname))
             return tls_socket
 
-    monkeypatch.setattr(web_tools._PinnedHTTPSConnection, "_create_connection",
-                        staticmethod(lambda address, timeout, source: calls.append(("tcp", address)) or raw_socket))
+    monkeypatch.setattr(web_tools.socket, "create_connection",
+                        lambda address, timeout, source: calls.append(("tcp", address)) or raw_socket)
     monkeypatch.setattr(web_tools.ssl, "create_default_context", lambda: Context())
 
     connection = web_tools._PinnedHTTPSConnection(
@@ -68,8 +68,8 @@ def test_fetch_pinned_preserves_host_and_bounds_body(monkeypatch):
     class Response:
         status = 200
 
-        def getheader(self, name):
-            return {"content-type": "text/plain; charset=utf-8"}.get(name)
+        def getheader(self, name, default=None):
+            return {"content-type": "text/plain; charset=utf-8"}.get(name, default)
 
         def read(self, amount):
             captured["read_limit"] = amount
