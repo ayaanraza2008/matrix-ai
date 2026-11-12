@@ -8,12 +8,6 @@ from ..core.models import Risk, ToolSpec
 from ..errors import ToolNotFound
 from .app_tools import CloseAppTool, OpenAppTool
 from .base import Tool, ToolContext
-from .github_tools import (
-    GitHubGetPullRequestTool,
-    GitHubGetRepositoryTool,
-    GitHubListIssuesTool,
-    GitHubWhoAmITool,
-)
 from .file_tools import (
     DeleteFileTool,
     ListFilesTool,
@@ -21,6 +15,12 @@ from .file_tools import (
     ReadTextTool,
     StatPathTool,
     WriteTextTool,
+)
+from .github_tools import (
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
 )
 from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
