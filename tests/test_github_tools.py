@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import httpx
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk
