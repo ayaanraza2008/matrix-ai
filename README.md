@@ -28,7 +28,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Offline speech-to-text / text-to-speech | **Optional adapters integrated** | `voice/engines.py`; install `.[voice]`; verify the local model and OS voices on the target PC |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
@@ -172,7 +172,7 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **No speech engines yet.** Voice session state, mute and barge-in are real and tested; STT/TTS adapters return `503` until you install faster-whisper / Piper.
+- **Voice engines are optional.** Install `pip install -e ".[voice]"` for local faster-whisper STT and OS-voice TTS through pyttsx3. The first STT use may download and cache model weights; language quality and stop latency depend on local hardware and installed OS voices.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).

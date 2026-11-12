@@ -130,6 +130,13 @@ class MatrixConfig:
     model_request_timeout_s: float = 60.0
     model_idle_unload_s: int = 900
 
+    # Optional offline voice engines; STT model loads lazily on first use.
+    stt_model: str = "tiny"
+    stt_device: str = "cpu"
+    stt_compute_type: str = "int8"
+    tts_voice_id: str | None = None
+    tts_rate: int = 180
+
     autonomy_level: int = 2
     approval_ttl_seconds: int = 300
     approval_wait_seconds: float = 900.0
@@ -178,6 +185,15 @@ class MatrixConfig:
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
+        if self.stt_device not in {"cpu", "cuda", "auto"}:
+            raise ConfigError("MATRIX_STT_DEVICE must be one of: cpu, cuda, auto")
+        if self.stt_compute_type not in {"int8", "int8_float16", "float16", "float32"}:
+            raise ConfigError("MATRIX_STT_COMPUTE_TYPE is not supported")
+        if not self.stt_model or len(self.stt_model) > 120:
+            raise ConfigError("MATRIX_STT_MODEL must be a non-empty model name up to 120 characters")
+        if not 80 <= self.tts_rate <= 300:
+            raise ConfigError("MATRIX_TTS_RATE must be between 80 and 300")
+
     # -- helpers -----------------------------------------------------------
     def _load_or_create_owner_token(self) -> str:
         token_file = self.home / "owner_token.txt"
@@ -220,6 +236,13 @@ class MatrixConfig:
             "model_name": self.model_name,
             "allow_cloud_models": self.allow_cloud_models,
             "model_ram_budget_mb": self.model_ram_budget_mb,
+            "voice": {
+                "stt_model": self.stt_model,
+                "stt_device": self.stt_device,
+                "stt_compute_type": self.stt_compute_type,
+                "tts_rate": self.tts_rate,
+                "tts_voice_configured": bool(self.tts_voice_id),
+            },
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -265,6 +288,11 @@ class MatrixConfig:
             openai_api_key=_env("MATRIX_OPENAI_API_KEY"),
             allow_cloud_models=_env_bool("MATRIX_ALLOW_CLOUD_MODELS", False),
             model_ram_budget_mb=_env_int("MATRIX_MODEL_RAM_BUDGET_MB", 2500),
+            stt_model=_env("MATRIX_STT_MODEL", "tiny") or "tiny",
+            stt_device=(_env("MATRIX_STT_DEVICE", "cpu") or "cpu").lower(),
+            stt_compute_type=(_env("MATRIX_STT_COMPUTE_TYPE", "int8") or "int8").lower(),
+            tts_voice_id=_env("MATRIX_TTS_VOICE_ID"),
+            tts_rate=_env_int("MATRIX_TTS_RATE", 180),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),

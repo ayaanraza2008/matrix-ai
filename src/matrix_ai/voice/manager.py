@@ -2,8 +2,8 @@
 
 This release ships the permission-critical half of the voice stack: an explicit
 session, a visible listening/speaking state, instant mute, push-to-talk
-semantics and barge-in cancellation. Speech engines (faster-whisper/Piper) are
-optional adapters; when absent the API says so instead of faking a transcript.
+semantics and barge-in cancellation. Local faster-whisper and OS-voice pyttsx3
+adapters are optional and are never contacted over a cloud speech API.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import asyncio
 import base64
 import binascii
 import importlib.util
-import shutil
 import uuid
 from dataclasses import dataclass, field
 from typing import Protocol

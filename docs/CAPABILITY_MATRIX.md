@@ -17,8 +17,8 @@ gap · **scaffold** = structure only, not runnable here · **blocked** = waiting
 | Hardware-aware model manager | 2 | done | `models/manager.py`, `test_a24_resource_budget.py` | Profiles are declared, not auto-benchmarked | Benchmark harness (Phase 2 exit) |
 | Tool-call JSON parsing/validation | 2 | done | `models/planner.py`, `test_planner.py` | No constrained grammar decoding | Evaluate GBNF/ollama grammar support |
 | Local chat + deterministic intent routing | 2 | partial | `HeuristicPlanner`, `PlannerService` | No model configured by default; no embeddings | Benchmark Qwen 0.5B/1.5B on the 8 GB PC |
-| Speech-to-text | 3 | blocked | `voice/manager.py` (honest 503), `test_a11_voice.py` | No engine installed | faster-whisper tiny/base benchmark |
-| Text-to-speech | 3 | blocked | `voice/manager.py` | No engine installed | Piper voice selection + license check |
+| Speech-to-text | 3 | partial | `voice/engines.py`, `test_voice_engines.py`, `test_a11_voice.py` | Optional model must download/cache and be exercised on target mic | Verify Hindi/English accuracy and CPU latency on target PC |
+| Text-to-speech | 3 | partial | `voice/engines.py`, `test_voice_engines.py` | Depends on OS-installed speech voices and platform driver | Verify actual output and barge-in on target Windows device |
 | Wake word / VAD | 3 | not started | — | Depends on STT stack | openWakeWord + Silero VAD |
 | Voice session control: mute, barge-in, PTT state | 3 | done (control) | `test_a11_voice.py` | Audio backend | Integrate with chosen engines |
 | Camera/screenshot capture sessions | 4 | done (control) | `vision/manager.py`, `test_a13_vision.py` | No frame source/MediaPipe | OpenCV/MediaPipe adapter |

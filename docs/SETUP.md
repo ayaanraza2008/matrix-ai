@@ -67,6 +67,23 @@ Copy `.env.example` to `.env` and load it in your shell, or set variables direct
 | `MATRIX_APPROVAL_TTL_SECONDS` | `300` | Approval validity |
 | `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Explicit opt-in for non-local endpoints |
+| `MATRIX_STT_MODEL` / `MATRIX_STT_DEVICE` / `MATRIX_STT_COMPUTE_TYPE` | `tiny` / `cpu` / `int8` | Local faster-whisper configuration |
+| `MATRIX_TTS_VOICE_ID` / `MATRIX_TTS_RATE` | OS default / `180` | Optional offline OS voice selection and speech rate |
+
+### Offline speech (optional)
+
+Install the optional local voice adapters:
+
+```powershell
+pip install -e ".[voice]"
+```
+
+- **Speech input:** MATRIX uses faster-whisper with a small multilingual tiny model, CPU inference and int8 compute by default. The first transcription may download the model weights into the local Hugging Face cache; after that, inference is local. No audio is uploaded to a cloud speech API or stored by MATRIX.
+- **Speech output:** MATRIX uses pyttsx3 with voices already installed in Windows/OS. Available languages depend on the voices installed on the PC. The optional pyttsx3 dependency is MPL-2.0; faster-whisper is MIT. Piper is not bundled because the current Piper distribution is GPL-3.0-or-later, a different licensing choice for this MIT project.
+- **Small-PC defaults:** MATRIX_STT_MODEL=tiny, MATRIX_STT_DEVICE=cpu, MATRIX_STT_COMPUTE_TYPE=int8, MATRIX_TTS_RATE=180. For a specific installed voice, set MATRIX_TTS_VOICE_ID to its voice ID or name.
+- **Controls:** start a push-to-talk session, unmute before sending captured audio, mute immediately to block new capture, and use barge-in to interrupt speech. Driver support for immediate stop varies by operating system and voice.
+
+The optional engines are lazy-loaded. Installing the extra does not force either model weights to download or start a microphone at MATRIX startup.
 
 ### Local model (optional, recommended)
 
@@ -148,7 +165,7 @@ Remote control only works while the PC is powered on, connected and running MATR
 | `403 scope_not_granted` | Task scopes narrower than tool | Grant the scope explicitly or use a broader request |
 | `WAITING_FOR_USER` forever | Approval not decided | Open the task, approve/deny; approvals expire after TTL |
 | OCR `503` | Tesseract missing | Install Tesseract + `[vision]` extra |
-| Voice `503` | No STT/TTS engine | Install faster-whisper/Piper (Phase 3) |
+| Voice `503` | Optional local engine unavailable or failed | Install `.[voice]`; check the local Whisper model cache and OS voice pack |
 | Port in use | Another instance | `matrix serve --port 8766` |
 | Database locked | Second process | Only one MATRIX instance per home directory |
 

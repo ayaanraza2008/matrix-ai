@@ -88,6 +88,7 @@ class VoiceStartBody(BaseModel):
 class VoiceTranscribeBody(BaseModel):
     audio_base64: str = Field(min_length=8, max_length=12_000_000)
     session_id: str | None = None
+    language: str | None = Field(default=None, max_length=12, pattern=r"^[a-z]{2,3}(?:-[A-Za-z]{2})?$")
 
 
 class VoiceSpeakBody(BaseModel):
@@ -375,7 +376,11 @@ async def voice_stop(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, 
 async def voice_transcribe(
     body: VoiceTranscribeBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> dict[str, Any]:
-    return runtime.voice.transcribe(body.audio_base64, session_id=body.session_id)
+    return await runtime.voice.transcribe(
+        body.audio_base64,
+        session_id=body.session_id,
+        language=body.language,
+    )
 
 
 @router.post("/voice/speak", tags=["voice"])
