@@ -60,3 +60,46 @@ def test_https_connection_pins_ip_but_keeps_hostname_for_tls_sni(monkeypatch):
     assert connection.sock is tls_socket
     connection.close()
     assert tls_socket.closed
+
+
+def test_fetch_pinned_preserves_host_and_bounds_body(monkeypatch):
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def getheader(self, name):
+            return {"content-type": "text/plain; charset=utf-8"}.get(name)
+
+        def read(self, amount):
+            captured["read_limit"] = amount
+            return b"abcdefgh"
+
+    class Connection:
+        def __init__(self, host, port, address, *, timeout):
+            captured["connection"] = (host, port, address, timeout)
+
+        def request(self, method, path, *, headers):
+            captured["request"] = (method, path, headers)
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(web_tools, "_PinnedHTTPConnection", Connection)
+    status, content_type, location, body = web_tools._fetch_pinned(
+        "http://public.example:8080/a?q=1", ["93.184.216.34"], 4
+    )
+
+    assert status == 200
+    assert content_type == "text/plain"
+    assert location is None
+    assert body == b"abcd"
+    assert captured["connection"] == ("public.example", 8080, "93.184.216.34", 8.0)
+    method, path, headers = captured["request"]
+    assert (method, path) == ("GET", "/a?q=1")
+    assert headers["Host"] == "public.example:8080"
+    assert captured["read_limit"] == 5
+    assert captured["closed"] is True
