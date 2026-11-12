@@ -111,6 +111,30 @@ or MATRIX is not running. It currently checks core service health; it does not
 claim to monitor Windows hardware, Tailscale reachability, or every third-party
 integration.
 
+### Two-way Telegram chat
+
+The same bot can also act as a private chat front end. Create it with Telegram's
+`@BotFather`, then obtain your numeric private chat/user ID (for example by
+messaging the bot and checking the `getUpdates` response with a trusted tool).
+Set both variables in the MATRIX process environment:
+
+```powershell
+$env:MATRIX_TELEGRAM_BOT_TOKEN = "<token-from-BotFather>"
+$env:MATRIX_TELEGRAM_CHAT_ID = "<your-numeric-user-id>"
+```
+
+Restart MATRIX, open the bot in Telegram, press **Start**, and send a normal
+message. MATRIX submits it to the same orchestrator and policy engine as the
+web dashboard, then sends the result back. `/status` reports model/emergency-stop
+state; `/stop` activates the emergency stop. `/help` lists commands. Only a
+private chat whose chat ID and sender ID both match the configured ID is accepted.
+The bridge uses outbound Telegram long polling, opens no inbound webhook, and
+ignores old queued updates at startup. HIGH/CRITICAL actions are never approved
+by Telegram automatically; review them in the MATRIX dashboard. Keep the token
+in a local environment variable or OS secret store, never in `.env` committed to
+Git or in chat. Telegram is a cloud messaging service, so messages you send
+through it are transmitted to Telegram; MATRIX itself remains self-hosted.
+
 ## 5. Important limits
 
 - Tailscale is an additional private-network dependency; MATRIX core, model, memory
