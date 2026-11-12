@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
@@ -335,7 +335,10 @@ async def create_goal_plan(
     body: GoalPlanCreateBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> dict[str, Any]:
     nodes = [GoalNode(node.node_id, tuple(node.depends_on)) for node in body.nodes]
-    graph = GoalGraph(nodes)
+    try:
+        graph = GoalGraph(nodes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     goal_id = runtime.store.create_goal(
         owner_id=principal.user_id,
         title=body.title,
