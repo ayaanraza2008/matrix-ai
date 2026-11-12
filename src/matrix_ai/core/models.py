@@ -428,4 +428,6 @@ DEFAULT_SCOPES: tuple[str, ...] = (
     "memory.write",
     "web.read",
     "vision.read",
+    "addons.read",
+    "addons.control",
 )

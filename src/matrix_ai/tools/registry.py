@@ -38,6 +38,10 @@ class ToolRegistry:
             raise ValueError(f"tool {tool.name} needs a 'domain.action' permission scope")
         self._tools[tool.name] = tool
 
+    def unregister(self, name: str) -> bool:
+        """Remove a dynamically connected tool; built-in tools are untouched."""
+        return self._tools.pop(name, None) is not None
+
     def get(self, name: str) -> Tool:
         tool = self._tools.get(name)
         if tool is None:

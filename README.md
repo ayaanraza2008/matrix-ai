@@ -41,6 +41,8 @@ Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.m
 
 MATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. Each profile has its own addressable worker instance, lock, status and run counters. Selected workers independently analyze a task and return bounded reports to the coordinator; all real tool actions still pass through MATRIX's central policy, exact-approval and verification pipeline. They share the configured inference provider rather than duplicating 283 model weights. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, API and safety details.
 
+MATRIX also has a pinned, lazy-loaded catalogue of 18 optional capability repositories (OpenWhispr, YouTube Automation Agent, Browser Use, Mobile MCP, REA, Craft Anything, HexStrike, ECC, OpenViking, AgentMemory, scientific skills and more). Their features are selected by task intent; only owner-installed references and explicitly connected services are used. Source install never runs upstream scripts. See [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md) for pinned licences, install/connect instructions, API routes and safety boundaries.
+
 ---
 
 ## Quick start (Windows PowerShell)
@@ -95,6 +97,12 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_MODEL_MAX_CONCURRENT_REQUESTS` | `1` | Active inference requests for the shared model |
 | `MATRIX_AGENT_MAX_CONCURRENT_WORKERS` | `4` | Maximum concurrently active specialist actors |
 | `MATRIX_AGENT_WORKER_TIMEOUT_SECONDS` | `90` | Per-worker execution deadline |
+| `MATRIX_YOUTUBE_AUTOMATION_ENABLED` | `false` | Explicitly expose the local YouTube Automation Agent service tools |
+| `MATRIX_YOUTUBE_AUTOMATION_URL` | `http://127.0.0.1:3456` | Loopback/private service endpoint; public hosts are refused |
+| `MATRIX_ADDON_MCP_SERVERS` | unset | Owner-only JSON config of local MCP processes / verified OpenWhispr endpoint |
+| `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
+| `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
+| `MATRIX_HEXSTRIKE_ALLOWED_TARGETS` | empty | Exact owner-approved hosts/IPs; HexStrike target tools are blocked until set |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
 | `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool (SSRF-guarded) |
@@ -125,7 +133,7 @@ Windows PC                                     Android (scaffold)
     SQLite (WAL) + approved workspace + optional local model runtime
 ```
 
-Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), the external add-ons in [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### Why the state machine matters
 

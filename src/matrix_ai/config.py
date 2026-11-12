@@ -16,6 +16,7 @@ import secrets
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .errors import ConfigError
 
@@ -42,6 +43,18 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:  # pragma: no cover - defensive
         raise ConfigError(f"{name} must be an integer") from exc
+
+
+def _is_local_host(host: str) -> bool:
+    import ipaddress
+
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local") or host.endswith(".internal"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
 
 
 def default_home() -> Path:
@@ -149,6 +162,12 @@ class MatrixConfig:
 
     allowed_apps: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ALLOWED_APPS))
     allowed_commands: dict[str, dict] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_ALLOWED_COMMANDS)))
+    addon_mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    addon_auto_install_sources: bool = True
+    youtube_automation_enabled: bool = False
+    youtube_automation_url: str = "http://127.0.0.1:3456"
+    youtube_automation_api_key: str | None = None
+    hexstrike_allowed_targets: tuple[str, ...] = ()
     log_level: str = "INFO"
 
     # Optional integrations - never required, never logged, never committed.
@@ -183,10 +202,108 @@ class MatrixConfig:
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
         self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
+        self.addon_mcp_servers = self._validate_addon_servers(self.addon_mcp_servers)
+        self.hexstrike_allowed_targets = self._validate_hexstrike_targets(self.hexstrike_allowed_targets)
+        from urllib.parse import urlparse
+
+        parsed_youtube_url = urlparse(self.youtube_automation_url)
+        if self.youtube_automation_enabled and (
+            parsed_youtube_url.scheme not in {"http", "https"}
+            or not parsed_youtube_url.hostname
+            or not _is_local_host(parsed_youtube_url.hostname)
+        ):
+            raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
     # -- helpers -----------------------------------------------------------
+    @staticmethod
+    def _validate_hexstrike_targets(raw: Any) -> tuple[str, ...]:
+        import ipaddress
+        import re
+
+        values = raw.split(",") if isinstance(raw, str) else raw
+        if not isinstance(values, (list, tuple)) or len(values) > 100:
+            raise ConfigError("MATRIX_HEXSTRIKE_ALLOWED_TARGETS must be a bounded comma-separated list")
+        result: set[str] = set()
+        for item in values:
+            if not isinstance(item, str):
+                raise ConfigError("HexStrike targets must be IP addresses or exact hostnames")
+            host = item.strip().casefold().rstrip(".")
+            if not host or len(host) > 253 or any(char in host for char in "/\\*@ "):
+                raise ConfigError("HexStrike targets must be exact IP addresses or hostnames, not URLs or wildcards")
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*", host):
+                    raise ConfigError(f"Invalid HexStrike target hostname: {host}") from None
+            result.add(host)
+        return tuple(sorted(result))
+
+    @staticmethod
+    def _validate_addon_servers(raw: Any) -> dict[str, dict[str, Any]]:
+        from .integrations.addon_catalog import ADDON_BY_ID
+
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict) or len(raw) > 18:
+            raise ConfigError("MATRIX_ADDON_MCP_SERVERS must be a JSON object with at most 18 entries")
+        result: dict[str, dict[str, Any]] = {}
+        for addon_id, spec in raw.items():
+            addon = ADDON_BY_ID.get(addon_id) if isinstance(addon_id, str) else None
+            if addon is None or addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp", "security_mcp_bridge"}:
+                raise ConfigError(f"MATRIX_ADDON_MCP_SERVERS has an unsupported add-on id: {addon_id}")
+            if not isinstance(spec, dict):
+                raise ConfigError(f"MCP server configuration for {addon_id} must be an object")
+            transport = spec.get("transport", "stdio")
+            args = spec.get("args", [])
+            env = spec.get("env", {})
+            headers = spec.get("headers", {})
+            command = spec.get("command", "")
+            url = spec.get("url", "")
+            if transport == "streamable_http":
+                from urllib.parse import urlparse
+
+                parsed = urlparse(url if isinstance(url, str) else "")
+                if addon_id != "openwhispr" or parsed.scheme != "https" or parsed.hostname != "mcp.openwhispr.com" or parsed.path != "/mcp":
+                    raise ConfigError("Only the verified OpenWhispr remote MCP URL is supported for streamable HTTP.")
+                if not isinstance(headers, dict) or len(headers) > 16 or any(
+                    not isinstance(key, str) or not isinstance(value, str)
+                    or len(key) > 100 or len(value) > 8000
+                    for key, value in headers.items()
+                ):
+                    raise ConfigError("MCP HTTP headers must be a bounded string map")
+                if not any(key.casefold() == "authorization" for key in headers):
+                    raise ConfigError("OpenWhispr remote MCP needs an owner-supplied Authorization bearer key.")
+            elif transport == "stdio":
+                if not isinstance(command, str) or not command.strip() or len(command) > 300:
+                    raise ConfigError(f"MCP server {addon_id} requires a bounded command string")
+                if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
+                    raise ConfigError(f"MCP server arguments for {addon_id} must be a list of strings")
+                if not isinstance(env, dict) or len(env) > 64 or any(
+                    not isinstance(key, str) or not key.isidentifier() or len(key) > 80
+                    or not isinstance(value, str) or len(value) > 8000
+                    for key, value in env.items()
+                ):
+                    raise ConfigError(f"MCP server environment for {addon_id} must be a bounded string map")
+            else:
+                raise ConfigError(f"Unsupported MCP transport for {addon_id}: {transport}")
+            read_only_tools = spec.get("read_only_tools", [])
+            if not isinstance(read_only_tools, list) or len(read_only_tools) > 128 or any(
+                not isinstance(name, str) or not name or len(name) > 160 for name in read_only_tools
+            ):
+                raise ConfigError(f"read_only_tools for {addon_id} must be a list of bounded tool names")
+            result[addon_id] = {
+                "transport": transport,
+                "command": command if isinstance(command, str) else "",
+                "args": list(args) if isinstance(args, list) else [],
+                "env": dict(env) if isinstance(env, dict) else {},
+                "url": url if isinstance(url, str) else "",
+                "headers": dict(headers) if isinstance(headers, dict) else {},
+                "read_only_tools": sorted(set(read_only_tools)),
+            }
+        return result
+
     def _load_or_create_owner_token(self) -> str:
         token_file = self.home / "owner_token.txt"
         if token_file.exists():
@@ -231,6 +348,11 @@ class MatrixConfig:
             "model_max_concurrent_requests": self.model_max_concurrent_requests,
             "agent_max_concurrent_workers": self.agent_max_concurrent_workers,
             "agent_worker_timeout_seconds": self.agent_worker_timeout_seconds,
+            "configured_addon_mcp_servers": sorted(self.addon_mcp_servers),
+            "addon_auto_install_sources": self.addon_auto_install_sources,
+            "youtube_automation_enabled": self.youtube_automation_enabled,
+            "youtube_automation_api_key_present": bool(self.youtube_automation_api_key),
+            "hexstrike_allowed_targets": list(self.hexstrike_allowed_targets),
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -258,6 +380,12 @@ class MatrixConfig:
             except (ValueError, AttributeError) as exc:
                 raise ConfigError("MATRIX_ALLOWED_APPS must be a JSON object") from exc
 
+        raw_addon_servers = _env("MATRIX_ADDON_MCP_SERVERS")
+        try:
+            addon_servers = json.loads(raw_addon_servers) if raw_addon_servers else {}
+        except ValueError as exc:
+            raise ConfigError("MATRIX_ADDON_MCP_SERVERS must be valid JSON") from exc
+
         roots: tuple[Path, ...] = ()
         raw_roots = _env("MATRIX_FILE_ROOTS")
         if raw_roots:
@@ -279,12 +407,20 @@ class MatrixConfig:
             model_max_concurrent_requests=_env_int("MATRIX_MODEL_MAX_CONCURRENT_REQUESTS", 1),
             agent_max_concurrent_workers=_env_int("MATRIX_AGENT_MAX_CONCURRENT_WORKERS", 4),
             agent_worker_timeout_seconds=_env_int("MATRIX_AGENT_WORKER_TIMEOUT_SECONDS", 90),
+            youtube_automation_enabled=_env_bool("MATRIX_YOUTUBE_AUTOMATION_ENABLED", False),
+            youtube_automation_url=_env("MATRIX_YOUTUBE_AUTOMATION_URL", "http://127.0.0.1:3456") or "http://127.0.0.1:3456",
+            youtube_automation_api_key=_env("MATRIX_YOUTUBE_AUTOMATION_API_KEY"),
+            hexstrike_allowed_targets=tuple(
+                part.strip() for part in (_env("MATRIX_HEXSTRIKE_ALLOWED_TARGETS", "") or "").split(",") if part.strip()
+            ),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
             file_roots=roots,
             allowed_apps=apps,
+            addon_mcp_servers=addon_servers,
+            addon_auto_install_sources=_env_bool("MATRIX_ADDON_AUTO_INSTALL_SOURCES", True),
             log_level=_env("MATRIX_LOG_LEVEL", "INFO") or "INFO",
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
