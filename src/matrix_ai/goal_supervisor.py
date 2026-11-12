@@ -102,13 +102,18 @@ class GoalSupervisor:
                     deadline = parse_dt(goal.get("deadline"))
                     if deadline and deadline <= datetime.now(UTC):
                         for node in self.store.get_goal_graph(goal_id):
-                            if node["state"] in {"pending", "dispatching"}:
+                            if node["state"] == "running" and node["task_id"]:
+                                await self.orchestrator.cancel(node["task_id"])
+                                self.store.update_goal_node(
+                                    goal_id, node["node_id"], state="cancelled", error="goal_deadline_exceeded"
+                                )
+                            elif node["state"] in {"pending", "dispatching"}:
                                 self.store.update_goal_node(
                                     goal_id, node["node_id"], state="blocked", error="goal_deadline_exceeded"
                                 )
                         self.store.finish_goal_graph(
                             goal_id, state="partial",
-                            summary="The goal deadline passed before every planned node completed.",
+                            summary="The goal deadline passed before every planned node completed; active node tasks were cancelled.",
                         )
                         self.store.audit(
                             "goal.deadline_exceeded", actor="goal-supervisor", status="partial",
@@ -237,11 +242,23 @@ class GoalSupervisor:
                     detail={"goal_id": goal_id, "error": f"{type(exc).__name__}: {exc}"[:1000]},
                 )
                 try:
+                    for node in self.store.get_goal_graph(goal_id):
+                        if node["state"] == "running" and node["task_id"]:
+                            await self.orchestrator.cancel(node["task_id"])
+                            self.store.update_goal_node(
+                                goal_id, node["node_id"], state="cancelled", error="supervisor_error"
+                            )
+                        elif node["state"] in {"pending", "dispatching"}:
+                            self.store.update_goal_node(
+                                goal_id, node["node_id"], state="blocked", error="supervisor_error"
+                            )
                     goal = self.store.get_goal(goal_id)
                     if goal["state"] in {"planned", "running"}:
+                        nodes = self.store.get_goal_graph(goal_id)
+                        state = "partial" if any(node["state"] == "completed" for node in nodes) else "failed"
                         self.store.finish_goal_graph(
-                            goal_id, state="partial",
-                            summary="The goal supervisor stopped unexpectedly. Inspect node state before resuming.",
+                            goal_id, state=state,
+                            summary="The goal supervisor stopped unexpectedly; active node tasks were cancelled. Inspect the persisted evidence before retrying.",
                         )
                 except Exception:
                     pass
