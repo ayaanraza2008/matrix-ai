@@ -88,5 +88,9 @@ def build_registry() -> ToolRegistry:
             FetchPublicUrlTool(),
             OcrImageTool(),
             OpenMeteoForecastTool(),
+            GitHubWhoAmITool(),
+            GitHubGetRepositoryTool(),
+            GitHubListIssuesTool(),
+            GitHubGetPullRequestTool(),
         ]
     )
