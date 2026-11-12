@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 
 import pytest
@@ -240,3 +241,93 @@ async def test_addon_management_never_auto_installs_huge_repo_or_unknown_mcp(cli
     connect = await client.post("/api/addons/browser-use/connect")
     assert connect.status_code == 422
     assert "MATRIX_ADDON_MCP_SERVERS" in connect.json()["message"]
+
+
+def test_hexstrike_requires_an_exact_owner_target_allowlist(config):
+    tools = build_mcp_tools(
+        "hexstrike-ai",
+        [
+            {
+                "name": "nmap_scan",
+                "description": "Scan target",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"target": {"type": "string"}},
+                    "required": ["target"],
+                },
+                "annotations": {"readOnlyHint": True},
+            }
+        ],
+        FakeMCPClient(),
+        read_only_tools={"nmap_scan"},
+        target_allowlist=set(config.hexstrike_allowed_targets),
+    )
+    assert tools[0].risk is Risk.HIGH
+
+    allowed_config = replace(config, hexstrike_allowed_targets=("127.0.0.1",))
+    client = FakeMCPClient()
+    allowed = build_mcp_tools(
+        "hexstrike-ai",
+        [
+            {
+                "name": "nmap_scan",
+                "description": "Scan target",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"target": {"type": "string"}},
+                    "required": ["target"],
+                },
+                "annotations": {"readOnlyHint": True},
+            }
+        ],
+        client,
+        read_only_tools={"nmap_scan"},
+        target_allowlist=set(allowed_config.hexstrike_allowed_targets),
+    )[0]
+    args = allowed.validate({"target": "127.0.0.1"})
+    ctx = ToolContext(task_id="test", config=allowed_config, scopes=["addons.control"])
+    assert (await allowed.run(args, ctx))["called"] == "nmap_scan"
+
+    with pytest.raises(Exception, match="not in MATRIX_HEXSTRIKE_ALLOWED_TARGETS"):
+        await allowed.run(
+            allowed.validate({"target": "203.0.113.99"}),
+            ctx,
+        )
+
+
+@pytest.mark.asyncio
+async def test_stdio_mcp_server_initializes_lists_and_calls_tools(tmp_path):
+    server_file = tmp_path / "fake_mcp_server.py"
+    server_file.write_text(
+        "import json, sys\\n"
+        "for line in sys.stdin:\\n"
+        "    message = json.loads(line)\\n"
+        "    method = message.get('method')\\n"
+        "    if 'id' not in message:\\n"
+        "        continue\\n"
+        "    if method == 'initialize':\\n"
+        "        result = {'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake', 'version': '1'}}\\n"
+        "    elif method == 'tools/list':\\n"
+        "        result = {'tools': [{'name': 'ping', 'description': 'Ping', 'inputSchema': {'type': 'object', 'properties': {}}}]}\\n"
+        "    elif method == 'tools/call':\\n"
+        "        result = {'content': [{'type': 'text', 'text': 'pong'}]}\\n"
+        "    else:\\n"
+        "        result = {}\\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}), flush=True)\\n",
+        encoding="utf-8",
+    )
+    client = MCPStdioClient(
+        command=sys.executable,
+        args=[str(server_file)],
+        env={},
+        server_name="test",
+        request_timeout=5,
+    )
+    tools = await client.connect()
+    try:
+        assert [tool["name"] for tool in tools] == ["ping"]
+        output = await client.call_tool("ping", {})
+        assert output["content"] == ["pong"]
+        assert output["_untrusted_mcp_result"] is True
+    finally:
+        await client.close()

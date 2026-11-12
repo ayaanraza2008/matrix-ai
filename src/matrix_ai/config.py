@@ -16,6 +16,7 @@ import secrets
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .errors import ConfigError
 
@@ -233,7 +234,7 @@ class MatrixConfig:
             try:
                 ipaddress.ip_address(host)
             except ValueError:
-                if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*", host):
+                if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9(?:[a-z0-9-]{0,61}[a-z0-9])?))*", host):
                     raise ConfigError(f"Invalid HexStrike target hostname: {host}")
             result.add(host)
         return tuple(sorted(result))
