@@ -35,7 +35,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
 | Scheduled owner goals | **Implemented** | Bounded recurring jobs, global autonomy ceiling and policy/approval enforcement |
 | Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
-| Optional integrations with health checks | **Adapters implemented** | Google/Twilio/FCM not configured; Tailscale Serve is an optional local CLI feature |
+| External integrations | **Partial** | Credential/connectivity probes exist; Telegram chat bridge is in the stacked PR chain. Full Gmail/Calendar, GitHub, Home Assistant, FCM and telephony action workflows are not complete |
 | Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
 | Signed release / installer | **Planned** | Phase 9 |
 
