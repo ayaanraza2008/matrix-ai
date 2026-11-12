@@ -300,6 +300,7 @@ async def create_goal(
         runtime.store.attach_goal_task(goal_id, task_id)
         await runtime.orchestrator.enqueue(task_id)
     except Exception:
+        runtime.store.fail_goal_start(goal_id, "MATRIX could not start this goal; inspect system health and retry.")
         runtime.store.audit(
             "goal.start_failed", actor=principal.user_id, status="failed",
             detail={"goal_id": goal_id},
