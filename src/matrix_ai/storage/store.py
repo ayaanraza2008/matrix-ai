@@ -385,12 +385,51 @@ class Store:
         )
 
     def next_pending_step_index(self, task_id: str) -> int | None:
-        row = self.db.query_one(
-            "SELECT idx FROM plan_steps WHERE task_id=? AND status IN ('pending','failed') "
-            "ORDER BY idx LIMIT 1",
+        """Return the lowest-index step whose dependencies have all completed.
+
+        Failed dependencies block their transitive descendants. The failed step
+        itself remains eligible for the orchestrator's existing bounded retry
+        path; this method never executes steps or changes task policy.
+        """
+        rows = self.db.query(
+            "SELECT idx, status, depends_on_json FROM plan_steps WHERE task_id=? ORDER BY idx",
             (task_id,),
         )
-        return int(row["idx"]) if row else None
+        if not rows:
+            return None
+
+        states = {int(row["idx"]): str(row["status"]) for row in rows}
+        dependencies = {
+            int(row["idx"]): _json_load(row["depends_on_json"], [])
+            for row in rows
+        }
+
+        # Propagate dependency failure before selecting the next runnable step.
+        changed = True
+        while changed:
+            changed = False
+            failed = {
+                idx for idx, status in states.items()
+                if status in {StepStatus.FAILED.value, StepStatus.BLOCKED.value}
+            }
+            for idx, deps in dependencies.items():
+                if states[idx] == StepStatus.PENDING.value and any(dep in failed for dep in deps):
+                    self.update_step(
+                        task_id,
+                        idx,
+                        status=StepStatus.BLOCKED.value,
+                        error="dependency_failed",
+                        finished_at=iso(),
+                    )
+                    states[idx] = StepStatus.BLOCKED.value
+                    changed = True
+
+        for idx in sorted(states):
+            if states[idx] not in {StepStatus.PENDING.value, StepStatus.FAILED.value}:
+                continue
+            if all(states.get(dep) == StepStatus.COMPLETED.value for dep in dependencies[idx]):
+                return idx
+        return None
 
     def pending_step_count(self, task_id: str) -> int:
         row = self.db.query_one(
