@@ -118,3 +118,13 @@ A task reaching COMPLETE now moves its parent goal to awaiting_verification, not
 The branch now includes a side-effect-free `GoalGraph` validator. It rejects empty/duplicate node IDs, unknown/self/duplicate dependencies, malformed dependency sequences, cycles, excessive graph size and excessive fan-in. It provides deterministic topological ordering and a bounded ready-node selector that does not unlock descendants of failed nodes.
 
 This is a tested planning primitive, **not a persistent multi-task scheduler**: goal tasks are still single-linked in the current API, graph state is not yet stored in SQLite, and the orchestrator does not yet dispatch a goal DAG. Do not count multi-task execution, pause/resume, replanning or goal-level recovery as implemented until those are integrated and accepted end-to-end.
+
+
+### Persistent goal DAG planning slice
+
+The next implementation slice adds schema v4 persistence for bounded goal graph nodes and owner-scoped plan endpoints:
+
+- `POST /api/goals/plan` validates a bounded acyclic dependency graph and stores its nodes in SQLite.
+- `GET /api/goals/{goal_id}/graph` returns the persisted plan for its owner.
+- Invalid cycles, unknown dependencies, duplicate IDs, and configured graph limits are rejected before a goal is written.
+- Plans are explicitly marked `execution_status=plan_only`. This endpoint does **not** dispatch tasks or claim autonomous multi-task execution. The persistent scheduler, node-to-task dispatch, pause/resume, bounded replanning and goal-level verification remain follow-up work.
