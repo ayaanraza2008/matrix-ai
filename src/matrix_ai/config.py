@@ -182,7 +182,7 @@ class MatrixConfig:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
         self.additional_scopes = tuple(sorted(set(self.additional_scopes)))
-        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
             raise ConfigError("MATRIX_EXTRA_SCOPES entries must use domain.action format; wildcard is not allowed")
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
