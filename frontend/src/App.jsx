@@ -108,7 +108,7 @@ export default function App() {
       <main className="studio-main">
         <header className="studio-topbar">
           <div><span className="eyebrow">PERSONAL AI SYSTEM</span><Heading level={1}>{section}</Heading></div>
-          <div className="top-actions"><span className="connection">{health ? 'CORE ONLINE' : 'CHECKING CORE'}</span><Button variant="secondary" onClick={refresh}>Refresh</Button>{token && <Button variant="secondary" onClick={disconnect}>Disconnect</Button>}</div>
+          <div className="top-actions"><span className="connection">{health ? 'CORE ONLINE' : 'CHECKING CORE'}</span><Button label="Refresh" variant="secondary" onClick={refresh}>Refresh</Button>{token && <Button label="Disconnect" variant="secondary" onClick={disconnect}>Disconnect</Button>}</div>
         </header>
 
         <div className="notice" role="status">{notice}</div>
@@ -120,7 +120,7 @@ export default function App() {
             <form className="token-form" onSubmit={connect}>
               <label htmlFor="owner-token">Owner token</label>
               <input id="owner-token" type="password" autoComplete="off" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="Paste local owner token" />
-              <Button type="submit" variant="primary">Connect securely</Button>
+              <Button label="Connect securely" type="submit" variant="primary">Connect securely</Button>
             </form>
           </Stack>
         </Card>}
@@ -129,12 +129,12 @@ export default function App() {
           <Card><Stack gap={2}><Text>CORE STATUS</Text><Heading level={2}>{health ? 'Operational' : 'Unavailable'}</Heading><Text>{health ? 'Health endpoint responded successfully.' : 'Waiting for the local API health check.'}</Text></Stack></Card>
           <Card><Stack gap={2}><Text>ACTIVE TASKS</Text><Heading level={2}>{tasks.filter((t) => !['COMPLETE','FAILED','CANCELLED','PARTIAL'].includes(String(t.state || t.status).toUpperCase())).length}</Heading><Text>Based on authenticated task records.</Text></Stack></Card>
           <Card><Stack gap={2}><Text>DESIGN SYSTEM</Text><Heading level={2}>Astryx 0.7.15</Heading><Text>React 19 · Neutral theme · MIT</Text></Stack></Card>
-          <Card className="wide-card"><Stack gap={2}><Heading level={2}>Start with a task</Heading><Text>Requests go through the existing MATRIX orchestrator and server-side policy checks.</Text><form className="chat-form" onSubmit={sendMessage}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Ask MATRIX to do something…" rows={3} isDisabled={!token} /><Button type="submit" variant="primary" isDisabled={!token || busy || !message.trim()}>{busy ? 'Sending…' : 'Send to MATRIX'}</Button></form></Stack></Card>
+          <Card className="wide-card"><Stack gap={2}><Heading level={2}>Start with a task</Heading><Text>Requests go through the existing MATRIX orchestrator and server-side policy checks.</Text><form className="chat-form" onSubmit={sendMessage}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Ask MATRIX to do something…" rows={3} isDisabled={!token} /><Button label={busy ? 'Sending…' : 'Send to MATRIX'} type="submit" variant="primary" isDisabled={!token || busy || !message.trim()}>{busy ? 'Sending…' : 'Send to MATRIX'}</Button></form></Stack></Card>
         </section>}
 
-        {section === 'Chat' && <Card><Stack gap={3}><Heading level={2}>Talk to MATRIX</Heading><Text>Messages are submitted to the existing authenticated /api/chat endpoint. Tool execution remains governed by MATRIX.</Text><form className="chat-form" onSubmit={sendMessage}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Message MATRIX…" rows={4} isDisabled={!token} /><Button type="submit" variant="primary" isDisabled={!token || busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</Button></form></Stack></Card>}
+        {section === 'Chat' && <Card><Stack gap={3}><Heading level={2}>Talk to MATRIX</Heading><Text>Messages are submitted to the existing authenticated /api/chat endpoint. Tool execution remains governed by MATRIX.</Text><form className="chat-form" onSubmit={sendMessage}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Message MATRIX…" rows={4} isDisabled={!token} /><Button label={busy ? 'Sending…' : 'Send'} type="submit" variant="primary" isDisabled={!token || busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</Button></form></Stack></Card>}
 
-        {section === 'Tasks' && <Card><Stack gap={3}><div className="section-heading"><Heading level={2}>Recent tasks</Heading><Button variant="secondary" onClick={refresh}>Reload</Button></div>{!token ? <Text>Connect with your owner token to view tasks.</Text> : tasks.length ? <div className="task-list">{tasks.map((task) => <article className="task-row" key={task.id || task.task_id}><div><strong>{task.request || task.title || task.id || task.task_id}</strong><small>{task.id || task.task_id}</small></div><span className="task-state">{task.state || task.status || 'UNKNOWN'}</span></article>)}</div> : <Text>No task records returned yet.</Text>}</Stack></Card>}
+        {section === 'Tasks' && <Card><Stack gap={3}><div className="section-heading"><Heading level={2}>Recent tasks</Heading><Button label="Reload" variant="secondary" onClick={refresh}>Reload</Button></div>{!token ? <Text>Connect with your owner token to view tasks.</Text> : tasks.length ? <div className="task-list">{tasks.map((task) => <article className="task-row" key={task.id || task.task_id}><div><strong>{task.request || task.title || task.id || task.task_id}</strong><small>{task.id || task.task_id}</small></div><span className="task-state">{task.state || task.status || 'UNKNOWN'}</span></article>)}</div> : <Text>No task records returned yet.</Text>}</Stack></Card>}
 
         {section === 'Agents' && <Card><Stack gap={2}><Heading level={2}>Worker orchestration</Heading><Text>Agent execution remains owned by the MATRIX orchestrator. The existing bounded worker pool, identity, audit trail and policy gates are not replaced by this UI.</Text><Text>Open a task in the original dashboard to inspect its detailed worker traces.</Text><a href="/">Open classic dashboard →</a></Stack></Card>}
 
