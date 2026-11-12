@@ -14,10 +14,10 @@ import binascii
 import importlib.util
 import io
 import shutil
+import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..config import MatrixConfig
 from ..core.models import VoiceStatusView, iso
@@ -50,6 +50,7 @@ class VoiceSessionManager:
         self._active_id: str | None = None
         self._speak_task: asyncio.Task | None = None
         self._stt_model: Any | None = None
+        self._stt_model_lock = threading.Lock()
         self.stt_provider = self._detect_stt()
         self.tts_provider = tts_engine.name if tts_engine is not None else self._detect_tts()
 
@@ -189,31 +190,34 @@ class VoiceSessionManager:
         """Load one compact CPU/INT8 model on first use, never during startup."""
         if self._stt_model is not None:
             return self._stt_model
-        if self.stt_provider == "unavailable":
-            raise ToolUnavailable(
-                "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
-            )
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError as exc:  # defensive if the package disappears after capability detection
-            self.stt_provider = "unavailable"
-            raise ToolUnavailable(
-                "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
-            ) from exc
-        try:
-            self._stt_model = WhisperModel(
-                self.config.stt_model_size,
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=self.config.stt_cpu_threads,
-                num_workers=1,
-            )
-        except Exception as exc:  # noqa: BLE001 - download/runtime errors are provider-specific
-            raise ToolUnavailable(
-                f"Could not load local speech model '{self.config.stt_model_size}'. "
-                "Check network access for its first download and available memory."
-            ) from exc
-        return self._stt_model
+        with self._stt_model_lock:
+            if self._stt_model is not None:
+                return self._stt_model
+            if self.stt_provider == "unavailable":
+                raise ToolUnavailable(
+                    "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
+                )
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError as exc:  # defensive if the package disappears after capability detection
+                self.stt_provider = "unavailable"
+                raise ToolUnavailable(
+                    "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
+                ) from exc
+            try:
+                self._stt_model = WhisperModel(
+                    self.config.stt_model_size,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=self.config.stt_cpu_threads,
+                    num_workers=1,
+                )
+            except Exception as exc:  # noqa: BLE001 - provider download/runtime errors vary
+                raise ToolUnavailable(
+                    f"Could not load local speech model '{self.config.stt_model_size}'. "
+                    "Check network access for its first download and available memory."
+                ) from exc
+            return self._stt_model
 
     async def transcribe_async(
         self, audio_base64: str, *, session_id: str | None = None
