@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import Field, create_model
 
@@ -47,14 +48,40 @@ def _input_model(addon_id: str, tool: dict[str, Any]):
     return create_model(f"MCP_{safe_name}_Input", __base__=StrictModel, **fields)
 
 
-def _make_tool(addon_id: str, definition: dict[str, Any], client, read_only_tools: set[str]) -> Tool:
+def _extract_targets(arguments: dict[str, Any]) -> set[str]:
+    targets: set[str] = set()
+    target_keys = {"target", "targets", "url", "host", "hostname", "domain", "ip", "ip_address", "target_url", "target_domain"}
+    for key, value in arguments.items():
+        if key.casefold() not in target_keys:
+            continue
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            for part in item.split(","):
+                raw = part.strip().casefold().rstrip(".")
+                if not raw:
+                    continue
+                parsed = urlparse(raw if "://" in raw else "//" + raw)
+                host = parsed.hostname or raw
+                targets.add(host.casefold().rstrip("."))
+    return targets
+
+
+def _make_tool(
+    addon_id: str, definition: dict[str, Any], client, read_only_tools: set[str], target_allowlist: set[str]
+) -> Tool:
     external_name = str(definition.get("name") or "")
     if not external_name:
         raise ValidationFailure("MCP tool has no name")
     annotations = definition.get("annotations") or {}
     # A server annotation is not a permission grant. Owner configuration must
     # independently enumerate any tool trusted as read-only.
-    read_only = annotations.get("readOnlyHint") is True and external_name in read_only_tools
+    read_only = (
+        addon_id != "hexstrike-ai"
+        and annotations.get("readOnlyHint") is True
+        and external_name in read_only_tools
+    )
     risk = Risk.LOW if read_only else Risk.HIGH
     scope = "addons.read" if read_only else "addons.control"
     model = _input_model(addon_id, definition)
@@ -75,6 +102,13 @@ def _make_tool(addon_id: str, definition: dict[str, Any], client, read_only_tool
 
         async def run(self, args, ctx: ToolContext) -> dict[str, Any]:
             ctx.ensure_active()
+            if addon_id == "hexstrike-ai":
+                targets = _extract_targets(args.model_dump(mode="json", exclude_none=True))
+                blocked = sorted(target for target in targets if target not in target_allowlist)
+                if blocked:
+                    raise ToolExecutionError(
+                        "HexStrike target is not in MATRIX_HEXSTRIKE_ALLOWED_TARGETS: " + ", ".join(blocked[:8])
+                    )
             output = await client.call_tool(
                 external_name, args.model_dump(mode="json", exclude_none=True)
             )
@@ -109,13 +143,16 @@ def build_mcp_tools(
     client,
     *,
     read_only_tools: set[str] | None = None,
+    target_allowlist: set[str] | None = None,
 ) -> list[Tool]:
     allowlist = read_only_tools or set()
     created: list[Tool] = []
     for definition in definitions:
         if not isinstance(definition, dict):
             continue
-        created.append(_make_tool(addon_id, definition, client, allowlist))
+        created.append(
+            _make_tool(addon_id, definition, client, allowlist, target_allowlist or set())
+        )
     return created
 
 

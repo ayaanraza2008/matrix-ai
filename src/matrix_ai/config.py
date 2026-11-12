@@ -165,6 +165,7 @@ class MatrixConfig:
     youtube_automation_enabled: bool = False
     youtube_automation_url: str = "http://127.0.0.1:3456"
     youtube_automation_api_key: str | None = None
+    hexstrike_allowed_targets: tuple[str, ...] = ()
     log_level: str = "INFO"
 
     # Optional integrations - never required, never logged, never committed.
@@ -200,6 +201,7 @@ class MatrixConfig:
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
         self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
         self.addon_mcp_servers = self._validate_addon_servers(self.addon_mcp_servers)
+        self.hexstrike_allowed_targets = self._validate_hexstrike_targets(self.hexstrike_allowed_targets)
         from urllib.parse import urlparse
 
         parsed_youtube_url = urlparse(self.youtube_automation_url)
@@ -213,6 +215,29 @@ class MatrixConfig:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
     # -- helpers -----------------------------------------------------------
+    @staticmethod
+    def _validate_hexstrike_targets(raw: Any) -> tuple[str, ...]:
+        import ipaddress
+        import re
+
+        values = raw.split(",") if isinstance(raw, str) else raw
+        if not isinstance(values, (list, tuple)) or len(values) > 100:
+            raise ConfigError("MATRIX_HEXSTRIKE_ALLOWED_TARGETS must be a bounded comma-separated list")
+        result: set[str] = set()
+        for item in values:
+            if not isinstance(item, str):
+                raise ConfigError("HexStrike targets must be IP addresses or exact hostnames")
+            host = item.strip().casefold().rstrip(".")
+            if not host or len(host) > 253 or any(char in host for char in "/\\:*@ "):
+                raise ConfigError("HexStrike targets must be exact IP addresses or hostnames, not URLs or wildcards")
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*", host):
+                    raise ConfigError(f"Invalid HexStrike target hostname: {host}")
+            result.add(host)
+        return tuple(sorted(result))
+
     @staticmethod
     def _validate_addon_servers(raw: Any) -> dict[str, dict[str, Any]]:
         from .integrations.addon_catalog import ADDON_BY_ID
@@ -324,6 +349,7 @@ class MatrixConfig:
             "configured_addon_mcp_servers": sorted(self.addon_mcp_servers),
             "youtube_automation_enabled": self.youtube_automation_enabled,
             "youtube_automation_api_key_present": bool(self.youtube_automation_api_key),
+            "hexstrike_allowed_targets": list(self.hexstrike_allowed_targets),
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -381,6 +407,9 @@ class MatrixConfig:
             youtube_automation_enabled=_env_bool("MATRIX_YOUTUBE_AUTOMATION_ENABLED", False),
             youtube_automation_url=_env("MATRIX_YOUTUBE_AUTOMATION_URL", "http://127.0.0.1:3456") or "http://127.0.0.1:3456",
             youtube_automation_api_key=_env("MATRIX_YOUTUBE_AUTOMATION_API_KEY"),
+            hexstrike_allowed_targets=tuple(
+                part.strip() for part in (_env("MATRIX_HEXSTRIKE_ALLOWED_TARGETS", "") or "").split(",") if part.strip()
+            ),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),

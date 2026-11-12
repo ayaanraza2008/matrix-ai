@@ -323,9 +323,15 @@ class AddonManager:
             headers=spec.get("headers") if isinstance(spec.get("headers"), dict) else {},
         )
         tools = await client.connect()
-        created = build_mcp_tools(
-            addon_id, tools, client, read_only_tools=set(spec.get("read_only_tools", []))
-        )
+        try:
+            created = build_mcp_tools(
+                addon_id, tools, client,
+                read_only_tools=set(spec.get("read_only_tools", [])),
+                target_allowlist=set(self.config.hexstrike_allowed_targets),
+            )
+        except Exception:
+            await client.close()
+            raise
         if not created:
             await client.close()
             raise AddonError(f"{addon_id} MCP server exposed no tools")
