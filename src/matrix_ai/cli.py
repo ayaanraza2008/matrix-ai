@@ -1,4 +1,4 @@
-"""Command line entry point: ``matrix serve|doctor|backup|pair-code``."""
+"""Command line entry point: ``matrix serve|doctor|benchmark-model|backup|pair-code``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ from pathlib import Path
 from . import __version__
 from .config import MatrixConfig
 from .core.models import Principal
-from .errors import MatrixError
+from .errors import MatrixError, ModelUnavailable, ValidationFailure
+from .models.base import is_local_endpoint
+from .models.benchmark import DEFAULT_BENCHMARK_CASES, run_model_benchmark
 from .runtime import MatrixRuntime
 
 
@@ -31,6 +33,14 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--no-background", action="store_true", help="disable the scheduler loop")
 
     sub.add_parser("doctor", help="print a health/diagnostics report (no secrets)")
+
+    benchmark = sub.add_parser(
+        "benchmark-model", help="benchmark a configured local model (plans are never executed)"
+    )
+    benchmark.add_argument(
+        "--max-cases", type=int, default=len(DEFAULT_BENCHMARK_CASES),
+        help=f"number of English/Hindi test prompts (1-{len(DEFAULT_BENCHMARK_CASES)}; default: all)",
+    )
 
     backup = sub.add_parser("backup", help="create and verify a SQLite backup")
     backup.add_argument("--out", default=None, help="destination .db path")
@@ -87,6 +97,40 @@ async def _doctor() -> int:
         await runtime.shutdown()
 
 
+async def _benchmark_model(max_cases: int) -> int:
+    runtime = MatrixRuntime.build(MatrixConfig.from_env())
+    try:
+        config = runtime.config
+        if not runtime.models.configured:
+            raise ModelUnavailable(
+                "Configure a local model first. For Ollama, install it, run "
+                "'ollama pull qwen2.5:0.5b-instruct-q4_K_M', then set MATRIX_MODEL_PROVIDER=ollama."
+            )
+        if config.model_provider == "openai" and not is_local_endpoint(config.openai_base_url):
+            raise ModelUnavailable(
+                "The benchmark is local-only. Configure MATRIX_OPENAI_BASE_URL to a loopback/private "
+                "llama.cpp-compatible endpoint; public cloud endpoints are refused."
+            )
+        if not 1 <= max_cases <= len(DEFAULT_BENCHMARK_CASES):
+            raise ValidationFailure(
+                f"--max-cases must be between 1 and {len(DEFAULT_BENCHMARK_CASES)}."
+            )
+        health = await runtime.models.health()
+        if not health.reachable or health.status != "working":
+            raise ModelUnavailable(
+                health.detail or "The configured local model is not ready; check the runtime and model name."
+            )
+        report = await run_model_benchmark(
+            runtime.models,
+            runtime.registry,
+            cases=DEFAULT_BENCHMARK_CASES[:max_cases],
+        )
+        print(json.dumps(report, indent=2))
+        return 0
+    finally:
+        await runtime.shutdown()
+
+
 def _backup(out: str | None) -> int:
     config = MatrixConfig.from_env()
     runtime = MatrixRuntime.build(config)
@@ -118,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             return _serve(args)
         if args.command == "doctor":
             return asyncio.run(_doctor())
+        if args.command == "benchmark-model":
+            return asyncio.run(_benchmark_model(args.max_cases))
         if args.command == "backup":
             return _backup(args.out)
         if args.command == "pair-code":

@@ -25,6 +25,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Governed SQLite memory + FTS5, delete removes from retrieval | **Implemented** | `memory/service.py`, `test_a09_memory.py`, `test_a10_memory_deletion.py` |
 | Model provider abstraction (Ollama / OpenAI-compatible / offline) | **Implemented** | `models/base.py`, `test_a02_model_offline.py` |
 | Hardware-aware model manager (8 GB RAM discipline) | **Implemented** | `models/manager.py`, `test_a24_resource_budget.py` |
+| Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
 | Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
@@ -72,7 +73,7 @@ $env:MATRIX_MODEL_NAME = "qwen2.5:0.5b-instruct-q4_K_M"
 matrix serve
 ```
 
-MATRIX works without a model: deterministic tools, memory, approvals and verification keep working. Free-form chat degrades to an honest message instead of hallucinating.
+MATRIX works without a model: deterministic tools, memory, approvals and verification keep working. Free-form chat degrades to an honest message instead of hallucinating. To measure a configured local model on English/Hindi plans without executing them, run matrix benchmark-model; see docs/SETUP.md.
 
 ---
 
