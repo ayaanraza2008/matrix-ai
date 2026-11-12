@@ -522,6 +522,7 @@ class Store:
 
     def begin_cancel_goal_graph(self, goal_id: str) -> list[str]:
         """Make a goal non-dispatchable before cancelling any live node tasks."""
+        self.reconcile_goal_node_tasks()
         with self.db.transaction() as conn:
             conn.execute(
                 "UPDATE goals SET state='cancelling', updated_at=? "
