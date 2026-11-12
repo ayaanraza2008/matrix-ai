@@ -1,0 +1,82 @@
+# ---- secrets & local configuration ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+secrets/
+credentials.json
+token.json
+
+# ---- MATRIX runtime data ----
+.matrix/
+.matrix_runtime/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backups/
+logs/
+*.log
+audit*.jsonl
+owner_token.txt
+
+# ---- model weights / large artifacts ----
+models/
+*.gguf
+*.bin
+*.onnx
+*.pt
+*.safetensors
+whisper/
+piper-voices/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+site-packages/
+
+# ---- node / web ----
+node_modules/
+web/dist/
+package-lock.json.bak
+
+# ---- android ----
+android/.gradle/
+android/**/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/app/release/
+*.apk
+*.aab
+android/key.properties
+
+# ---- editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+
+# ---- verification scrapers ----
+blueprint.txt
