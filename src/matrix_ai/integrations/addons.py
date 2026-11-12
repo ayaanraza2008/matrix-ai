@@ -320,7 +320,9 @@ class AddonManager:
             cwd=str(self._path(addon_id)) if self._installed_info(addon_id) else None,
         )
         tools = await client.connect()
-        created = build_mcp_tools(addon_id, tools, client)
+        created = build_mcp_tools(
+            addon_id, tools, client, read_only_tools=set(spec.get("read_only_tools", []))
+        )
         if not created:
             await client.close()
             raise AddonError(f"{addon_id} MCP server exposed no tools")

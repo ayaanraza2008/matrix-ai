@@ -217,7 +217,15 @@ class MatrixConfig:
                 for key, value in env.items()
             ):
                 raise ConfigError(f"MCP server environment for {addon_id} must be a bounded string map")
-            result[addon_id] = {"command": command, "args": list(args), "env": dict(env)}
+            read_only_tools = spec.get("read_only_tools", [])
+            if not isinstance(read_only_tools, list) or len(read_only_tools) > 128 or any(
+                not isinstance(name, str) or not name or len(name) > 160 for name in read_only_tools
+            ):
+                raise ConfigError(f"read_only_tools for {addon_id} must be a list of bounded tool names")
+            result[addon_id] = {
+                "command": command, "args": list(args), "env": dict(env),
+                "read_only_tools": sorted(set(read_only_tools)),
+            }
         return result
 
     def _load_or_create_owner_token(self) -> str:

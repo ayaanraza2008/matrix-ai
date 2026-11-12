@@ -166,7 +166,7 @@ class MatrixRuntime:
             "voice": self.voice.status().stt_provider,
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
-            "addons": f"{self.addon_manager.status()[\"installed_count\"]} installed / {self.addon_manager.status()[\"connected_count\"]} connected",
+            "addons": "available",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}

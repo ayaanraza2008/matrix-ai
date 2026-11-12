@@ -456,7 +456,16 @@ class PlannerService:
         addon_context = ""
         if self.addon_manager is not None and selected_addons:
             try:
-                selected_addons, addon_context = self.addon_manager.search_context(request, max_docs=3, max_total_chars=5000)
+                context_sources, addon_context = self.addon_manager.search_context(
+                    request, max_docs=3, max_total_chars=5000
+                )
+                context_by_id = {source["addon_id"]: source for source in context_sources}
+                for addon in selected_addons:
+                    source = context_by_id.get(addon["id"])
+                    addon["context_loaded"] = source is not None
+                    if source is not None:
+                        addon["context_path"] = source["path"]
+                        addon["context_characters"] = source["characters"]
                 addon_context_used = bool(addon_context)
             except Exception as exc:  # unavailable references never block ordinary planning
                 if self.store is not None:
