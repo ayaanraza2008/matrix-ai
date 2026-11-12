@@ -175,6 +175,7 @@ class Orchestrator:
             node_id = node["node_id"]
             if not self.store.claim_goal_node(goal_id, node_id, limit=4):
                 continue
+            task_id: str | None = None
             try:
                 existing = self.store.get_goal_node_task(goal_id, node_id)
                 if existing is not None:
@@ -208,7 +209,7 @@ class Orchestrator:
             except Exception as exc:
                 # If cancellation or another worker won after the claim, never leave
                 # an unlinked RECEIVED task that startup recovery could execute.
-                if "task_id" in locals():
+                if task_id is not None:
                     try:
                         linked = next(
                             (item for item in self.store.get_goal_graph(goal_id)
