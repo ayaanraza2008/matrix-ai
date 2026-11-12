@@ -26,7 +26,8 @@ const STATE_KIND = {
 };
 
 const STATE = {
-  token: localStorage.getItem('matrix_token') || '',
+  // Keep the bearer token only in memory; never persist it in script-readable browser storage.
+  token: '',
   view: 'dashboard',
   health: null,
   status: null,
@@ -203,7 +204,6 @@ function hideLogin() {
 
 function lockDashboard(message) {
   STATE.token = '';
-  localStorage.removeItem('matrix_token');
   showLogin(message || 'Dashboard locked. Paste the owner token to reconnect.');
 }
 
@@ -214,7 +214,6 @@ $('#login-form').addEventListener('submit', async (event) => {
   STATE.token = token;
   try {
     await api('/auth/me');
-    localStorage.setItem('matrix_token', token);
     hideLogin();
     await boot();
     toast('Connected to MATRIX', 'ok');
