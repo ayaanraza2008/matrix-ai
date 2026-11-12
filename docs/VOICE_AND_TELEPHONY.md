@@ -12,7 +12,7 @@ MATRIX's voice session API now has real optional offline speech adapters:
 ```powershell
 pip install -e ".[voice]"
 # Download a Piper voice model (.onnx plus its .onnx.json sidecar) from the official Piper voices catalogue.
-$env:MATRIX_PIPER_MODEL = "C:\\MATRIX\\voices\\en_US-lessac-medium.onnx"
+$env:MATRIX_PIPER_MODEL = "C:\MATRIX\voices\en_US-lessac-medium.onnx"
 $env:MATRIX_STT_MODEL = "tiny"
 $env:MATRIX_STT_DEVICE = "cpu"
 $env:MATRIX_STT_COMPUTE_TYPE = "int8"
