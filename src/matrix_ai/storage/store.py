@@ -387,9 +387,9 @@ class Store:
     def next_pending_step_index(self, task_id: str) -> int | None:
         """Return the lowest-index step whose dependencies have all completed.
 
-        Failed dependencies block their transitive descendants. The failed step
-        itself remains eligible for the orchestrator's existing bounded retry
-        path; this method never executes steps or changes task policy.
+        Failed dependencies block their transitive descendants. Tool retries
+        happen inside the orchestrator before a step is marked failed; a
+        terminally failed step is never replayed here.
         """
         rows = self.db.query(
             "SELECT idx, status, depends_on_json FROM plan_steps WHERE task_id=? ORDER BY idx",
@@ -425,7 +425,7 @@ class Store:
                     changed = True
 
         for idx in sorted(states):
-            if states[idx] not in {StepStatus.PENDING.value, StepStatus.FAILED.value}:
+            if states[idx] != StepStatus.PENDING.value:
                 continue
             if all(states.get(dep) == StepStatus.COMPLETED.value for dep in dependencies[idx]):
                 return idx
