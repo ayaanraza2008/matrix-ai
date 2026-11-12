@@ -105,3 +105,13 @@ jobs:
 
       - name: Assemble debug and release APKs
         run: gradle -p android assembleDebug assembleRelease
+
+      - name: Upload APKs for device acceptance (release APK is unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-android-apks
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
