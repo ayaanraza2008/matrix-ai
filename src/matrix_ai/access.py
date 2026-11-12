@@ -25,10 +25,15 @@ def _creationflags() -> int:
 
 def _run(argv: list[str], *, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
     """Run a fixed-argument local helper; shell execution is never enabled."""
-    return subprocess.run(
-        argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=timeout, check=False, shell=False, creationflags=_creationflags(),
-    )
+    try:
+        return subprocess.run(
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout, check=False, shell=False, creationflags=_creationflags(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Local helper timed out after {timeout:g} seconds.") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Could not start local helper ({type(exc).__name__}).") from exc
 
 
 class RemoteAccessManager:
