@@ -7,9 +7,10 @@ still pass through MATRIX's per-action approval policy.
 from __future__ import annotations
 
 import mimetypes
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError
@@ -45,7 +46,37 @@ class YouTubeUploadVideoInput(StrictModel):
     tags: list[str] = Field(default_factory=list, max_length=500)
     category_id: str = Field(default="22", pattern=r"^[0-9]{1,3}$")
     privacy_status: Literal["private", "unlisted", "public"] = "private"
+    publish_at: str | None = Field(default=None, max_length=40)
     made_for_kids: bool = False
+
+    @model_validator(mode="after")
+    def _validate_scheduled_publish(self):
+        if self.publish_at:
+            if self.privacy_status != "private":
+                raise ValueError("scheduled publishing requires private privacy_status")
+            try:
+                scheduled = datetime.fromisoformat(self.publish_at.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("publish_at must be an ISO 8601 timestamp") from exc
+            if scheduled.tzinfo is None:
+                raise ValueError("publish_at must include a timezone")
+            if scheduled <= datetime.now(UTC):
+                raise ValueError("publish_at must be in the future")
+        return self
+
+
+class YouTubeUpdateVideoInput(StrictModel):
+    video_id: str = Field(min_length=6, max_length=128)
+    title: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=5000)
+    tags: list[str] | None = Field(default=None, max_length=500)
+    privacy_status: Literal["private", "unlisted", "public"] | None = None
+
+    @model_validator(mode="after")
+    def _require_update(self):
+        if all(value is None for value in (self.title, self.description, self.tags, self.privacy_status)):
+            raise ValueError("at least one video field must be updated")
+        return self
 
 
 def _execute(request):
@@ -230,6 +261,67 @@ class YouTubeReplyCommentTool(Tool):
         )
 
 
+class YouTubeUpdateVideoTool(Tool):
+    name = "youtube.update_video"
+    description = "Update metadata or privacy for a video owned by the connected channel. Requires youtube.write and exact owner approval."
+    permission_scope = "youtube.write"
+    risk = Risk.HIGH
+    idempotent = False
+    timeout_seconds = 60
+    input_model = YouTubeUpdateVideoInput
+
+    def run_sync(self, args: YouTubeUpdateVideoInput, ctx: ToolContext) -> dict[str, Any]:
+        service = build_youtube_service(ctx.config, YOUTUBE_WRITE_SCOPE)
+        channel = _execute(service.channels().list(part="id", mine=True, maxResults=1))
+        channel_items = channel.get("items", [])
+        if not channel_items:
+            raise ToolExecutionError("The connected Google account has no accessible YouTube channel.")
+        channel_id = channel_items[0].get("id")
+        existing = _execute(service.videos().list(
+            part="snippet,status", id=args.video_id, maxResults=1
+        )).get("items", [])
+        if not existing:
+            raise ToolExecutionError("The requested YouTube video was not found.")
+        current = existing[0]
+        snippet = current.get("snippet", {})
+        if snippet.get("channelId") != channel_id:
+            raise ToolExecutionError("The requested video does not belong to the connected channel.")
+        parts = []
+        body: dict[str, Any] = {"id": args.video_id}
+        if args.title is not None or args.description is not None or args.tags is not None:
+            body["snippet"] = {
+                "title": args.title if args.title is not None else snippet.get("title", ""),
+                "description": args.description if args.description is not None else snippet.get("description", ""),
+                "categoryId": snippet.get("categoryId", "22"),
+                "tags": args.tags if args.tags is not None else snippet.get("tags", []),
+            }
+            parts.append("snippet")
+        if args.privacy_status is not None:
+            status = current.get("status", {})
+            body["status"] = {
+                "privacyStatus": args.privacy_status,
+                "license": status.get("license", "youtube"),
+                "embeddable": status.get("embeddable", True),
+                "publicStatsViewable": status.get("publicStatsViewable", True),
+                "selfDeclaredMadeForKids": status.get("selfDeclaredMadeForKids", False),
+            }
+            parts.append("status")
+        updated = _execute(service.videos().update(part=",".join(parts), body=body))
+        return {
+            "video_id": updated.get("id"),
+            "title": updated.get("snippet", {}).get("title"),
+            "privacy_status": updated.get("status", {}).get("privacyStatus"),
+        }
+
+    def verify(self, args: YouTubeUpdateVideoInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = output.get("video_id") == args.video_id
+        return VerificationEvidence(
+            ok=ok,
+            confidence=0.98 if ok else 0.0,
+            checks=["owned_video_update_confirmed" if ok else "video_update_not_confirmed"],
+        )
+
+
 class YouTubeUploadVideoTool(Tool):
     name = "youtube.upload_video"
     description = "Upload a video file to the connected YouTube channel. Requires youtube.upload opt-in and exact owner approval."
@@ -270,6 +362,7 @@ class YouTubeUploadVideoTool(Tool):
             "status": {
                 "privacyStatus": args.privacy_status,
                 "selfDeclaredMadeForKids": args.made_for_kids,
+                **({"publishAt": args.publish_at} if args.publish_at else {}),
             },
         }
         response = _execute(service.videos().insert(part="snippet,status", body=body, media_body=media))
@@ -281,6 +374,7 @@ class YouTubeUploadVideoTool(Tool):
             "title": response.get("snippet", {}).get("title", args.title),
             "privacy_status": response.get("status", {}).get("privacyStatus", args.privacy_status),
             "upload_status": response.get("status", {}).get("uploadStatus"),
+            "publish_at": response.get("status", {}).get("publishAt"),
             "url": f"https://www.youtube.com/watch?v={video_id}",
         }
 
@@ -299,5 +393,6 @@ def build_youtube_tools() -> list[Tool]:
         YouTubeListVideosTool(),
         YouTubeListCommentsTool(),
         YouTubeReplyCommentTool(),
+        YouTubeUpdateVideoTool(),
         YouTubeUploadVideoTool(),
     ]
