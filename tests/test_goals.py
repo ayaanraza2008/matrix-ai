@@ -203,3 +203,18 @@ def test_schema_v2_goals_migrate_verification_metadata(tmp_path):
     assert {"deadline", "verification_status", "criteria_status", "evidence_json"} <= columns
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
+
+
+def test_goal_cannot_attach_another_users_task(runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Owner-only goal", success_criteria="Done"
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="what is my system status?",
+        user_id="another-user",
+        kind="goal",
+        goal_id=goal_id,
+    )
+    with pytest.raises(ValueError, match="owner does not match"):
+        runtime.store.attach_goal_task(goal_id, task_id)
+    assert runtime.store.get_goal(goal_id)["task_id"] is None
