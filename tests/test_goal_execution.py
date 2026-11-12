@@ -287,6 +287,7 @@ async def test_startup_finishes_cancellation_after_task_create_link_crash(client
 
     assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
     assert runtime.store.get_task_row(task_id)["state"] == "CANCELLED"
+    assert runtime.store.get_goal_graph(goal_id)[0]["state"] == "cancelled"
 
 
 @pytest.mark.asyncio
