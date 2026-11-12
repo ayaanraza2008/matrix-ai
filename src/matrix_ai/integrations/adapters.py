@@ -6,12 +6,14 @@ metadata. Nothing here runs during startup, and no adapter sends user content.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 import httpx
 
 from ..config import MatrixConfig
+from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service
 from .base import (
     STATUS_CONFIGURED,
     STATUS_DEGRADED,
@@ -101,6 +103,34 @@ class GoogleWorkspaceIntegration(Integration):
             STATUS_CONFIGURED,
             "OAuth client present. Gmail/Calendar scopes and the consent flow are a manual setup step.",
         )
+
+
+
+class YouTubeIntegration(Integration):
+    name = "youtube"
+    description = "Manage the connected YouTube channel through the official YouTube Data API."
+    category = "creator"
+    required_settings = ("MATRIX_YOUTUBE_TOKEN_FILE",)
+
+    @property
+    def configured(self) -> bool:
+        path = Path(str(self.config.youtube_token_path or "")).expanduser()
+        return path.is_file()
+
+    def _check_sync(self) -> IntegrationResult:
+        service = build_youtube_service(self.config, YOUTUBE_READ_SCOPE)
+        response = service.channels().list(part="snippet", mine=True, maxResults=1).execute()
+        items = response.get("items", [])
+        if not items:
+            return IntegrationResult(STATUS_DEGRADED, "OAuth is valid, but the account has no accessible YouTube channel.")
+        title = items[0].get("snippet", {}).get("title", "connected channel")
+        return IntegrationResult(STATUS_OK, f"Connected to YouTube channel: {str(title)[:120]}.")
+
+    async def check(self) -> IntegrationResult:
+        try:
+            return await asyncio.to_thread(self._check_sync)
+        except Exception as exc:  # noqa: BLE001 - integration health must not crash the runtime
+            return IntegrationResult(STATUS_DEGRADED, f"YouTube check failed ({type(exc).__name__}); reconnect or inspect scopes.")
 
 
 class HomeAssistantIntegration(Integration):
@@ -201,6 +231,7 @@ def build_integrations(config: MatrixConfig) -> list[Integration]:
         GitHubIntegration(config),
         TelegramIntegration(config),
         GoogleWorkspaceIntegration(config),
+        YouTubeIntegration(config),
         HomeAssistantIntegration(config),
         WeatherIntegration(config),
         FirebasePushIntegration(config),
@@ -218,5 +249,6 @@ __all__ = [
     "TelegramIntegration",
     "TelephonyIntegration",
     "WeatherIntegration",
+    "YouTubeIntegration",
     "build_integrations",
 ]
