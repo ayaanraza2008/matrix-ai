@@ -51,7 +51,7 @@ class VoiceSessionManager:
         self._stt_model_lock = threading.Lock()
         self._stt_inference_lock = threading.Lock()
         self.stt_provider = self._detect_stt()
-        self.tts_provider = tts_engine.name if tts_engine is not None else self._detect_tts()
+        self.tts_provider = tts_engine.name if tts_engine is not None else "unavailable"
 
     # -- capability detection --------------------------------------------
     @staticmethod
