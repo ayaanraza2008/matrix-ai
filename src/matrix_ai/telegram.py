@@ -244,10 +244,18 @@ class TelegramChatBridge:
         if not file_id:
             raise ValidationFailure("Telegram voice note did not include a file ID")
         declared_size = voice_message.get("file_size")
-        if declared_size is not None and int(declared_size) > MAX_AUDIO_BYTES:
-            raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
-        file_data = await self._api("getFile", {"file_id": file_id})
-        file_path = str((file_data.get("result") or {}).get("file_path") or "")
+        if declared_size is not None:
+            try:
+                declared_size = int(declared_size)
+            except (TypeError, ValueError) as exc:
+                raise ValidationFailure("Telegram voice note has an invalid file size") from exc
+            if declared_size > MAX_AUDIO_BYTES:
+                raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
+        try:
+            file_data = await self._api("getFile", {"file_id": file_id})
+            file_path = str((file_data.get("result") or {}).get("file_path") or "")
+        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+            raise ToolUnavailable("Telegram could not retrieve the voice note file.") from exc
         parts = file_path.split("/")
         if not file_path or any(part in {"", ".", ".."} or "\\" in part for part in parts):
             raise ValidationFailure("Telegram returned an invalid voice file path")
@@ -258,12 +266,19 @@ class TelegramChatBridge:
         async with self._client.stream("GET", url) as response:
             response.raise_for_status()
             length = response.headers.get("content-length")
-            if length and int(length) > MAX_AUDIO_BYTES:
-                raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
-            async for chunk in response.aiter_bytes():
-                audio.extend(chunk)
-                if len(audio) > MAX_AUDIO_BYTES:
-                    raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
+            if length:
+                try:
+                    if int(length) > MAX_AUDIO_BYTES:
+                        raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
+                except ValueError as exc:
+                    raise ValidationFailure("Telegram returned an invalid audio size") from exc
+            try:
+                async for chunk in response.aiter_bytes():
+                    audio.extend(chunk)
+                    if len(audio) > MAX_AUDIO_BYTES:
+                        raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
+            except httpx.HTTPError as exc:
+                raise ToolUnavailable("Telegram voice note download was interrupted.") from exc
         mime = str(voice_message.get("mime_type") or "").lower()
         suffix = {
             "audio/ogg": ".ogg",
