@@ -163,6 +163,7 @@ class MatrixConfig:
     allowed_apps: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ALLOWED_APPS))
     allowed_commands: dict[str, dict] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_ALLOWED_COMMANDS)))
     addon_mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    addon_auto_install_sources: bool = True
     youtube_automation_enabled: bool = False
     youtube_automation_url: str = "http://127.0.0.1:3456"
     youtube_automation_api_key: str | None = None
@@ -348,6 +349,7 @@ class MatrixConfig:
             "agent_max_concurrent_workers": self.agent_max_concurrent_workers,
             "agent_worker_timeout_seconds": self.agent_worker_timeout_seconds,
             "configured_addon_mcp_servers": sorted(self.addon_mcp_servers),
+            "addon_auto_install_sources": self.addon_auto_install_sources,
             "youtube_automation_enabled": self.youtube_automation_enabled,
             "youtube_automation_api_key_present": bool(self.youtube_automation_api_key),
             "hexstrike_allowed_targets": list(self.hexstrike_allowed_targets),
@@ -418,6 +420,7 @@ class MatrixConfig:
             file_roots=roots,
             allowed_apps=apps,
             addon_mcp_servers=addon_servers,
+            addon_auto_install_sources=_env_bool("MATRIX_ADDON_AUTO_INSTALL_SOURCES", True),
             log_level=_env("MATRIX_LOG_LEVEL", "INFO") or "INFO",
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
