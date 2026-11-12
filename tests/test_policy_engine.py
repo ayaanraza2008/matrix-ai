@@ -8,7 +8,9 @@ from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk, ToolSpec
 from matrix_ai.core.policy import PolicyEngine
 from matrix_ai.errors import ConfigError
-\n\ndef make_spec(risk: Risk, scope: str = "files.write", name: str = "test.tool") -> ToolSpec:
+
+
+def make_spec(risk: Risk, scope: str = "files.write", name: str = "test.tool") -> ToolSpec:
     return ToolSpec(
         name=name,
         description="test",
