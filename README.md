@@ -100,6 +100,7 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_YOUTUBE_AUTOMATION_ENABLED` | `false` | Explicitly expose the local YouTube Automation Agent service tools |
 | `MATRIX_YOUTUBE_AUTOMATION_URL` | `http://127.0.0.1:3456` | Loopback/private service endpoint; public hosts are refused |
 | `MATRIX_ADDON_MCP_SERVERS` | unset | Owner-only JSON config of local MCP processes / verified OpenWhispr endpoint |
+| `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
 | `MATRIX_HEXSTRIKE_ALLOWED_TARGETS` | empty | Exact owner-approved hosts/IPs; HexStrike target tools are blocked until set |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
