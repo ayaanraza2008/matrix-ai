@@ -57,7 +57,8 @@ def test_ready_nodes_do_not_run_until_dependencies_complete_or_after_failure():
     ])
     assert graph.ready_nodes([], running=["a"]) == ("independent",)
     assert graph.ready_nodes([], failed=["a"]) == ("independent",)
-    assert graph.ready_nodes(["a"], limit=1) == ("b",)
+    assert graph.ready_nodes(["a"]) == ("independent", "b")
+    assert graph.ready_nodes(["a", "independent"], limit=1) == ("b",)
     with pytest.raises(GoalGraphError, match="multiple execution states"):
         graph.ready_nodes(["a"], running=["a"])
 
