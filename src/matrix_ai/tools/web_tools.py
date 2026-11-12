@@ -85,16 +85,15 @@ def _fetch_pinned(url: str, addresses: list[str], max_bytes: int) -> tuple[int, 
     if parsed.query:
         path += "?" + parsed.query
     try:
-        connection.request(
-            "GET",
-            path,
-            headers={
-                "Host": parsed.netloc,
-                "User-Agent": "MATRIX/0.1 (+local-first assistant)",
-                "Accept": "text/html,text/plain,application/json,application/xml",
-                "Connection": "close",
-            },
-        )
+        connection.putrequest("GET", path, skip_host=True)
+        for name, value in {
+            "Host": parsed.netloc,
+            "User-Agent": "MATRIX/0.1 (+local-first assistant)",
+            "Accept": "text/html,text/plain,application/json,application/xml",
+            "Connection": "close",
+        }.items():
+            connection.putheader(name, value)
+        connection.endheaders()
         response = connection.getresponse()
         status = response.status
         content_type = response.getheader("content-type", "").split(";", 1)[0].strip().lower()
