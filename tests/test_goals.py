@@ -136,3 +136,32 @@ async def test_startup_recovery_resumes_received_goal_task(runtime):
         await asyncio.sleep(0.025)
 
     assert goal["state"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_owner_can_cancel_goal_waiting_for_approval(client):
+    response = await client.post(
+        "/api/goals",
+        json={
+            "title": "Delete file 'important.txt'",
+            "success_criteria": "Delete only after explicit approval.",
+        },
+    )
+    assert response.status_code == 202, response.text
+    goal = response.json()
+
+    task_state = None
+    for _ in range(200):
+        task_response = await client.get(f"/api/tasks/{goal['task_id']}")
+        assert task_response.status_code == 200, task_response.text
+        task_state = task_response.json()["state"]
+        if task_state == "WAITING_FOR_USER":
+            break
+        if task_state in {"COMPLETE", "PARTIAL", "FAILED", "CANCELLED"}:
+            pytest.fail(f"high-risk delete unexpectedly ended in {task_state}")
+        await asyncio.sleep(0.025)
+
+    assert task_state == "WAITING_FOR_USER"
+    cancelled = await client.post(f"/api/goals/{goal['id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["state"] == "cancelled"
