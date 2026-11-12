@@ -287,3 +287,42 @@ async def test_startup_finishes_cancellation_after_task_create_link_crash(client
 
     assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
     assert runtime.store.get_task_row(task_id)["state"] == "CANCELLED"
+
+
+@pytest.mark.asyncio
+async def test_goal_supervisor_runs_independent_nodes_in_bounded_parallel_wave(client, runtime, monkeypatch):
+    active = 0
+    maximum_active = 0
+    original_run = runtime.orchestrator.run
+
+    async def measured_run(task_id):
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        try:
+            await asyncio.sleep(0.05)
+            await original_run(task_id)
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(runtime.orchestrator, "run", measured_run)
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Five independent read-only checks",
+            "nodes": [
+                {"node_id": f"check-{i}", "title": "what is my system status?"}
+                for i in range(5)
+            ],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+
+    started = await client.post(f"/api/goals/{goal_id}/start")
+    assert started.status_code == 202, started.text
+    finished = await _wait_for_goal(client, goal_id)
+
+    assert finished["state"] == "awaiting_verification"
+    assert all(node["state"] == "completed" for node in finished["nodes"])
+    assert 2 <= maximum_active <= 4
