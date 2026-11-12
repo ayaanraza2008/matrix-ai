@@ -123,3 +123,64 @@ async def test_barge_in_stops_engine_when_engine_supports_stop(config):
     assert engine.stopped is True
     assert manager.status().state == "listening"
     await manager.shutdown()
+
+@pytest.mark.asyncio
+async def test_windows_sapi_timeout_terminates_child(monkeypatch):
+    process = FakeProcess()
+
+    async def slow_communicate(input=None):
+        await asyncio.Event().wait()
+
+    process.communicate = slow_communicate
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(
+        "matrix_ai.voice.tts.asyncio.create_subprocess_exec", fake_create_subprocess_exec
+    )
+    engine = WindowsSapiTtsEngine("powershell.exe", timeout_seconds=0.01)
+    with pytest.raises(ToolUnavailable, match="timed out"):
+        await engine.speak("hello")
+    assert process.terminated is True
+
+
+@pytest.mark.asyncio
+async def test_speech_preflight_endpoint_blocks_known_credentials(client):
+    safe = await client.post("/api/voice/check-speech", json={"text": "MATRIX is ready"})
+    assert safe.status_code == 200
+    assert safe.json() == {"allowed": True}
+
+    unsafe = await client.post(
+        "/api/voice/check-speech", json={"text": "Bearer abcdefghijklmnopqrstuvwxyz"}
+    )
+    assert unsafe.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_voice_session_stop_stops_active_speech(config):
+    class BlockingEngine:
+        name = "test-engine"
+        def __init__(self):
+            self.started = asyncio.Event()
+            self.stopped = False
+
+        async def speak(self, text: str) -> None:
+            self.started.set()
+            await asyncio.Event().wait()
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    engine = BlockingEngine()
+    manager = VoiceSessionManager(config, tts_engine=engine)
+    manager.start()
+    await manager.speak("MATRIX online")
+    await engine.started.wait()
+    session = manager.stop()
+    await asyncio.sleep(0)
+
+    assert session.state == "idle"
+    assert engine.stopped is True
+    assert manager.active_session is None
+    await manager.shutdown()
