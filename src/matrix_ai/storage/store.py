@@ -245,13 +245,17 @@ class Store:
         }
 
     # -- durable goals ----------------------------------------------------
-    def create_goal(self, *, owner_id: str, title: str, success_criteria: str) -> str:
+    def create_goal(
+        self, *, owner_id: str, title: str, success_criteria: str,
+        deadline_seconds: float | None = None,
+    ) -> str:
         goal_id = uuid.uuid4().hex
         now = iso()
+        deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
         self.db.execute(
-            "INSERT INTO goals(id, owner_id, title, success_criteria, state, created_at, updated_at) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (goal_id, owner_id, title, success_criteria, "queued", now, now),
+            "INSERT INTO goals(id, owner_id, title, success_criteria, state, deadline, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (goal_id, owner_id, title, success_criteria, "queued", deadline, now, now),
         )
         return goal_id
 
@@ -303,10 +307,22 @@ class Store:
         }.get(task["state"])
         if state is None:
             return
+        try:
+            evidence = json.loads(task["evidence_json"] or "{}")
+        except (TypeError, ValueError):
+            evidence = {}
+        verified = bool(evidence.get("verified")) and state == "completed"
+        verification_status = "task_steps_verified" if verified else (
+            "task_steps_not_verified" if state in {"partial", "failed"} else "not_applicable"
+        )
         self.db.execute(
-            "UPDATE goals SET state=?, result_summary=?, updated_at=?, finished_at=? "
+            "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
+            "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
             "WHERE id=? AND task_id=?",
-            (state, task["summary"] or task["error"], iso(), iso(), goal_id, task_id),
+            (
+                state, task["summary"] or task["error"], verification_status,
+                json.dumps(evidence), iso(), iso(), goal_id, task_id,
+            ),
         )
 
     # -- plans & steps ----------------------------------------------------
