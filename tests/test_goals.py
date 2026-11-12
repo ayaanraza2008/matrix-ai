@@ -178,7 +178,7 @@ async def test_goal_deadline_is_persisted_and_bounded_by_runtime_config(client, 
         json={
             "title": "Check system health",
             "success_criteria": "Return verified system health information.",
-            "deadline_seconds": 10,
+            "deadline_seconds": 86400,
         },
     )
     assert response.status_code == 202, response.text
