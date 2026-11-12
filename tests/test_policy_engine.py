@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk, ToolSpec
 from matrix_ai.core.policy import PolicyEngine
-
-
-def make_spec(risk: Risk, scope: str = "files.write", name: str = "test.tool") -> ToolSpec:
+from matrix_ai.errors import ConfigError
+\n\ndef make_spec(risk: Risk, scope: str = "files.write", name: str = "test.tool") -> ToolSpec:
     return ToolSpec(
         name=name,
         description="test",
@@ -137,3 +137,23 @@ def test_plan_evaluation_flags_high_risk(engine):
     assert decision.allowed is True
     assert decision.requires_approval is True
     assert decision.risk is Risk.HIGH
+
+
+
+def test_owner_can_opt_in_to_extra_scope_without_defaulting_it(tmp_path):
+    config = MatrixConfig(home=tmp_path, additional_scopes=("github.write",))
+    engine = PolicyEngine(config)
+    assert "github.write" not in engine.task_scopes(None)
+    assert "github.write" in engine.task_scopes(["github.write"])
+    decision = engine.evaluate_call(
+        make_spec(Risk.HIGH, scope="github.write"),
+        scopes=engine.task_scopes(["github.write"]),
+        autonomy=2,
+    )
+    assert decision.allowed is True
+    assert decision.requires_approval is True
+
+
+def test_extra_scopes_reject_wildcard_and_malformed_values(tmp_path):
+    with pytest.raises(ConfigError, match="MATRIX_EXTRA_SCOPES"):
+        MatrixConfig(home=tmp_path, additional_scopes=("*",))
