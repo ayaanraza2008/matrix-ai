@@ -362,7 +362,7 @@ class GoalSupervisor:
                     "reason": summary,
                 }),
                 "second_pass_model_assessed",
-                status,
+                "verified_by_model" if status == "verified" else status,
                 iso(),
                 goal_id,
             ),
