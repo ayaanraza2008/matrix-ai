@@ -57,6 +57,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_background:
+            await runtime.orchestrator.recover_after_restart()
             runtime.start_background()
         try:
             yield

@@ -15,6 +15,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 
 | Area | Status | Evidence |
 |---|---|---|
+| Startup crash recovery | **Implemented** | `core/orchestrator.py`, `test_startup_recovery.py`, `docs/RECOVERY.md` |
 | Central orchestrator + explicit state machine | **Implemented** | `src/matrix_ai/core/orchestrator.py`, `state_machine.py`, tests `test_orchestrator_lifecycle.py` |
 | Server-side policy engine, autonomy L0–L4, risk classes | **Implemented** | `core/policy.py`, `test_policy.py` |
 | Exact approval binding (hash of tool + args + TTL) | **Implemented** | `test_a05_destructive_approval.py` |

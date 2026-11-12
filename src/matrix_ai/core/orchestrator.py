@@ -155,6 +155,120 @@ class Orchestrator:
         self._runners[task_id] = runner
         runner.add_done_callback(lambda _task, tid=task_id: self._runners.pop(tid, None))
 
+    async def recover_after_restart(self) -> dict[str, int]:
+        """Reconcile persisted work after a process restart without replaying uncertain actions.
+
+        Untouched RECEIVED tasks are safe to enqueue. Valid pending approvals remain
+        available to the owner. An approval already recorded as approved can resume
+        because its exact action fingerprint is checked again by the normal executor.
+        Any other in-flight state is stopped and reported for manual review.
+        """
+        result = {"resumed": 0, "awaiting_approval": 0, "failed": 0}
+        for task in self.store.nonterminal_tasks():
+            task_id = str(task["id"])
+            state = TaskState(task["state"])
+
+            if state is TaskState.RECEIVED:
+                await self.enqueue(task_id)
+                result["resumed"] += 1
+                self.store.audit(
+                    "task.recovery_requeued",
+                    actor="system",
+                    task_id=task_id,
+                    status="queued",
+                )
+                continue
+
+            if state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+                if state is TaskState.APPROVAL_REQUIRED:
+                    self._to(task_id, TaskState.WAITING_FOR_USER)
+
+                pending = self.store.pending_approval(task_id)
+                if pending is not None:
+                    expires_at = parse_dt(pending["expires_at"])
+                    if expires_at is not None and expires_at > utcnow():
+                        result["awaiting_approval"] += 1
+                        self.store.audit(
+                            "task.recovery_waiting",
+                            actor="system",
+                            task_id=task_id,
+                            status="awaiting_approval",
+                            detail={"approval_id": pending["id"]},
+                        )
+                        continue
+
+                    self.store.decide_approval(
+                        pending["id"],
+                        approved=False,
+                        decided_by="system",
+                        reason="approval expired or could not be validated during restart recovery",
+                    )
+                    self._fail_step(
+                        task_id,
+                        pending["step_idx"],
+                        "approval_expired",
+                        "approval expired while MATRIX was stopped",
+                    )
+                    self._abort(
+                        task_id,
+                        "approval_expired_on_restart",
+                        "The pending approval expired while MATRIX was stopped. Nothing was executed.",
+                    )
+                    result["failed"] += 1
+                    continue
+
+                outcome = await self._resolve_pending_approval(task_id)
+                if outcome == "approved":
+                    await self.enqueue(task_id)
+                    result["resumed"] += 1
+                    self.store.audit(
+                        "task.recovery_requeued",
+                        actor="system",
+                        task_id=task_id,
+                        status="approved_action_resumed",
+                    )
+                    continue
+
+                self._fail_step(
+                    task_id,
+                    self.store.next_pending_step_index(task_id),
+                    "approval_not_resumable",
+                    f"approval state could not be safely resumed ({outcome})",
+                )
+                self._abort(
+                    task_id,
+                    "approval_not_resumable",
+                    "The approval record was not in a resumable state. No action was executed.",
+                )
+                result["failed"] += 1
+                continue
+
+            message = (
+                f"MATRIX restarted while this task was in {state.value}. "
+                "Its outcome may be uncertain; interrupted tool calls were marked failed "
+                "and were not automatically retried. Review external effects before starting "
+                "a replacement task."
+            )
+            interrupted_calls = self.store.fail_running_tool_calls(task_id, message)
+            self.store.fail_running_steps(task_id, message)
+            self._abort(task_id, "interrupted_by_restart", message)
+            self.store.audit(
+                "task.recovery_stopped",
+                actor="system",
+                task_id=task_id,
+                status="manual_review_required",
+                detail={"previous_state": state.value, "interrupted_tool_calls": interrupted_calls},
+            )
+            result["failed"] += 1
+
+        self.store.audit(
+            "system.recovery_completed",
+            actor="system",
+            status="ok",
+            detail=result,
+        )
+        return result
+
     @property
     def running_count(self) -> int:
         return sum(1 for runner in self._runners.values() if not runner.done())

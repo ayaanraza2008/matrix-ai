@@ -212,6 +212,18 @@ class Store:
             rows = self.db.query("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,))
         return [self._task_summary(row) for row in rows]
 
+    def nonterminal_tasks(self) -> list[Any]:
+        """Return every task that may still need startup recovery."""
+        return self.db.query(
+            "SELECT * FROM tasks WHERE state NOT IN (?,?,?,?) ORDER BY created_at",
+            (
+                TaskState.COMPLETE.value,
+                TaskState.PARTIAL.value,
+                TaskState.FAILED.value,
+                TaskState.CANCELLED.value,
+            ),
+        )
+
     def _task_summary(self, row) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -484,6 +496,21 @@ class Store:
                 (task_id, before_step),
             )
         return bool(rows)
+
+    def fail_running_tool_calls(self, task_id: str, message: str) -> int:
+        """Close tool calls interrupted by a process exit; never imply they were rolled back."""
+        cursor = self.db.execute(
+            "UPDATE tool_calls SET status=?, error=?, finished_at=? "
+            "WHERE task_id=? AND status=?",
+            (
+                CallStatus.FAILED.value,
+                message[:2000],
+                iso(),
+                task_id,
+                CallStatus.RUNNING.value,
+            ),
+        )
+        return int(cursor.rowcount)
 
     def fail_running_steps(self, task_id: str, message: str) -> None:
         self.db.execute(

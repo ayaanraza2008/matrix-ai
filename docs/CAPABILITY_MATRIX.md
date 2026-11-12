@@ -5,7 +5,7 @@ gap · **scaffold** = structure only, not runnable here · **blocked** = waiting
 
 | Capability | Blueprint phase | Status | Evidence | Gap | Next step |
 |---|---|---|---|---|---|
-| Central orchestrator + explicit state machine | 1 | done | `core/orchestrator.py`, `core/state_machine.py`, `test_state_machine.py` | Durable resume covers approvals, not crash-mid-step | Add startup recovery sweep for orphaned RUNNING steps |
+| Central orchestrator + explicit state machine | 1 | done | `core/orchestrator.py`, `core/state_machine.py`, `test_startup_recovery.py` | Uncertain in-flight side effects are stopped for manual review, never replayed | Add durable step-level recovery only where idempotency can be proven |
 | Server-side policy engine (L0–L4, risk classes) | 1 | done | `core/policy.py`, `test_policy_engine.py` | Per-tool dynamic scopes beyond static list | Add scope delegation with expiry |
 | Exact approval binding + TTL | 1 | done | `approvals` table, `test_a05_destructive_approval.py` | No push approval to Android yet | Wire FCM/WebSocket approval push |
 | Typed tool registry + schema validation | 1 | done | `tools/`, `test_a03_tool_schema.py` | 14 tools; no UI-automation adapter | Phase 5: pywinauto/Playwright |
