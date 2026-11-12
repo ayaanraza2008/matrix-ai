@@ -26,7 +26,7 @@ The current repository already contains a useful base:
 - SQLite + FTS5 governed memory with deletion and retention support.
 - Local-model provider abstraction, hardware-aware resource manager, and a read-only model benchmark.
 - Optional CPU/INT8 faster-whisper transcription with browser push-to-talk.
-- Browser transcript handoff to Chat and opt-in browser/system speech for final replies.
+- Browser transcript handoff to Chat, opt-in browser/system speech, and optional Windows SAPI output through an installed local voice.
 - Vision session controls and an OCR adapter.
 - Scheduler and integration adapters, plus an Android client scaffold.
 
