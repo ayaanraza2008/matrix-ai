@@ -116,7 +116,7 @@ _DIVISIONS = (
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", re.S)
 _TOKEN = re.compile(r"[a-z0-9][a-z0-9+#.-]{1,}", re.I)
 _STOPWORDS = frozenset(
-    "a an and are as at be build can create do for from get give help how i in into is it "
+    "a an and are as at be can create do for from get give help how i in into is it "
     "me my of on or our please project should tell that the their them then this to use want "
     "we what when with you your".split()
 )
@@ -210,6 +210,9 @@ def _tokens(value: str) -> set[str]:
 # These aliases are recall hints, not permissions or claims about tool availability.
 _AGENT_SYNONYMS: dict[str, tuple[str, ...]] = {
     "website": ("web", "frontend", "ui", "design", "react", "accessibility"),
+    "build": ("software", "engineering", "code", "development", "backend", "frontend", "architecture"),
+    "platform": ("engineering", "backend", "infrastructure", "architecture", "devops"),
+    "launch": ("marketing", "growth", "campaign", "product", "go-to-market"),
     "web": ("website", "frontend", "ui", "react", "vue", "angular"),
     "site": ("website", "web", "frontend", "ui", "design"),
     "dashboard": ("frontend", "ui", "ux", "visualization", "data", "design"),
@@ -226,7 +229,7 @@ _AGENT_SYNONYMS: dict[str, tuple[str, ...]] = {
     "production": ("devops", "reliability", "security", "testing", "operations"),
     "bug": ("debugging", "testing", "qa", "quality", "engineering"),
     "test": ("testing", "qa", "quality", "automation", "validation"),
-    "secure": ("security", "privacy", "threat", "vulnerability", "compliance"),
+    "secure": ("security", "privacy", "threat", "vulnerability", "compliance", "backend", "authentication"),
     "security": ("privacy", "threat", "vulnerability", "pentest", "compliance"),
     "audit": ("security", "compliance", "testing", "quality", "risk"),
     "research": ("analysis", "academic", "sources", "evidence", "strategy"),
@@ -419,12 +422,30 @@ def route_agency_agents(
         1, min(int(max_agents), 4)
     )
     best_score = ranked[0]["relevance_score"]
+    # Broad tasks need division coverage. Keep the lead first, then prefer the
+    # strongest relevant profile from a new division before adding duplicates.
+    ratio = 0.18 if target_size >= 3 else 0.38
+    eligible = [
+        candidate for candidate in ranked
+        if candidate["relevance_score"] >= max(0.08, best_score * ratio)
+    ]
+    ordered: list[dict[str, Any]] = eligible[:1]
+    used_divisions = {eligible[0]["division"]}
+    for candidate in eligible[1:]:
+        if len(ordered) >= target_size:
+            break
+        if candidate["division"] not in used_divisions:
+            ordered.append(candidate)
+            used_divisions.add(candidate["division"])
+    if len(ordered) < target_size:
+        for candidate in eligible[1:]:
+            if len(ordered) >= target_size:
+                break
+            if candidate not in ordered:
+                ordered.append(candidate)
+
     selected: list[dict[str, Any]] = []
-    for candidate in ranked:
-        if len(selected) >= target_size:
-            break
-        if candidate["relevance_score"] < max(0.08, best_score * 0.38):
-            break
+    for candidate in ordered:
         item = dict(candidate)
         item["routing_role"] = "lead" if not selected else "support"
         terms = item.get("matched_terms", [])
