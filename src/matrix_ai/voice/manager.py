@@ -12,7 +12,8 @@ import asyncio
 import base64
 import binascii
 import importlib.util
-import ioimport threading
+import io
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
