@@ -28,6 +28,7 @@ class TelegramChatBridge:
         self._task: asyncio.Task | None = None
         self._offset: int | None = None
         self._client: httpx.AsyncClient | None = None
+        self._report_tasks: set[asyncio.Task] = set()
 
     @property
     def enabled(self) -> bool:
@@ -49,6 +50,11 @@ class TelegramChatBridge:
             except asyncio.CancelledError:
                 pass
         self._task = None
+        for report in tuple(self._report_tasks):
+            report.cancel()
+        if self._report_tasks:
+            await asyncio.gather(*self._report_tasks, return_exceptions=True)
+        self._report_tasks.clear()
         if self._client:
             await self._client.aclose()
             self._client = None
@@ -78,10 +84,13 @@ class TelegramChatBridge:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         try:
             # Drop old updates at startup so MATRIX never replays stale commands.
-            initial = await self._api("getUpdates", {"timeout": 0, "limit": 1})
-            updates = initial.get("result", [])
-            if updates:
-                self._offset = max(item["update_id"] for item in updates) + 1
+            while True:
+                initial = await self._api("getUpdates", {"timeout": 0, "limit": 100})
+                updates = initial.get("result", [])
+                if updates:
+                    self._offset = max(item["update_id"] for item in updates) + 1
+                if len(updates) < 100:
+                    break
             await self._send(
                 "MATRIX Telegram bridge is online. Send a message to create a task. "
                 "Use /status, /stop, or /help."
@@ -157,7 +166,9 @@ class TelegramChatBridge:
             )
             await self.orchestrator.enqueue(task_id)
             await self._send(f"Received. MATRIX task: {task_id}")
-            await self._report_task(task_id)
+            report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
+            self._report_tasks.add(report)
+            report.add_done_callback(self._report_tasks.discard)
         except Exception as exc:  # noqa: BLE001
             self.store.audit(
                 "telegram.task_submission_failed", actor="telegram", status="failed",
