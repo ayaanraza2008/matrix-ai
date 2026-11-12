@@ -1065,8 +1065,8 @@ class Orchestrator:
             elif step.status is StepStatus.FAILED:
                 parts.append(f"{step.tool_name or 'step'} failed: {step.error or 'unknown error'}")
         body = "; ".join(part for part in parts if part)
-        if answer_steps and answer:
-            return answer if all_done else f"{answer}\n\nNot fully verified: {body}"
+        if answer and any(step.kind is StepKind.ANSWER for step in steps):
+            return answer if all_done else f"{answer}\n\nNot fully verified: {body or 'the free-form answer could not be independently verified'}"
         if all_done:
             return f"Completed and verified: {body}" if body else "Completed."
         if parts:
