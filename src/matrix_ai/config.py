@@ -264,7 +264,7 @@ class MatrixConfig:
                 "firebase_push": bool(self.firebase_credentials_path),
                 "youtube": bool(self.youtube_token_path and Path(self.youtube_token_path).is_file()),
                 "instagram": bool(self.instagram_access_token and self.instagram_user_id),
-                "linkedin": bool(self.linkedin_access_token and (self.linkedin_person_urn or self.linkedin_organization_urn)),
+                "linkedin": bool(self.linkedin_access_token and self.linkedin_api_version),
             },
         }
 
