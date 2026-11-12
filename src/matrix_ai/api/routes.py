@@ -392,6 +392,14 @@ async def voice_transcribe(
     return result
 
 
+@router.post("/voice/check-speech", tags=["voice"])
+async def voice_check_speech(
+    body: VoiceSpeakBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, bool]:
+    """Validate text before either local or browser speech playback."""
+    return runtime.voice.validate_speech(body.text)
+
+
 @router.post("/voice/speak", tags=["voice"])
 async def voice_speak(
     body: VoiceSpeakBody, principal: PrincipalDep, runtime: RuntimeDep
