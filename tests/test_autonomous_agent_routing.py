@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fakes import FakePlanProvider
 from conftest import wait_for_task
+from fakes import FakePlanProvider
 
 from matrix_ai.models.base import ChatMessage
 
