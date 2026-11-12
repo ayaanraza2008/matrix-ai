@@ -19,6 +19,8 @@ gradle wrapper --gradle-version 8.7
 .\gradlew.bat assembleDebug
 ```
 
+The debug APK and the unsigned release APK are uploaded as the `matrix-android-apks` artifact by CI (7-day retention). The release APK is not signed and is not for distribution.
+
 Then install:
 
 ```powershell
