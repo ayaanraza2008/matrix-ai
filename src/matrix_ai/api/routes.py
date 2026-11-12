@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
+from ..core.goal_graph import GoalGraph, GoalNode
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -115,6 +116,19 @@ class GoalCreateBody(BaseModel):
     success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
     autonomy_level: int | None = Field(default=None, ge=0, le=4)
     deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
+
+
+class GoalPlanNodeBody(BaseModel):
+    node_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=500)
+    depends_on: list[str] = Field(default_factory=list, max_length=16)
+
+
+class GoalPlanCreateBody(BaseModel):
+    title: str = Field(min_length=1, max_length=2000)
+    success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
+    deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
+    nodes: list[GoalPlanNodeBody] = Field(min_length=1, max_length=64)
 
 
 class ApprovalDecisionBody(BaseModel):
@@ -314,6 +328,53 @@ async def create_goal(
         detail={"goal_id": goal_id},
     )
     return runtime.store.get_goal(goal_id)
+
+
+@router.post("/goals/plan", status_code=201, tags=["goals"])
+async def create_goal_plan(
+    body: GoalPlanCreateBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    nodes = [GoalNode(node.node_id, tuple(node.depends_on)) for node in body.nodes]
+    graph = GoalGraph(nodes)
+    goal_id = runtime.store.create_goal(
+        owner_id=principal.user_id,
+        title=body.title,
+        success_criteria=body.success_criteria,
+        deadline_seconds=min(body.deadline_seconds, runtime.config.task_deadline_seconds),
+    )
+    runtime.store.save_goal_graph(
+        goal_id,
+        [
+            {
+                "node_id": node.node_id,
+                "title": next(item.title for item in body.nodes if item.node_id == node.node_id),
+                "depends_on": list(node.depends_on),
+            }
+            for node in (nodes[graph.topological_order.index(item)] for item in graph.topological_order)
+        ],
+    )
+    runtime.store.audit(
+        "goal.graph_planned", actor=principal.user_id, status="planned",
+        detail={"goal_id": goal_id, "node_count": len(nodes), "topological_order": graph.topological_order},
+    )
+    result = runtime.store.get_goal(goal_id)
+    result["nodes"] = runtime.store.get_goal_graph(goal_id)
+    result["execution_status"] = "plan_only"
+    return result
+
+
+@router.get("/goals/{goal_id}/graph", tags=["goals"])
+async def get_goal_graph(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    return {
+        "goal_id": goal_id,
+        "nodes": runtime.store.get_goal_graph(goal_id),
+        "execution_status": "plan_only",
+    }
 
 
 @router.get("/goals", tags=["goals"])
