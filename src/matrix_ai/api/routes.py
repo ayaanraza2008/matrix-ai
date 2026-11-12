@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
+from ..core.goal_graph import GoalGraph, GoalNode
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -115,6 +116,19 @@ class GoalCreateBody(BaseModel):
     success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
     autonomy_level: int | None = Field(default=None, ge=0, le=4)
     deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
+
+
+class GoalPlanNodeBody(BaseModel):
+    node_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=500)
+    depends_on: list[str] = Field(default_factory=list, max_length=16)
+
+
+class GoalPlanCreateBody(BaseModel):
+    title: str = Field(min_length=1, max_length=2000)
+    success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
+    deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
+    nodes: list[GoalPlanNodeBody] = Field(min_length=1, max_length=64)
 
 
 class ApprovalDecisionBody(BaseModel):
@@ -254,6 +268,7 @@ async def approve_action(
         status="approved",
         detail={"approval_id": approval_id, "reason": (body.reason if body else None)},
     )
+    await runtime.goal_supervisor.resume_for_task(task_id)
     return view
 
 
@@ -275,6 +290,7 @@ async def deny_action(
         status="denied",
         detail={"approval_id": approval_id, "reason": (body.reason if body else None)},
     )
+    await runtime.goal_supervisor.resume_for_task(task_id)
     return view
 
 
@@ -316,6 +332,69 @@ async def create_goal(
     return runtime.store.get_goal(goal_id)
 
 
+@router.post("/goals/plan", status_code=201, tags=["goals"])
+async def create_goal_plan(
+    body: GoalPlanCreateBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    nodes = [GoalNode(node.node_id, tuple(node.depends_on)) for node in body.nodes]
+    try:
+        graph = GoalGraph(nodes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    goal_id = runtime.store.create_goal(
+        owner_id=principal.user_id,
+        title=body.title,
+        success_criteria=body.success_criteria,
+        deadline_seconds=min(body.deadline_seconds, runtime.config.task_deadline_seconds),
+    )
+    runtime.store.save_goal_graph(
+        goal_id,
+        [
+            {
+                "node_id": node.node_id,
+                "title": next(item.title for item in body.nodes if item.node_id == node.node_id),
+                "depends_on": list(node.depends_on),
+            }
+            for node in nodes
+        ],
+    )
+    runtime.store.audit(
+        "goal.graph_planned", actor=principal.user_id, status="planned",
+        detail={"goal_id": goal_id, "node_count": len(nodes), "topological_order": graph.topological_order},
+    )
+    result = runtime.goal_supervisor.status(goal_id)
+    result["execution_status"] = "planned"
+    return result
+
+
+@router.post("/goals/{goal_id}/start", status_code=202, tags=["goals"])
+async def start_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    try:
+        result = await runtime.goal_supervisor.start(goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runtime.store.audit(
+        "goal.execution_started", actor=principal.user_id, status="running",
+        detail={"goal_id": goal_id},
+    )
+    return result
+
+
+@router.get("/goals/{goal_id}/graph", tags=["goals"])
+async def get_goal_graph(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    return runtime.goal_supervisor.status(goal_id)
+
+
 @router.get("/goals", tags=["goals"])
 async def list_goals(
     principal: PrincipalDep, runtime: RuntimeDep,
@@ -341,6 +420,8 @@ async def cancel_goal(
     goal = runtime.store.get_goal(goal_id)
     if goal["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal {goal_id} not found")
+    if goal["state"] in {"planned", "running"} and runtime.store.get_goal_graph(goal_id):
+        return await runtime.goal_supervisor.cancel(goal_id)
     if goal["task_id"] and goal["state"] in {"queued", "running"}:
         await runtime.orchestrator.cancel(goal["task_id"])
     return runtime.store.get_goal(goal_id)
