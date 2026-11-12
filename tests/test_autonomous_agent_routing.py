@@ -146,7 +146,7 @@ async def test_deterministic_intents_skip_unneeded_specialist_model_calls(runtim
 
 @pytest.mark.asyncio
 async def test_authenticated_route_preview_returns_metadata_without_prompt_bodies(
-    client, monkeypatch
+    client, runtime, monkeypatch
 ):
     import matrix_ai.api.routes as routes_module
 

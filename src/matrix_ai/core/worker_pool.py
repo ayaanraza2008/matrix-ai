@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from ..models.base import ChatMessage
 from ..models.manager import ModelManager
@@ -127,7 +128,7 @@ class AgentWorker:
                             "status": "completed",
                             "duration_ms": round((time.perf_counter() - started) * 1000, 1),
                         }
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         self.failed_runs += 1
                         self.last_status = "timeout"
                         self.last_error = "worker_timeout"
