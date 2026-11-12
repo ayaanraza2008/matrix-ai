@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
-
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
 from ..core.models import (
     DEFAULT_SCOPES,
