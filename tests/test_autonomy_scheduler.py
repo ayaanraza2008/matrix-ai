@@ -147,3 +147,21 @@ async def test_health_monitor_persists_transitions_without_repeating_alert_event
     assert recovered["status"] == "healthy"
     assert store.flags["health_monitor_state"] == "healthy"
     assert len(store.audits) == 2
+
+
+@pytest.mark.asyncio
+async def test_first_degraded_health_observation_is_audited(tmp_path):
+    config = MatrixConfig(home=tmp_path)
+    store = FakeStore(job(1))
+    scheduler = Scheduler(
+        store=store, orchestrator=Unused(), models=FakeModels("degraded"),
+        memory=Unused(), config=config,
+    )
+
+    result = await scheduler.monitor_health()
+
+    assert result["status"] == "degraded"
+    assert store.flags["health_monitor_state"] == "degraded"
+    assert len(store.audits) == 1
+    assert store.audits[0][0][0] == "system.health_transition"
+    assert store.audits[0][1]["detail"]["previous"] == "unknown"
