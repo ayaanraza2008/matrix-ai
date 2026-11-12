@@ -837,11 +837,157 @@ async function voiceAction(path, body = {}, okMessage) {
   }
 }
 
-$('#voice-start').addEventListener('click', () => voiceAction('start', { muted: false }, 'Session started'));
-$('#voice-mute').addEventListener('click', () => voiceAction('mute', {}, 'Microphone muted'));
+let voiceSessionId = null;
+let voiceRecorder = null;
+let voiceStream = null;
+let voiceChunks = [];
+let voiceDiscardRequested = false;
+let voiceCaptureTimeout = null;
+
+function releaseVoiceStream() {
+  if (voiceStream) {
+    voiceStream.getTracks().forEach((track) => track.stop());
+    voiceStream = null;
+  }
+}
+
+function updateVoiceRecordingControls(recording, processing = false) {
+  $('#voice-record').disabled = recording || processing;
+  $('#voice-finish').disabled = !recording;
+  $('#voice-cancel-record').disabled = !recording;
+  if (recording) {
+    $('#mic-indicator').className = 'pill live';
+    $('#mic-indicator').textContent = 'browser recording';
+  }
+}
+
+function stopVoiceRecording(discard = false) {
+  voiceDiscardRequested = discard;
+  if (voiceCaptureTimeout !== null) {
+    clearTimeout(voiceCaptureTimeout);
+    voiceCaptureTimeout = null;
+  }
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+    voiceRecorder.stop();
+  } else {
+    voiceRecorder = null;
+    voiceChunks = [];
+    releaseVoiceStream();
+    updateVoiceRecordingControls(false);
+  }
+}
+
+async function beginVoiceRecording() {
+  if (!voiceSessionId) {
+    toast('Start a voice session before recording', 'error');
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    toast('This browser does not support microphone recording', 'error');
+    return;
+  }
+  try {
+    const status = await api('/voice/status');
+    if (status.muted || status.state !== 'listening') {
+      toast('Unmute the microphone and make sure the session is listening', 'error');
+      return;
+    }
+    voiceStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    voiceChunks = [];
+    voiceDiscardRequested = false;
+    const recorder = new MediaRecorder(voiceStream);
+    voiceRecorder = recorder;
+    recorder.addEventListener('dataavailable', (event) => {
+      if (event.data && event.data.size > 0) voiceChunks.push(event.data);
+    });
+    recorder.addEventListener('error', () => {
+      toast('Browser recording failed', 'error');
+      stopVoiceRecording(true);
+    });
+    recorder.addEventListener('stop', async () => {
+      const chunks = voiceChunks;
+      const shouldDiscard = voiceDiscardRequested;
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      const sessionId = voiceSessionId;
+      voiceRecorder = null;
+      voiceChunks = [];
+      releaseVoiceStream();
+      updateVoiceRecordingControls(false);
+      await loadVoice().catch(() => {});
+      if (shouldDiscard) {
+        toast('Recording discarded', 'info');
+        return;
+      }
+      if (!blob.size) {
+        toast('No audio was captured', 'error');
+        return;
+      }
+      if (blob.size > 8000000) {
+        toast('Recording exceeds the 8 MB upload limit; try a shorter message', 'error');
+        return;
+      }
+      updateVoiceRecordingControls(false, true);
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+        }
+        const result = await api('/voice/transcribe', {
+          method: 'POST',
+          body: { audio_base64: btoa(binary), session_id: sessionId },
+        });
+        $('#voice-transcript').value = result.text;
+        $('#voice-detail').textContent =
+          'Recognized locally with ' + result.provider + ' (' +
+          result.language + ', ' + result.duration_seconds + 's). Audio was not saved.';
+        toast('Speech recognized', 'ok');
+      } catch (error) {
+        toast(error.message, 'error');
+      } finally {
+        updateVoiceRecordingControls(false);
+        await loadVoice().catch(() => {});
+      }
+    });
+    recorder.start();
+    updateVoiceRecordingControls(true);
+    $('#voice-detail').textContent = 'Recording in this browser. Press Finish & transcribe when done, or Discard to delete this recording.';
+    voiceCaptureTimeout = window.setTimeout(() => {
+      if (voiceRecorder && voiceRecorder.state === 'recording') {
+        toast('Maximum 90-second recording reached', 'info');
+        stopVoiceRecording(false);
+      }
+    }, 90000);
+  } catch (error) {
+    releaseVoiceStream();
+    voiceRecorder = null;
+    voiceChunks = [];
+    updateVoiceRecordingControls(false);
+    toast(error.message || 'Microphone permission was not granted', 'error');
+  }
+}
+
+$('#voice-start').addEventListener('click', async () => {
+  const result = await voiceAction('start', { muted: false }, 'Session started');
+  if (result) voiceSessionId = result.session_id;
+});
+$('#voice-record').addEventListener('click', beginVoiceRecording);
+$('#voice-finish').addEventListener('click', () => stopVoiceRecording(false));
+$('#voice-cancel-record').addEventListener('click', () => stopVoiceRecording(true));
+$('#voice-mute').addEventListener('click', () => {
+  stopVoiceRecording(true);
+  voiceAction('mute', {}, 'Microphone muted');
+});
 $('#voice-unmute').addEventListener('click', () => voiceAction('unmute', {}, 'Microphone unmuted'));
-$('#voice-stop').addEventListener('click', () => voiceAction('stop', {}, 'Session stopped'));
+$('#voice-stop').addEventListener('click', async () => {
+  stopVoiceRecording(true);
+  await voiceAction('stop', {}, 'Session stopped');
+  voiceSessionId = null;
+});
 $('#voice-barge').addEventListener('click', async () => {
+  stopVoiceRecording(true);
   const result = await voiceAction('barge-in');
   if (result) toast(result.interrupted ? 'Speech interrupted' : 'Nothing was speaking', 'info');
 });
