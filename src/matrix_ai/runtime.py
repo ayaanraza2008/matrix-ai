@@ -88,6 +88,7 @@ class MatrixRuntime:
         )
         auth = AuthService(store, config)
         auth.bootstrap()
+        limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
             db=db,
@@ -100,14 +101,16 @@ class MatrixRuntime:
             worker_pool=worker_pool,
             orchestrator=orchestrator,
             auth=auth,
-            limiter=RateLimiter(config.rate_limit_per_minute),
+            limiter=limiter,
             voice=VoiceSessionManager(config, tts_engine),
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
-            telegram=TelegramChatBridge(config=config, orchestrator=orchestrator, store=store),
+            telegram=TelegramChatBridge(
+                config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
+            ),
         )
         store.audit(
             "system.started",
