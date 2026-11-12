@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib.machinery
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -117,6 +118,7 @@ def test_local_transcription_loads_cpu_model_once_and_keeps_audio_in_memory(conf
             )
 
     fake_module = ModuleType("faster_whisper")
+    fake_module.__spec__ = importlib.machinery.ModuleSpec("faster_whisper", loader=None)
     fake_module.WhisperModel = FakeWhisperModel
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
 
@@ -176,7 +178,7 @@ async def test_transcribe_api_offloads_and_audits_metadata(client, runtime, monk
         }
 
     monkeypatch.setattr(runtime.voice, "transcribe_async", fake_transcribe)
-    started = await client.post("/api/voice/start")
+    started = await client.post("/api/voice/start", json={"muted": False})
     assert started.status_code == 200
 
     response = await client.post(
