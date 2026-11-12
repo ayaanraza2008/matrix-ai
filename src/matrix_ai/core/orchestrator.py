@@ -98,6 +98,7 @@ class Orchestrator:
         kind: str = "chat",
         goal_id: str | None = None,
         deadline_seconds: float | None = None,
+        goal_node_id: str | None = None,
     ) -> str:
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
@@ -113,6 +114,7 @@ class Orchestrator:
             kind=kind,
             deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
             goal_id=goal_id,
+            goal_node_id=goal_node_id,
         )
         self.store.audit(
             "task.created",
