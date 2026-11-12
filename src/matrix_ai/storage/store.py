@@ -277,8 +277,11 @@ class Store:
 
     def attach_goal_task(self, goal_id: str, task_id: str) -> None:
         task = self.get_task_row(task_id)
+        goal = self.get_goal(goal_id)
         if task["goal_id"] != goal_id:
             raise ValueError("task is not linked to this goal")
+        if task["user_id"] != goal["owner_id"]:
+            raise ValueError("task owner does not match goal owner")
         cursor = self.db.execute(
             "UPDATE goals SET task_id=?, deadline=(SELECT deadline FROM tasks WHERE id=?), "
             "state='running', updated_at=? WHERE id=? AND task_id IS NULL AND state='queued'",
