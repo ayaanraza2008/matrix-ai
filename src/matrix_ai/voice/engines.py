@@ -17,7 +17,7 @@ from typing import Protocol
 
 class SttEngine(Protocol):
     name: str
-    def transcribe(self, audio: bytes) -> dict: ...
+    def transcribe(self, audio: bytes, *, suffix: str | None = None) -> dict: ...
 
 
 class FasterWhisperEngine:
@@ -44,10 +44,10 @@ class FasterWhisperEngine:
                     )
         return self._model
 
-    def transcribe(self, audio: bytes) -> dict:
+    def transcribe(self, audio: bytes, *, suffix: str | None = None) -> dict:
         if not audio:
             raise ValueError("audio payload is empty")
-        suffix = os.getenv("MATRIX_STT_AUDIO_SUFFIX", ".webm")
+        suffix = suffix or os.getenv("MATRIX_STT_AUDIO_SUFFIX", ".webm")
         if not suffix.startswith(".") or len(suffix) > 8:
             suffix = ".webm"
         path: Path | None = None
