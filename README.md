@@ -29,11 +29,13 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Offline speech-to-text / text-to-speech | **Implemented, optional** | faster-whisper + Piper adapters; see `docs/VOICE_AND_TELEPHONY.md`; target hardware E2E pending |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
 | Optional integrations with health checks | **Adapters implemented** | Google/Twilio/Tailscale/FCM not configured |
+| Scheduled owner goals | **Implemented** | Bounded recurring jobs, global autonomy ceiling and policy/approval enforcement |
+| Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
 | Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
 | Signed release / installer | **Planned** | Phase 9 |
 
