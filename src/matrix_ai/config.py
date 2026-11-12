@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import sys
 from dataclasses import dataclass, field
@@ -143,6 +144,7 @@ class MatrixConfig:
     task_deadline_seconds: float = 900.0
 
     rate_limit_per_minute: int = 240
+    additional_scopes: tuple[str, ...] = ()
     allow_web_fetch: bool = True
     web_fetch_max_bytes: int = 400_000
     cors_origins: tuple[str, ...] = ()
@@ -161,6 +163,8 @@ class MatrixConfig:
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     firebase_credentials_path: str | None = None
+    youtube_client_secrets_path: str | None = None
+    youtube_token_path: str | None = None
 
     def __post_init__(self) -> None:
         self.home = Path(self.home).expanduser().resolve()
@@ -179,6 +183,11 @@ class MatrixConfig:
             else:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
+        self.additional_scopes = tuple(sorted(set(self.additional_scopes)))
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
+            raise ConfigError("MATRIX_EXTRA_SCOPES entries must use domain.action format; wildcard is not allowed")
+        if self.youtube_token_path is None:
+            self.youtube_token_path = str(self.home / "youtube-token.json")
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
@@ -245,6 +254,7 @@ class MatrixConfig:
                 "home_assistant": bool(self.home_assistant_url and self.home_assistant_token),
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
+                "youtube": bool(self.youtube_token_path and Path(self.youtube_token_path).is_file()),
             },
         }
 
@@ -282,6 +292,7 @@ class MatrixConfig:
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
+            additional_scopes=tuple(part.strip() for part in (_env("MATRIX_EXTRA_SCOPES", "") or "").split(";") if part.strip()),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
             file_roots=roots,
             allowed_apps=apps,
@@ -295,4 +306,6 @@ class MatrixConfig:
             twilio_account_sid=_env("MATRIX_TWILIO_ACCOUNT_SID"),
             twilio_auth_token=_env("MATRIX_TWILIO_AUTH_TOKEN"),
             firebase_credentials_path=_env("MATRIX_FIREBASE_CREDENTIALS"),
+            youtube_client_secrets_path=_env("MATRIX_YOUTUBE_CLIENT_SECRETS"),
+            youtube_token_path=_env("MATRIX_YOUTUBE_TOKEN_FILE"),
         )
