@@ -82,8 +82,22 @@ Publish denominators, test set, hardware, model, integrations and date with ever
 
 ## Immediate priority order
 
-1. Build the persistent goal supervisor and bounded replan/recovery loop.
+1. Extend the initial durable goal/task vertical slice into a multi-task supervisor with bounded replan/recovery.
 2. Make local model setup and degraded-mode visibility reliable.
 3. Add end-to-end capability adapters and safe desktop/browser execution.
 4. Close critical security gaps and add failure-injection tests.
 5. Validate real Windows and Android operation, then package signed releases.
+
+
+## Initial implementation status (PR #22)
+
+The first implementation slice now adds:
+
+- SQLite schema v2 with durable goal records and a backward-compatible `tasks.goal_id` migration.
+- Owner-scoped `POST /api/goals`, `GET /api/goals`, and `GET /api/goals/{goal_id}` endpoints.
+- A goal-to-task link that permits only one attached task in this initial slice; duplicate attachment is rejected.
+- Goal state synchronization from the orchestrator's terminal task transition: completed, partial, failed or cancelled.
+- An owner-authorized goal cancellation endpoint that delegates to the existing task cancellation path.
+- Audit events and dashboard table counts for goals, plus regression tests for task linkage, owner scoping and terminal-state synchronization.
+
+This is a durable goal wrapper around the existing single-task orchestrator, **not yet the complete multi-task supervisor**. Success criteria are persisted as goal metadata but are not yet evaluated by a separate goal-level verifier. Pause/resume, dependency graphs spanning multiple tasks, bounded replanning, goal budgets and crash-recovery orchestration remain open work. The PR must stay draft until those capabilities and their tests are implemented and CI passes.
