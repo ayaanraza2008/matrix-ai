@@ -280,9 +280,9 @@ class Store:
         if task["goal_id"] != goal_id:
             raise ValueError("task is not linked to this goal")
         cursor = self.db.execute(
-            "UPDATE goals SET task_id=?, state='running', updated_at=? "
-            "WHERE id=? AND task_id IS NULL AND state='queued'",
-            (task_id, iso(), goal_id),
+            "UPDATE goals SET task_id=?, deadline=(SELECT deadline FROM tasks WHERE id=?), "
+            "state='running', updated_at=? WHERE id=? AND task_id IS NULL AND state='queued'",
+            (task_id, task_id, iso(), goal_id),
         )
         if cursor.rowcount != 1:
             raise ValueError("goal is already attached to a task or is not queued")
