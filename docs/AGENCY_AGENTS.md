@@ -74,3 +74,9 @@ This integration is a specialist prompt-routing layer over one local model
 runtime, not a claim that every upstream profile is an independently running
 agent. True parallel multi-model execution would increase memory and compute
 usage and is intentionally not enabled by this change.
+
+The upstream prompt corpus contains illustrative secret-like strings and private-key
+markers as security-training examples. The MATRIX first-party secret scanner
+therefore excludes only the `agency-agents/` vendored directory; all MATRIX source,
+configuration, docs, and other repository paths remain covered. The upstream files
+are preserved unchanged, with their original MIT license.
