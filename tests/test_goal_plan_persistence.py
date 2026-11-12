@@ -252,3 +252,28 @@ def test_recovery_reconciles_terminal_task_created_before_node_link(tmp_path):
     assert node["task_id"] == task_id
     assert node["state"] == "completed"
     db.close()
+
+
+def test_goal_node_claims_enforce_global_parallelism_limit(tmp_path):
+    from matrix_ai.storage.db import Database
+    from matrix_ai.storage.store import Store
+
+    db = Database(tmp_path / "goal-node-cap.sqlite")
+    store = Store(db)
+    store.ensure_user("owner")
+    goal_id = store.create_goal(owner_id="owner", title="Goal", success_criteria="Done")
+    store.save_goal_graph(
+        goal_id,
+        [
+            {"node_id": f"node-{index}", "title": f"Node {index}", "depends_on": []}
+            for index in range(6)
+        ],
+    )
+    assert store.claim_goal_node(goal_id, "node-0")
+    assert store.claim_goal_node(goal_id, "node-1")
+    assert store.claim_goal_node(goal_id, "node-2")
+    assert store.claim_goal_node(goal_id, "node-3")
+    assert not store.claim_goal_node(goal_id, "node-4")
+    assert not store.claim_goal_node(goal_id, "node-5")
+    assert len(store.ready_goal_nodes(goal_id)) == 2
+    db.close()
