@@ -8,7 +8,7 @@ reproducible demonstration — not when code exists.
 | 0. Discovery | Repo inventory, baseline report, integration status | Reproducible baseline + prioritized gaps | **Complete** — `docs/BASELINE_REPORT.md` (empty repo, fresh build) |
 | 1. Stabilize core | API, state machine, tool registry, policy, cancellation, audit | Core tests pass; no unguarded execution | **Complete** — A01/A03–A08/A16/A17/A22/A23 pass |
 | 2. Local brain | Model adapter, manager, structured tools, benchmark harness | Local chat + tool routing within RAM budget | **Partial** — adapters/manager done; no benchmark harness or model configured on this PC |
-| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional local faster-whisper STT + browser PTT integrated and CI-tested; real device check, TTS, wake word and VAD remain |
+| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional local faster-whisper STT + PTT, transcript-to-chat, opt-in browser/system reply speech; real device check, server TTS, wake word and VAD remain |
 | 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — sessions + OCR adapter; Tesseract/MediaPipe/camera missing |
 | 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — files/apps/shell/system done; pywinauto + Playwright pending |
 | 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; not built |
@@ -32,9 +32,10 @@ reproducible demonstration — not when code exists.
 
 ### M2 — Voice engines (Phase 3 exit)
 - [x] Integrate optional faster-whisper `tiny`/`base` CPU/INT8 STT with lazy model load, browser push-to-talk, mute/discard behavior, duration/size limits and metadata-only audit.
+- [x] Add transcript-to-chat handoff, per-message speech controls, opt-in automatic reply speech, voice selection and browser playback cancellation.
 - [ ] Install `.[voice]` on the target Windows PC; validate microphone permission and transcribe English + Hindi samples.
 - [ ] Measure model load time, p50/p90 transcription latency and peak RAM on the target PC; adjust the model profile only from measured evidence.
-- [ ] Add local Piper TTS with a separately licensed voice, then wake word/VAD only after push-to-talk is stable.
+- [ ] Add dedicated local Piper TTS with a separately licensed voice; then add VAD and wake word only after push-to-talk and interruption are stable.
 - Acceptance: A11/A12 run against real audio; barge-in stops playback ≤ 300 ms; no raw audio persisted; target-device latency/RAM recorded.
 
 ### M3 — Windows UI + browser automation (Phase 5 exit)
