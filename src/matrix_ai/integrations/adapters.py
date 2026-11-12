@@ -13,7 +13,6 @@ from pathlib import Path
 import httpx
 
 from ..config import MatrixConfig
-from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service
 from .base import (
     STATUS_CONFIGURED,
     STATUS_DEGRADED,
@@ -25,6 +24,7 @@ from .base import (
     Integration,
     IntegrationResult,
 )
+from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service
 
 TIMEOUT = httpx.Timeout(6.0, connect=4.0)
 
