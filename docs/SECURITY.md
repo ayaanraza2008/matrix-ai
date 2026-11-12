@@ -45,7 +45,7 @@ The model is **untrusted**: it proposes plans, never permissions, never executio
 | T12 | Runaway/looping autonomy | 12-step plan limit, task deadline, bounded retries, scheduler intervals, emergency stop cancels and blocks (A06) | A long-running allowlisted command can still occupy a worker until timeout |
 | T13 | Secret leakage in logs/audit | `redact_text`/`redact_obj` scrub tokens, bearer headers, key blocks; audit stores redacted detail; memory refuses secrets (A22 + unit tests) | Regexes are best-effort; unusual secret formats may slip |
 | T14 | Secret committed to Git | `.gitignore`, `secret_scan.py` in CI and pre-push habit (A22) | Human error remains possible; GitHub push protection is recommended |
-| T15 | Dependency compromise | Small dependency set (FastAPI, Pydantic, psutil, httpx); CI runs lint + tests; dependabot config included | No SBOM/signature verification yet |
+| T15 | Dependency compromise | CI lint/tests, blocking `pip-audit`, Dependabot and CycloneDX Python SBOM artifact (PR #21) | No signed provenance/attestation or release artifact signature yet |
 | T16 | Remote exposure of the API | Binds `127.0.0.1` by default; optional Tailscale Serve proxies only `127.0.0.1:<MATRIX_PORT>` (default `8765`) within the tailnet; helper never configures Funnel; bearer-token auth remains required | Tailnet ACL/device compromise or owner-token theft still grants access; PC must stay online and signed in |
 | T17 | Missing integration credentials crash core | Adapters fail closed with `missing_credentials`; health checks are on-demand; core tasks unaffected (A21) | Provider outages only affect that adapter |
 | T18 | Audit tampering | Append-only API; no update/delete routes | Local DB write access implies full compromise anyway |
