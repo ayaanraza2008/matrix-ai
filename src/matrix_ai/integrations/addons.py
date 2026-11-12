@@ -302,6 +302,64 @@ class AddonManager:
         output.sort(key=lambda item: (-item[0], item[1]))
         return output[:10]
 
+    async def prepare_selected(self, selected: list[dict[str, Any]], registry) -> None:
+        """Fetch safe selected source references and start explicitly configured local services."""
+        for selected_addon in selected:
+            addon_id = str(selected_addon.get("id") or "")
+            addon = ADDON_BY_ID.get(addon_id)
+            if addon is None:
+                continue
+
+            # Only context-safe small source repositories are lazily fetched.
+            # This does not install dependencies or run any third-party scripts.
+            if (
+                self.config.addon_auto_install_sources
+                and addon["context_enabled"]
+                and addon_id not in _BLOCKED_CONTEXT
+                and int(addon.get("size_mb", 0)) <= 200
+                and self._installed_info(addon_id) is None
+            ):
+                try:
+                    result = await asyncio.to_thread(
+                        self.install, addon_id, allow_large=False
+                    )
+                    if self.store is not None:
+                        self.store.audit(
+                            "addon.source_auto_installed",
+                            actor="addon-router",
+                            status="installed",
+                            detail={
+                                "addon_id": addon_id,
+                                "commit": result.get("commit"),
+                                "source_only": True,
+                            },
+                        )
+                except Exception as exc:  # optional source fetch must never block the task
+                    self._connection_errors[addon_id] = f"source_install:{type(exc).__name__}"
+                    log.warning(
+                        "lazy add-on source install failed for %s: %s",
+                        addon_id,
+                        type(exc).__name__,
+                    )
+
+            # Owner configuration is the explicit opt-in to execute a local
+            # server command or send an API bearer key. Offensive security
+            # and unrestricted evaluation engines are never auto-started.
+            if (
+                addon_id in self.mcp_servers
+                and addon_id not in self._connections
+                and addon["protocol"] in {"mcp_stdio", "mcp_candidate", "desktop_mcp"}
+            ):
+                try:
+                    await self.connect(addon_id, registry)
+                except Exception as exc:  # service dependencies may not be available
+                    self._connection_errors[addon_id] = f"auto_connect:{type(exc).__name__}"
+                    log.warning(
+                        "configured MCP auto-connect failed for %s: %s",
+                        addon_id,
+                        type(exc).__name__,
+                    )
+
     async def connect(self, addon_id: str, registry) -> dict[str, Any]:
         """Connect only a preconfigured, owner-approved stdio MCP server."""
         addon = ADDON_BY_ID.get(addon_id)
