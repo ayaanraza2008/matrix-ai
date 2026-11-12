@@ -79,8 +79,14 @@ def test_fetch_pinned_preserves_host_and_bounds_body(monkeypatch):
         def __init__(self, host, port, address, *, timeout):
             captured["connection"] = (host, port, address, timeout)
 
-        def request(self, method, path, *, headers):
-            captured["request"] = (method, path, headers)
+        def putrequest(self, method, path, *, skip_host):
+            captured["request"] = (method, path, skip_host)
+
+        def putheader(self, name, value):
+            captured.setdefault("headers", {})[name] = value
+
+        def endheaders(self):
+            captured["ended"] = True
 
         def getresponse(self):
             return Response()
@@ -98,8 +104,9 @@ def test_fetch_pinned_preserves_host_and_bounds_body(monkeypatch):
     assert location is None
     assert body == b"abcd"
     assert captured["connection"] == ("public.example", 8080, "93.184.216.34", 8.0)
-    method, path, headers = captured["request"]
-    assert (method, path) == ("GET", "/a?q=1")
-    assert headers["Host"] == "public.example:8080"
+    method, path, skip_host = captured["request"]
+    assert (method, path, skip_host) == ("GET", "/a?q=1", True)
+    assert captured["headers"]["Host"] == "public.example:8080"
+    assert captured["ended"] is True
     assert captured["read_limit"] == 5
     assert captured["closed"] is True
