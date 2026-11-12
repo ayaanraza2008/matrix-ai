@@ -7,7 +7,6 @@ still pass through MATRIX's per-action approval policy.
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field
