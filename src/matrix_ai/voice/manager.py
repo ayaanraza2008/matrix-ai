@@ -12,9 +12,7 @@ import asyncio
 import base64
 import binascii
 import importlib.util
-import io
-import shutil
-import threading
+import ioimport threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -60,12 +58,6 @@ class VoiceSessionManager:
     def _detect_stt() -> str:
         return "faster-whisper" if importlib.util.find_spec("faster_whisper") else "unavailable"
 
-    @staticmethod
-    def _detect_tts() -> str:
-        if shutil.which("piper"):
-            return "piper"
-        return "unavailable"
-
     # -- session state ----------------------------------------------------
     @property
     def active_session(self) -> VoiceSession | None:
@@ -75,9 +67,12 @@ class VoiceSessionManager:
 
     def status(self) -> VoiceStatusView:
         session = self.active_session
-        detail = None
+        details = []
         if self.stt_provider == "unavailable":
-            detail = "Push-to-talk session control is available; no speech-to-text engine is installed yet."
+            details.append("No speech-to-text engine is installed; add the optional voice extra.")
+        if self.tts_engine is None:
+            details.append("Server-side speech output is disabled or unavailable.")
+        detail = " ".join(details) or None
         return VoiceStatusView(
             available=True,
             state=session.state if session else "idle",
@@ -117,6 +112,12 @@ class VoiceSessionManager:
 
     def stop(self, session_id: str | None = None) -> VoiceSession:
         session = self._require_session(session_id)
+        if self._speak_task is not None and not self._speak_task.done():
+            stop = getattr(self.tts_engine, "stop", None)
+            if callable(stop):
+                stop()
+            self._speak_task.cancel()
+            self._speak_task = None
         session.state = "idle"
         session.muted = False
         if self._active_id == session.id:
@@ -231,13 +232,18 @@ class VoiceSessionManager:
         )
 
     # -- speech output & barge-in ----------------------------------------
+    def validate_speech(self, text: str) -> dict:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            raise ValidationFailure("text to speak is required")
+        if contains_secret(cleaned):
+            raise ValidationFailure("refusing to speak text that looks like a credential")
+        return {"allowed": True}
+
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
+        self.validate_speech(text)
         text = (text or "").strip()
-        if not text:
-            raise ValidationFailure("text to speak is required")
-        if contains_secret(text):
-            raise ValidationFailure("refusing to speak text that looks like a credential")
         if self.tts_engine is None:
             raise ToolUnavailable(
                 "No text-to-speech engine is installed. Install Piper (or another local TTS engine) "
@@ -262,6 +268,9 @@ class VoiceSessionManager:
         session = self._require_session(session_id)
         interrupted = bool(self._speak_task is not None and not self._speak_task.done())
         if interrupted and self._speak_task is not None:
+            stop = getattr(self.tts_engine, "stop", None)
+            if callable(stop):
+                stop()
             self._speak_task.cancel()
             self._speak_task = None
         session.state = "listening"
@@ -269,6 +278,9 @@ class VoiceSessionManager:
 
     async def shutdown(self) -> None:
         if self._speak_task is not None and not self._speak_task.done():
+            stop = getattr(self.tts_engine, "stop", None)
+            if callable(stop):
+                stop()
             self._speak_task.cancel()
             try:
                 await self._speak_task
