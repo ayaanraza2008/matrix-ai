@@ -20,8 +20,8 @@ from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
-from .web_tools import FetchPublicUrlTool
 from .weather_tools import OpenMeteoForecastTool
+from .web_tools import FetchPublicUrlTool
 
 
 class ToolRegistry:
