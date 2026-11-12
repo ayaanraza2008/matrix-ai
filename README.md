@@ -36,7 +36,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
 | Signed release / installer | **Planned** | Phase 9 |
 
-Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
+Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).\n\nMATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, routing, and safety details.
 
 ---
 
@@ -44,7 +44,7 @@ Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.m
 
 ```powershell
 # 1. Get the code
-git clone https://github.com/ayaanraza2008/matrix-ai.git
+git clone --recurse-submodules https://github.com/ayaanraza2008/matrix-ai.git
 cd matrix-ai
 
 # 2. Create an isolated venv
@@ -119,7 +119,7 @@ Windows PC                                     Android (scaffold)
     SQLite (WAL) + approved workspace + optional local model runtime
 ```
 
-Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### Why the state machine matters
 

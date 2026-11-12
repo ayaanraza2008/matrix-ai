@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
-from ..core.agents import agent_catalog
+from ..core.agents import agent_catalog, get_agency_agent, search_agency_agents
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -530,6 +530,24 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
 @router.get("/agents", tags=["system"])
 async def agents(principal: PrincipalDep) -> list[dict[str, Any]]:
     return agent_catalog()
+
+
+@router.get("/agents/search", tags=["system"])
+async def search_agents(
+    principal: PrincipalDep,
+    q: str = Query(min_length=1, max_length=500),
+    limit: int = Query(default=5, ge=1, le=10),
+) -> dict[str, Any]:
+    matches = search_agency_agents(q, limit=limit)
+    return {"query": q, "count": len(matches), "agents": matches}
+
+
+@router.get("/agents/{slug}", tags=["system"])
+async def agency_agent_detail(slug: str, principal: PrincipalDep) -> dict[str, Any]:
+    agent = get_agency_agent(slug)
+    if agent is None:
+        raise NotFoundError(f"specialist agent '{slug}' not found")
+    return agent
 
 
 @router.get("/settings", tags=["system"])
