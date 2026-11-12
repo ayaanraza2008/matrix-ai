@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from matrix_ai.config import MatrixConfig
+from matrix_ai.core.models import TaskState
 from matrix_ai.telegram import TelegramChatBridge
 
 
@@ -93,3 +96,29 @@ async def test_telegram_bridge_requires_both_credentials(tmp_path):
     config = MatrixConfig(home=tmp_path, telegram_bot_token="token")
     bridge = TelegramChatBridge(config=config, orchestrator=FakeOrchestrator(), store=FakeStore())
     assert bridge.enabled is False
+
+
+
+async def test_telegram_reports_waiting_for_owner_approval(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.task_view = lambda task_id: SimpleNamespace(state=TaskState.WAITING_FOR_USER)
+    async def no_wait(_seconds):
+        return None
+    monkeypatch.setattr("matrix_ai.telegram.asyncio.sleep", no_wait)
+
+    await bridge._report_task("task-123")
+
+    assert len(sent) == 1
+    assert "needs owner approval" in sent[0]
+    assert "cannot auto-approve" in sent[0]
+
+
+async def test_telegram_report_failures_are_audited(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    async def no_wait(_seconds):
+        return None
+    monkeypatch.setattr("matrix_ai.telegram.asyncio.sleep", no_wait)
+
+    await bridge._report_task("task-123")
+
+    assert any(args[0] == "telegram.task_report_failed" for args, _kwargs in store.audits)
