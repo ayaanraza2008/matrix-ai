@@ -236,6 +236,12 @@ class GoalSupervisor:
                                     deadline_seconds=remaining,
                                 )
                             self.store.attach_goal_node_task(goal_id, node_id, task_id)
+                            task_row = self.store.get_task_row(task_id)
+                            if TaskState(task_row["state"]) in {
+                                TaskState.COMPLETE, TaskState.PARTIAL, TaskState.FAILED, TaskState.CANCELLED
+                            }:
+                                self._sync_node(goal_id, node, task_row)
+                                continue
                             self.store.audit(
                                 "goal.node_dispatched", actor="goal-supervisor", task_id=task_id,
                                 status="running", detail={"goal_id": goal_id, "node_id": node_id},
