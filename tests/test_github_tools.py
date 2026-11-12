@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk
@@ -51,7 +51,10 @@ def test_github_tools_registered_and_read_only():
 def test_github_requires_token(tmp_path):
     tool = GitHubWhoAmITool()
     with pytest.raises(ToolUnavailable, match="MATRIX_GITHUB_TOKEN"):
-        tool.run_sync(\n            GitHubEmptyInput(),\n            ToolContext(task_id="github-test", config=MatrixConfig(home=tmp_path, github_token=None)),\n        )
+        tool.run_sync(
+            GitHubEmptyInput(),
+            ToolContext(task_id="github-test", config=MatrixConfig(home=tmp_path, github_token=None)),
+        )
 
 
 def test_github_whoami_uses_bearer_token_and_returns_minimal_data(tmp_path, monkeypatch):
