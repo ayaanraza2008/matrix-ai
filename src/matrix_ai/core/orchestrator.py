@@ -876,6 +876,11 @@ class Orchestrator:
         runner = self._runners.get(task_id)
         if runner is not None and not runner.done():
             runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+            # A runner can be cancelled before its coroutine starts. Reconcile
+            # explicitly so callers never observe a permanently nonterminal task.
+            if not TaskStateMachine.is_terminal(self.store.get_task_row(task_id)["state"]):
+                self._mark_cancelled(task_id)
         else:
             self._mark_cancelled(task_id)
         return self.store.task_view(task_id)
