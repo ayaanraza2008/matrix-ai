@@ -328,6 +328,49 @@ class Store:
             ),
         )
 
+    def save_goal_graph(self, goal_id: str, nodes: list[dict[str, Any]]) -> None:
+        """Persist a validated DAG as a plan; this does not dispatch any work."""
+        goal = self.get_goal(goal_id)
+        if goal["task_id"] is not None or goal["state"] not in {"queued", "planned"}:
+            raise ValueError("a goal graph can only be changed before task execution starts")
+        now = iso()
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM goal_nodes WHERE goal_id=?", (goal_id,))
+            for node in nodes:
+                conn.execute(
+                    "INSERT INTO goal_nodes(goal_id, node_id, title, depends_on_json, state, created_at, updated_at) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (
+                        goal_id, node["node_id"], node["title"],
+                        canonical_json(node["depends_on"]), "pending", now, now,
+                    ),
+                )
+            conn.execute(
+                "UPDATE goals SET state='planned', updated_at=? WHERE id=?",
+                (now, goal_id),
+            )
+
+    def get_goal_graph(self, goal_id: str) -> list[dict[str, Any]]:
+        self.get_goal(goal_id)
+        rows = self.db.query(
+            "SELECT node_id, title, depends_on_json, state, task_id, attempt_count, error, evidence_json "
+            "FROM goal_nodes WHERE goal_id=? ORDER BY rowid",
+            (goal_id,),
+        )
+        result = []
+        for row in rows:
+            result.append({
+                "node_id": row["node_id"],
+                "title": row["title"],
+                "depends_on": _json_load(row["depends_on_json"], []),
+                "state": row["state"],
+                "task_id": row["task_id"],
+                "attempt_count": row["attempt_count"],
+                "error": row["error"],
+                "evidence": _json_load(row["evidence_json"], None),
+            })
+        return result
+
     # -- plans & steps ----------------------------------------------------
     def save_plan(self, task_id: str, plan: Plan) -> None:
         with self.db.transaction() as conn:
