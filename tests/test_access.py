@@ -14,6 +14,7 @@ def completed(stdout="", returncode=0, stderr=""):
 
 def test_remote_access_enable_uses_private_serve_target_only(monkeypatch):
     calls = []
+    configured = {"serve": False}
     monkeypatch.setattr("matrix_ai.access.shutil.which", lambda _name: "tailscale")
 
     def fake_run(argv, **kwargs):
@@ -21,8 +22,12 @@ def test_remote_access_enable_uses_private_serve_target_only(monkeypatch):
         if argv[1:] == ["status", "--json"]:
             return completed(json.dumps({"BackendState": "Running", "Self": {"HostName": "matrix-pc"}}))
         if argv[1:] == ["serve", "status"]:
-            return completed("")
+            return completed(
+                "https://matrix-pc.example.ts.net -> http://127.0.0.1:8765"
+                if configured["serve"] else "No serve config"
+            )
         if argv[1:] == ["serve", "--bg", REMOTE_TARGET]:
+            configured["serve"] = True
             return completed("Available within your tailnet: https://matrix-pc.example.ts.net")
         raise AssertionError(f"unexpected command: {argv}")
 
@@ -30,6 +35,8 @@ def test_remote_access_enable_uses_private_serve_target_only(monkeypatch):
     result = RemoteAccessManager().enable()
     assert result["scope"] == "tailnet_only"
     assert result["public_funnel_enabled_by_matrix"] is False
+    assert result["serve_enabled"] is True
+    assert result["endpoint"] == "https://matrix-pc.example.ts.net"
     assert calls[-1] == ["tailscale", "serve", "--bg", REMOTE_TARGET]
     assert all("funnel" not in part.lower() for call in calls for part in call)
 
