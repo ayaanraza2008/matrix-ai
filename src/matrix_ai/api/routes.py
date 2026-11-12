@@ -114,6 +114,7 @@ class GoalCreateBody(BaseModel):
     title: str = Field(min_length=1, max_length=2000)
     success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
     autonomy_level: int | None = Field(default=None, ge=0, le=4)
+    deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
 
 
 class ApprovalDecisionBody(BaseModel):
@@ -288,6 +289,7 @@ async def create_goal(
         owner_id=principal.user_id,
         title=body.title,
         success_criteria=body.success_criteria,
+        deadline_seconds=min(body.deadline_seconds, runtime.config.task_deadline_seconds),
     )
     try:
         task_id = runtime.orchestrator.create_task(
@@ -296,6 +298,7 @@ async def create_goal(
             autonomy_level=body.autonomy_level,
             kind="goal",
             goal_id=goal_id,
+            deadline_seconds=body.deadline_seconds,
         )
         runtime.store.attach_goal_task(goal_id, task_id)
         await runtime.orchestrator.enqueue(task_id)
