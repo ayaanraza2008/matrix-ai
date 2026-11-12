@@ -232,9 +232,28 @@ class GoalSupervisor:
                             await self.orchestrator.enqueue(task_id)
                             dispatched.append(task_id)
                         except Exception as exc:
-                            self.store.fail_goal_node_dispatch(
-                                goal_id, node_id, f"{type(exc).__name__}: {exc}"
-                            )
+                            if "task_id" in locals():
+                                link = self.store.get_goal_node_for_task(task_id)
+                                if link is None:
+                                    try:
+                                        await self.orchestrator.cancel(task_id)
+                                    except Exception:
+                                        pass
+                                    self.store.fail_goal_node_dispatch(
+                                        goal_id, node_id, f"{type(exc).__name__}: {exc}"
+                                    )
+                                else:
+                                    try:
+                                        await self.orchestrator.cancel(task_id)
+                                    finally:
+                                        self.store.update_goal_node(
+                                            goal_id, node_id, state="failed",
+                                            error=f"dispatch_failed: {type(exc).__name__}: {exc}",
+                                        )
+                            else:
+                                self.store.fail_goal_node_dispatch(
+                                    goal_id, node_id, f"{type(exc).__name__}: {exc}"
+                                )
                             self.store.audit(
                                 "goal.node_dispatch_failed", actor="goal-supervisor", status="failed",
                                 detail={"goal_id": goal_id, "node_id": node_id, "error": str(exc)[:500]},
