@@ -463,8 +463,8 @@ class Store:
             "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
             "criteria_status=?, updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
             (state, summary[:1000],
-             "independently_verified" if state == "completed" else ("not_met" if state == "partial" and all_completed else "not_evaluated"),
-             "independent_model_verified" if state == "completed" else ("pending_independent_review" if all_completed else "not_verified"),
+             "second_pass_model_verified" if state == "completed" else ("pending_owner_review" if all_completed else "not_verified"),
+             "verified_by_model" if state == "completed" else ("not_met" if state == "partial" and all_completed else "not_evaluated"),
              iso(), iso(), goal_id),
         )
 
