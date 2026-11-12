@@ -206,9 +206,25 @@ class Orchestrator:
                     status="running", detail={"goal_id": goal_id, "node_id": node_id},
                 )
             except Exception as exc:
-                self.store.fail_goal_node_dispatch(
-                    goal_id, node_id, f"{type(exc).__name__}: {exc}"
-                )
+                # If cancellation or another worker won after the claim, never leave
+                # an unlinked RECEIVED task that startup recovery could execute.
+                if "task_id" in locals():
+                    try:
+                        linked = next(
+                            (item for item in self.store.get_goal_graph(goal_id)
+                             if item["node_id"] == node_id and item["task_id"] == task_id),
+                            None,
+                        )
+                        task_row = self.store.get_task_row(task_id)
+                        if linked is None and not TaskStateMachine.is_terminal(task_row["state"]):
+                            await self.cancel(task_id)
+                    except Exception:
+                        pass
+                current_goal = self.store.get_goal(goal_id)
+                if current_goal["state"] not in {"cancelling", "cancelled"}:
+                    self.store.fail_goal_node_dispatch(
+                        goal_id, node_id, f"{type(exc).__name__}: {exc}"
+                    )
                 self.store.audit(
                     "goal.node_dispatch_failed", actor="scheduler", status="failed",
                     detail={"goal_id": goal_id, "node_id": node_id, "error": str(exc)[:500]},
