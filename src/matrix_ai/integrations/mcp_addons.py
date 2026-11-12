@@ -11,6 +11,9 @@ import json
 import logging
 import os
 from collections.abc import Mapping
+from urllib.parse import urlparse
+
+import httpx
 from typing import Any
 
 from ..errors import ToolExecutionError, ToolUnavailable
@@ -34,19 +37,36 @@ class MCPStdioClient:
     def __init__(
         self,
         *,
-        command: str,
-        args: list[Any],
-        env: dict[str, Any],
+        command: str = "",
+        args: list[Any] | None = None,
+        env: dict[str, Any] | None = None,
         server_name: str,
         cwd: str | None = None,
         request_timeout: float = 120.0,
+        transport: str = "stdio",
+        url: str = "",
+        headers: dict[str, str] | None = None,
     ) -> None:
-        if not command or not isinstance(command, str) or len(command) > 300:
-            raise ToolUnavailable("MCP server command is not configured")
-        if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
-            raise ToolUnavailable("MCP server arguments must be a bounded list of strings")
-        if not isinstance(env, dict) or len(env) > 64:
-            raise ToolUnavailable("MCP server environment must be a bounded object")
+        args = args or []
+        env = env or {}
+        headers = headers or {}
+        if transport not in {"stdio", "streamable_http"}:
+            raise ToolUnavailable("Unsupported MCP transport")
+        if transport == "stdio":
+            if not command or not isinstance(command, str) or len(command) > 300:
+                raise ToolUnavailable("MCP server command is not configured")
+            if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
+                raise ToolUnavailable("MCP server arguments must be a bounded list of strings")
+            if not isinstance(env, dict) or len(env) > 64:
+                raise ToolUnavailable("MCP server environment must be a bounded object")
+        else:
+            parsed = urlparse(url)
+            if server_name != "openwhispr" or parsed.scheme != "https" or parsed.hostname != "mcp.openwhispr.com" or parsed.path != "/mcp":
+                raise ToolUnavailable("Remote MCP is restricted to the verified OpenWhispr HTTPS endpoint")
+        self.transport = transport
+        self.url = url
+        self.headers = dict(headers)
+        self.http_client: httpx.AsyncClient | None = None
         self.command = command
         self.args = list(args)
         self.env = _safe_env(env)
@@ -64,20 +84,27 @@ class MCPStdioClient:
         self.stderr_tail = ""
 
     async def connect(self) -> list[dict[str, Any]]:
-        try:
-            self.process = await asyncio.create_subprocess_exec(
-                self.command,
-                *self.args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self.cwd,
-                env=self.env,
+        if self.transport == "stdio":
+            try:
+                self.process = await asyncio.create_subprocess_exec(
+                    self.command,
+                    *self.args,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=self.cwd,
+                    env=self.env,
+                )
+            except (OSError, ValueError) as exc:
+                raise ToolUnavailable(f"Could not start configured MCP server '{self.server_name}': {type(exc).__name__}") from exc
+            self._reader_task = asyncio.create_task(self._read_stdout(), name=f"matrix-mcp-{self.server_name}")
+            self._stderr_task = asyncio.create_task(self._read_stderr(), name=f"matrix-mcp-stderr-{self.server_name}")
+        else:
+            self.http_client = httpx.AsyncClient(
+                timeout=self.request_timeout,
+                headers={**self.headers, "Accept": "application/json, text/event-stream", "Content-Type": "application/json"},
+                follow_redirects=False,
             )
-        except (OSError, ValueError) as exc:
-            raise ToolUnavailable(f"Could not start configured MCP server '{self.server_name}': {type(exc).__name__}") from exc
-        self._reader_task = asyncio.create_task(self._read_stdout(), name=f"matrix-mcp-{self.server_name}")
-        self._stderr_task = asyncio.create_task(self._read_stderr(), name=f"matrix-mcp-stderr-{self.server_name}")
         try:
             await self.request(
                 "initialize",
@@ -119,30 +146,34 @@ class MCPStdioClient:
         }
 
     async def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        process = self.process
-        if process is None or process.returncode is not None or process.stdin is None:
-            raise ToolUnavailable(f"MCP server '{self.server_name}' is not running")
-        request_id = self._next_id
-        self._next_id += 1
-        future = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        message = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params,
-        }
-        try:
-            async with self._write_lock:
-                process.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
-                await process.stdin.drain()
-            response = await asyncio.wait_for(future, timeout=self.request_timeout)
-        except TimeoutError as exc:
-            self._pending.pop(request_id, None)
-            raise ToolUnavailable(f"MCP server '{self.server_name}' timed out on {method}") from exc
-        except (BrokenPipeError, ConnectionError, OSError) as exc:
-            self._pending.pop(request_id, None)
-            raise ToolUnavailable(f"MCP server '{self.server_name}' closed its input stream") from exc
+        if self.transport == "streamable_http":
+            response = await self._http_rpc({"jsonrpc": "2.0", "id": self._next_id, "method": method, "params": params})
+            self._next_id += 1
+        else:
+            process = self.process
+            if process is None or process.returncode is not None or process.stdin is None:
+                raise ToolUnavailable(f"MCP server '{self.server_name}' is not running")
+            request_id = self._next_id
+            self._next_id += 1
+            future = asyncio.get_running_loop().create_future()
+            self._pending[request_id] = future
+            message = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            }
+            try:
+                async with self._write_lock:
+                    process.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
+                    await process.stdin.drain()
+                response = await asyncio.wait_for(future, timeout=self.request_timeout)
+            except TimeoutError as exc:
+                self._pending.pop(request_id, None)
+                raise ToolUnavailable(f"MCP server '{self.server_name}' timed out on {method}") from exc
+            except (BrokenPipeError, ConnectionError, OSError) as exc:
+                self._pending.pop(request_id, None)
+                raise ToolUnavailable(f"MCP server '{self.server_name}' closed its input stream") from exc
         if not isinstance(response, dict):
             raise ToolUnavailable(f"MCP server '{self.server_name}' returned a malformed response")
         if "error" in response:
@@ -154,7 +185,48 @@ class MCPStdioClient:
             raise ToolUnavailable(f"MCP server '{self.server_name}' returned no result for {method}")
         return result
 
+    async def _http_rpc(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.http_client is None:
+            raise ToolUnavailable(f"Remote MCP '{self.server_name}' is not connected")
+        try:
+            response = await self.http_client.post(self.url, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ToolUnavailable(f"Remote MCP request failed: {type(exc).__name__}") from exc
+        content_type = response.headers.get("content-type", "").casefold()
+        try:
+            if "text/event-stream" in content_type:
+                events = []
+                for line in response.text.splitlines():
+                    if line.startswith("data:"):
+                        candidate = line[5:].strip()
+                        if candidate:
+                            item = json.loads(candidate)
+                            if isinstance(item, dict):
+                                events.append(item)
+                request_id = payload["id"]
+                result = next((item for item in events if item.get("id") == request_id), None)
+            else:
+                result = response.json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ToolUnavailable("Remote MCP returned an invalid JSON/SSE response") from exc
+        if not isinstance(result, dict) or result.get("id") != payload.get("id"):
+            raise ToolUnavailable("Remote MCP response id did not match the request")
+        return result
+
     async def notify(self, method: str, params: dict[str, Any]) -> None:
+        if self.transport == "streamable_http":
+            if self.http_client is None:
+                raise ToolUnavailable(f"Remote MCP '{self.server_name}' is not connected")
+            try:
+                response = await self.http_client.post(
+                    self.url, json={"jsonrpc": "2.0", "method": method, "params": params}
+                )
+                if response.status_code not in {200, 202, 204}:
+                    response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise ToolUnavailable(f"Remote MCP notification failed: {type(exc).__name__}") from exc
+            return
         process = self.process
         if process is None or process.returncode is not None or process.stdin is None:
             raise ToolUnavailable(f"MCP server '{self.server_name}' is not running")
@@ -243,8 +315,15 @@ class MCPStdioClient:
 
     async def close(self) -> None:
         self._closing = True
+        if self.http_client is not None:
+            await self.http_client.aclose()
+            self.http_client = None
         process = self.process
         if process is None:
+            for future in self._pending.values():
+                if not future.done():
+                    future.set_exception(ToolUnavailable(f"MCP server '{self.server_name}' disconnected"))
+            self._pending.clear()
             return
         if process.stdin and not process.stdin.is_closing():
             process.stdin.close()

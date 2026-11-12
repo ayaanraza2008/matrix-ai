@@ -301,7 +301,7 @@ class AddonManager:
         addon = ADDON_BY_ID.get(addon_id)
         if addon is None:
             raise AddonError(f"unknown add-on: {addon_id}")
-        if addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp"}:
+        if addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp", "security_mcp_bridge"}:
             raise AddonError(f"{addon_id} is not a direct stdio MCP connector")
         spec = self.mcp_servers.get(addon_id)
         if not isinstance(spec, dict):
@@ -318,6 +318,9 @@ class AddonManager:
             env=spec.get("env") if isinstance(spec.get("env"), dict) else {},
             server_name=addon_id,
             cwd=str(self._path(addon_id)) if self._installed_info(addon_id) else None,
+            transport=str(spec.get("transport") or "stdio"),
+            url=str(spec.get("url") or ""),
+            headers=spec.get("headers") if isinstance(spec.get("headers"), dict) else {},
         )
         tools = await client.connect()
         created = build_mcp_tools(
@@ -326,8 +329,16 @@ class AddonManager:
         if not created:
             await client.close()
             raise AddonError(f"{addon_id} MCP server exposed no tools")
-        for tool in created:
-            registry.register(tool)
+        registered: list[str] = []
+        try:
+            for tool in created:
+                registry.register(tool)
+                registered.append(tool.name)
+        except Exception:
+            for tool_name in registered:
+                registry.unregister(tool_name)
+            await client.close()
+            raise
         self._connections[addon_id] = {"client": client, "tools": [tool.name for tool in created]}
         self._connection_errors.pop(addon_id, None)
         if self.store is not None:

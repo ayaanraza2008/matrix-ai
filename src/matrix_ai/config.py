@@ -204,26 +204,51 @@ class MatrixConfig:
                 raise ConfigError(f"MATRIX_ADDON_MCP_SERVERS has an unsupported add-on id: {addon_id}")
             if not isinstance(spec, dict):
                 raise ConfigError(f"MCP server configuration for {addon_id} must be an object")
-            command = spec.get("command")
+            transport = spec.get("transport", "stdio")
             args = spec.get("args", [])
             env = spec.get("env", {})
-            if not isinstance(command, str) or not command.strip() or len(command) > 300:
-                raise ConfigError(f"MCP server {addon_id} requires a bounded command string")
-            if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
-                raise ConfigError(f"MCP server arguments for {addon_id} must be a list of strings")
-            if not isinstance(env, dict) or len(env) > 64 or any(
-                not isinstance(key, str) or not key.isidentifier() or len(key) > 80
-                or not isinstance(value, str) or len(value) > 8000
-                for key, value in env.items()
-            ):
-                raise ConfigError(f"MCP server environment for {addon_id} must be a bounded string map")
+            headers = spec.get("headers", {})
+            command = spec.get("command", "")
+            url = spec.get("url", "")
+            if transport == "streamable_http":
+                from urllib.parse import urlparse
+
+                parsed = urlparse(url if isinstance(url, str) else "")
+                if addon_id != "openwhispr" or parsed.scheme != "https" or parsed.hostname != "mcp.openwhispr.com" or parsed.path != "/mcp":
+                    raise ConfigError("Only the verified OpenWhispr remote MCP URL is supported for streamable HTTP.")
+                if not isinstance(headers, dict) or len(headers) > 16 or any(
+                    not isinstance(key, str) or not isinstance(value, str)
+                    or len(key) > 100 or len(value) > 8000
+                    for key, value in headers.items()
+                ):
+                    raise ConfigError("MCP HTTP headers must be a bounded string map")
+                if not any(key.casefold() == "authorization" for key in headers):
+                    raise ConfigError("OpenWhispr remote MCP needs an owner-supplied Authorization bearer key.")
+            elif transport == "stdio":
+                if not isinstance(command, str) or not command.strip() or len(command) > 300:
+                    raise ConfigError(f"MCP server {addon_id} requires a bounded command string")
+                if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
+                    raise ConfigError(f"MCP server arguments for {addon_id} must be a list of strings")
+                if not isinstance(env, dict) or len(env) > 64 or any(
+                    not isinstance(key, str) or not key.isidentifier() or len(key) > 80
+                    or not isinstance(value, str) or len(value) > 8000
+                    for key, value in env.items()
+                ):
+                    raise ConfigError(f"MCP server environment for {addon_id} must be a bounded string map")
+            else:
+                raise ConfigError(f"Unsupported MCP transport for {addon_id}: {transport}")
             read_only_tools = spec.get("read_only_tools", [])
             if not isinstance(read_only_tools, list) or len(read_only_tools) > 128 or any(
                 not isinstance(name, str) or not name or len(name) > 160 for name in read_only_tools
             ):
                 raise ConfigError(f"read_only_tools for {addon_id} must be a list of bounded tool names")
             result[addon_id] = {
-                "command": command, "args": list(args), "env": dict(env),
+                "transport": transport,
+                "command": command if isinstance(command, str) else "",
+                "args": list(args) if isinstance(args, list) else [],
+                "env": dict(env) if isinstance(env, dict) else {},
+                "url": url if isinstance(url, str) else "",
+                "headers": dict(headers) if isinstance(headers, dict) else {},
                 "read_only_tools": sorted(set(read_only_tools)),
             }
         return result
