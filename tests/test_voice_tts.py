@@ -63,6 +63,7 @@ async def test_windows_sapi_passes_text_as_json_stdin_not_command_text(monkeypat
 @pytest.mark.asyncio
 async def test_windows_sapi_reports_missing_system_voice_without_echoing_stderr(monkeypatch):
     process = FakeProcess(returncode=1, stderr=b"voice error: private input text")
+
     async def fake_create_subprocess_exec(*args, **kwargs):
         return process
 
@@ -100,6 +101,7 @@ def test_voice_manager_blocks_credentials_from_being_spoken(config):
 async def test_barge_in_stops_engine_when_engine_supports_stop(config):
     class BlockingEngine:
         name = "test-engine"
+
         def __init__(self):
             self.started = asyncio.Event()
             self.stopped = False
