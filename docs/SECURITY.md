@@ -8,7 +8,7 @@ Android client. This document states what is implemented, what is *not*, and how
 | Asset | Where | Protection |
 |---|---|---|
 | Owner bearer token | `%LOCALAPPDATA%\MATRIX\owner_token.txt`, browser localStorage | hashed (SHA-256) in SQLite; never rendered by the API |
-| Device tokens | Android keystore intent (scaffold) + SQLite hash | per-device, expiring, revocable |
+| Device tokens | SQLite hash on the PC; Android scaffold keeps the paired bearer token in transient memory | per-device, expiring, revocable; Android Keystore storage is not implemented yet |
 | Approved workspace files | `MATRIX_FILE_ROOTS` | path resolution + root containment |
 | Task/approval state | SQLite | server-side policy, exact action hash |
 | Audit trail | SQLite `audit_events` | redaction before write |
@@ -66,7 +66,7 @@ action_hash = sha256(tool_name + ":" + canonical_json(arguments))
 ## 5. Network posture
 
 - Default bind: `127.0.0.1:8765` (`MATRIX_PORT` changes the port, not the loopback bind). Health/docs/dashboard are local.
-- No TLS termination in the app. Optional `matrix remote-access enable` configures Tailscale Serve HTTPS within the tailnet only; MATRIX remains loopback-bound. `matrix remote-access disable` removes the MATRIX route. Never use public Funnel or port-forward the API.
+- No TLS termination in the app. Optional `matrix remote-access enable` configures Tailscale Serve HTTPS within the tailnet only; MATRIX remains loopback-bound. Android release builds disable cleartext HTTP; the debug source set alone permits local development HTTP. `matrix remote-access disable` removes the MATRIX route. Never use public Funnel or port-forward the API.
 - Remote PC control requires the PC to be powered on, the Windows user signed in, Tailscale connected and MATRIX running. `matrix startup install` creates a current-user, limited-privilege ONLOGON task; it does not run as SYSTEM or while the user is signed out.
 - `/api/docs` and `/api/openapi.json` are enabled; disable via reverse proxy if the port is exposed.
 - Rate limit: in-process token bucket per session (default 240 req/min).
