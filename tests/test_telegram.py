@@ -123,3 +123,12 @@ async def test_telegram_report_failures_are_audited(tmp_path, monkeypatch):
     await bridge._report_task("task-123")
 
     assert any(args[0] == "telegram.task_report_failed" for args, _kwargs in store.audits)
+
+
+async def test_telegram_unknown_commands_do_not_become_tasks(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    await bridge._handle_update(update(text="/unknown"))
+
+    assert orchestrator.created == []
+    assert sent == ["Unknown command. Send /help for available commands."]
