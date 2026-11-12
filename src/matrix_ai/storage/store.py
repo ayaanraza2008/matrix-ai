@@ -435,6 +435,21 @@ class Store:
         )
         return [{"id": row["id"], "owner_id": row["owner_id"], "state": row["state"]} for row in rows]
 
+    def get_goal_node_for_task(self, task_id: str) -> dict[str, Any] | None:
+        row = self.db.query_one(
+            "SELECT goal_id, node_id FROM goal_nodes WHERE task_id=?",
+            (task_id,),
+        )
+        return {"goal_id": row["goal_id"], "node_id": row["node_id"]} if row else None
+
+    def reset_orphaned_goal_node_claims(self, goal_id: str) -> int:
+        cursor = self.db.execute(
+            "UPDATE goal_nodes SET state='pending', updated_at=? "
+            "WHERE goal_id=? AND state='dispatching' AND task_id IS NULL",
+            (iso(), goal_id),
+        )
+        return cursor.rowcount
+
     def finish_goal_graph(self, goal_id: str, *, state: str, summary: str) -> None:
         if state not in {"awaiting_verification", "partial", "failed", "cancelled"}:
             raise ValueError("invalid terminal goal state")
