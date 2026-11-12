@@ -139,7 +139,7 @@ async def test_startup_recovery_resumes_received_goal_task(runtime):
             break
         await asyncio.sleep(0.025)
 
-    assert goal["state"] == "awaiting_verification"}
+    assert goal["state"] == "awaiting_verification"
 
 
 @pytest.mark.asyncio
