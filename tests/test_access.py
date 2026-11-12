@@ -80,3 +80,31 @@ def test_startup_task_is_platform_gated(monkeypatch):
     monkeypatch.setattr("matrix_ai.access.sys.platform", "linux")
     with pytest.raises(RuntimeError, match="Windows only"):
         StartupTaskManager().install()
+
+
+@pytest.mark.asyncio
+async def test_api_exposes_authenticated_autonomy_and_remote_access_status(client, monkeypatch):
+    from matrix_ai.api.routes import RemoteAccessManager
+
+    monkeypatch.setattr(
+        RemoteAccessManager,
+        "status",
+        lambda self: {
+            "installed": True,
+            "connected": True,
+            "serve_enabled": False,
+            "endpoint": None,
+            "scope": "tailnet_only",
+            "public_funnel_enabled_by_matrix": False,
+            "detail": "Tailscale is connected but MATRIX Serve is not enabled.",
+        },
+    )
+    automation = await client.get("/api/automation/status")
+    remote = await client.get("/api/access/remote")
+
+    assert automation.status_code == 200
+    assert automation.json()["maximum_scheduled_job_autonomy"] == 2
+    assert automation.json()["policy"]["high_risk_requires_exact_approval"] is True
+    assert remote.status_code == 200
+    assert remote.json()["scope"] == "tailnet_only"
+    assert remote.json()["public_funnel_enabled_by_matrix"] is False
