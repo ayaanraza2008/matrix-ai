@@ -101,3 +101,8 @@ The first implementation slice now adds:
 - Audit events and dashboard table counts for goals, plus regression tests for task linkage, owner scoping and terminal-state synchronization.
 
 This is a durable goal wrapper around the existing single-task orchestrator, **not yet the complete multi-task supervisor**. Success criteria are persisted as goal metadata but are not yet evaluated by a separate goal-level verifier. Pause/resume, dependency graphs spanning multiple tasks, bounded replanning, goal budgets and crash-recovery orchestration remain open work. The PR must stay draft until those capabilities and their tests are implemented and CI passes.
+
+
+### Goal deadline and evidence metadata
+
+Schema v3 adds a persisted goal deadline, task-step verification status, aggregate evidence and an explicit success-criteria status. Goal deadlines are bounded by the configured task deadline, so an API caller cannot silently extend the runtime's safety budget. A completed task maps to task_steps_verified only when the orchestrator's aggregate evidence says every step passed verification. The API deliberately reports criteria_status=not_evaluated: semantic evaluation of the user's free-form success criteria is a separate remaining capability, not something inferred from task completion.
