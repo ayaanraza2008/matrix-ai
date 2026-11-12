@@ -83,7 +83,16 @@ class PiperCliEngine:
         return bool(self.executable and self.model_path and self.model_path.is_file())
 
     async def speak(self, text: str) -> None:
-        await asyncio.to_thread(self._speak_sync, text)
+        try:
+            await asyncio.to_thread(self._speak_sync, text)
+        except asyncio.CancelledError:
+            # Cancelling the coroutine alone does not stop the worker thread's audio stream.
+            try:
+                import sounddevice as sd
+                sd.stop()
+            except ImportError:
+                pass
+            raise
 
     def _speak_sync(self, text: str) -> None:
         if not self.available:
