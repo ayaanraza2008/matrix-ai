@@ -40,17 +40,22 @@ class GoalGraph:
 
         by_id: dict[str, GoalNode] = {}
         for node in materialized:
-            if not isinstance(node.node_id, str) or not node.node_id or len(node.node_id) > 128:
+            if not isinstance(node.node_id, str) or not node.node_id.strip() or len(node.node_id) > 128:
                 raise GoalGraphError("node IDs must be non-empty strings of at most 128 characters")
             if node.node_id in by_id:
                 raise GoalGraphError(f"duplicate node ID: {node.node_id}")
-            if len(node.depends_on) > MAX_DEPENDENCIES_PER_NODE:
+            if isinstance(node.depends_on, (str, bytes)):
+                raise GoalGraphError(f"node {node.node_id} dependencies must be a sequence of node IDs")
+            dependencies = tuple(node.depends_on)
+            if any(not isinstance(item, str) or not item.strip() or len(item) > 128 for item in dependencies):
+                raise GoalGraphError(f"node {node.node_id} contains an invalid dependency ID")
+            if len(dependencies) > MAX_DEPENDENCIES_PER_NODE:
                 raise GoalGraphError(f"node {node.node_id} exceeds the dependency limit")
-            if len(set(node.depends_on)) != len(node.depends_on):
+            if len(set(dependencies)) != len(dependencies):
                 raise GoalGraphError(f"node {node.node_id} has duplicate dependencies")
-            if node.node_id in node.depends_on:
+            if node.node_id in dependencies:
                 raise GoalGraphError(f"node {node.node_id} cannot depend on itself")
-            by_id[node.node_id] = GoalNode(node.node_id, tuple(node.depends_on))
+            by_id[node.node_id] = GoalNode(node.node_id, dependencies)
 
         for node in by_id.values():
             missing = set(node.depends_on) - by_id.keys()
@@ -66,7 +71,11 @@ class GoalGraph:
     def from_mapping(cls, specification: Mapping[str, Iterable[str]]) -> "GoalGraph":
         if not isinstance(specification, Mapping):
             raise GoalGraphError("goal graph must be a mapping of node IDs to dependencies")
-        return cls(GoalNode(node_id, tuple(dependencies)) for node_id, dependencies in specification.items())
+        def make_node(node_id: str, dependencies: Iterable[str]) -> GoalNode:
+            if isinstance(dependencies, (str, bytes)):
+                raise GoalGraphError(f"node {node_id} dependencies must be a sequence of node IDs")
+            return GoalNode(node_id, tuple(dependencies))
+        return cls(make_node(node_id, dependencies) for node_id, dependencies in specification.items())
 
     @property
     def node_ids(self) -> tuple[str, ...]:
