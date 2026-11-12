@@ -420,6 +420,18 @@ class Store:
             ).fetchall()
         return [str(row["id"]) for row in rows]
 
+    def cancelling_goal_ids(self) -> list[str]:
+        rows = self.db.query("SELECT id FROM goals WHERE state='cancelling' ORDER BY updated_at")
+        return [str(row["id"]) for row in rows]
+
+    def goal_node_task_ids(self, goal_id: str) -> list[str]:
+        rows = self.db.query(
+            "SELECT id FROM tasks WHERE goal_id=? AND goal_node_id IS NOT NULL "
+            "AND state NOT IN ('COMPLETE','PARTIAL','FAILED','CANCELLED')",
+            (goal_id,),
+        )
+        return [str(row["id"]) for row in rows]
+
     def finish_cancel_goal_plan(self, goal_id: str) -> None:
         now = iso()
         self.db.execute(
