@@ -451,7 +451,7 @@ def render_specialist_context(
     """Serialize a bounded lead/support team as untrusted domain guidance."""
     payload: list[dict[str, Any]] = []
     remaining = max(0, min(int(max_total_chars), 12_000))
-    per_agent = max(400, min(int(max_agent_chars), 3_000))
+    per_agent = max(1, min(int(max_agent_chars), 3_000))
     for agent in agents[:4]:
         if remaining <= 0:
             break
