@@ -209,3 +209,94 @@ class GitHubGetPullRequestTool(GitHubReadTool):
                 "updated_at": data.get("updated_at"),
             },
         }
+
+class GitHubCreateIssueInput(GitHubRepositoryInput):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=10_000)
+    labels: list[str] = Field(default_factory=list, max_length=10)
+
+
+class GitHubCommentIssueInput(GitHubRepositoryInput):
+    number: int = Field(ge=1)
+    body: str = Field(min_length=1, max_length=10_000)
+
+
+class GitHubWriteTool(GitHubReadTool):
+    risk = Risk.HIGH
+    idempotent = False
+    permission_scope = "github.write"
+
+    def post(self, ctx: ToolContext, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        token = ctx.config.github_token
+        if not token:
+            raise ToolUnavailable("GitHub is not configured. Set MATRIX_GITHUB_TOKEN.")
+        try:
+            response = httpx.post(
+                f"{_BASE_URL}{path}",
+                headers={**_HEADERS, "Authorization": f"Bearer {token}"},
+                json=payload,
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise ToolExecutionError(f"GitHub write request failed ({type(exc).__name__})") from exc
+        if response.status_code in {401, 403, 404, 422}:
+            messages = {
+                401: "GitHub rejected MATRIX_GITHUB_TOKEN (401).",
+                403: "GitHub denied this write; check token permissions and repository access (403).",
+                404: "GitHub resource was not found or is not visible to this token (404).",
+                422: "GitHub rejected the requested content or detected a validation/duplicate error (422).",
+            }
+            raise ToolUnavailable(messages[response.status_code])
+        if response.status_code >= 500:
+            raise ToolUnavailable(f"GitHub is temporarily unavailable (HTTP {response.status_code}).")
+        if response.status_code not in {200, 201}:
+            raise ToolExecutionError(f"GitHub returned unexpected HTTP {response.status_code}.")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise ToolExecutionError("GitHub returned invalid JSON after the write.") from exc
+        if not isinstance(data, dict) or not data.get("html_url"):
+            raise ToolExecutionError("GitHub did not confirm the created resource.")
+        return data
+
+
+class GitHubCreateIssueTool(GitHubWriteTool):
+    name = "github_create_issue"
+    description = "Create an issue in a repository. High-risk write; requires explicit MATRIX approval."
+    input_model = GitHubCreateIssueInput
+
+    def run_sync(self, args: GitHubCreateIssueInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
+        payload = {"title": args.title, "body": args.body, "labels": args.labels}
+        data = self.post(ctx, f"{self.repository_path(args.repository)}/issues", payload)
+        return {
+            "ok": True,
+            "data": {
+                "number": data.get("number"),
+                "title": data.get("title"),
+                "state": data.get("state"),
+                "html_url": data.get("html_url"),
+            },
+        }
+
+
+class GitHubCommentIssueTool(GitHubWriteTool):
+    name = "github_comment_issue"
+    description = "Post a comment on a repository issue or pull request. High-risk write; requires explicit MATRIX approval."
+    input_model = GitHubCommentIssueInput
+
+    def run_sync(self, args: GitHubCommentIssueInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
+        data = self.post(
+            ctx,
+            f"{self.repository_path(args.repository)}/issues/{args.number}/comments",
+            {"body": args.body},
+        )
+        return {
+            "ok": True,
+            "data": {
+                "id": data.get("id"),
+                "html_url": data.get("html_url"),
+                "created_at": data.get("created_at"),
+            },
+        }
