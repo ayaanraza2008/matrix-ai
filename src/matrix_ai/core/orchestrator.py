@@ -96,6 +96,7 @@ class Orchestrator:
         autonomy_level: int | None = None,
         scopes: list[str] | None = None,
         kind: str = "chat",
+        goal_id: str | None = None,
     ) -> str:
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
@@ -110,6 +111,7 @@ class Orchestrator:
             scopes=granted,
             kind=kind,
             deadline_seconds=self.config.task_deadline_seconds,
+            goal_id=goal_id,
         )
         self.store.audit(
             "task.created",
@@ -1003,6 +1005,8 @@ class Orchestrator:
             return
         if TaskStateMachine.can_transition(current, target):
             self.store.transition(task_id, target)
+            if TaskStateMachine.is_terminal(target):
+                self.store.sync_goal_for_task(task_id)
             return
         if TaskStateMachine.is_terminal(current):
             return
@@ -1017,6 +1021,7 @@ class Orchestrator:
             self.store.transition(task_id, TaskState.FAILED)
         except IllegalTransition:  # pragma: no cover - impossible with current graph
             self.store.update_task(task_id, state=target.value)
+        self.store.sync_goal_for_task(task_id)
 
     # ------------------------------------------------------------------
     # summaries and helpers
