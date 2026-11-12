@@ -442,7 +442,7 @@ function populateBrowserVoices() {
 }
 
 async function speakAssistantText(value) {
-  const text = String(value || '').trim();
+  const text = String(value || '').trim().slice(0, 2000);
   if (!text) return false;
   try {
     // Server preflight reuses the backend credential detector for both local
