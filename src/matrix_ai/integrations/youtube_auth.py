@@ -5,7 +5,6 @@ API endpoints or included in logs. Provider dependencies are imported lazily.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
