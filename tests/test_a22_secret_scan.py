@@ -37,3 +37,12 @@ def test_gitignore_covers_secret_and_runtime_paths():
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     for pattern in (".env", "*.db", "*.gguf", "owner_token", "*.keystore"):
         assert pattern in gitignore
+
+def test_secret_scan_skips_vendored_prompt_examples(tmp_path):
+    vendor = tmp_path / "agency-agents" / "security"
+    vendor.mkdir(parents=True)
+    sample = "apiKey = '" + ("X" * 24) + "'"
+    (vendor / "example.md").write_text(sample, encoding="utf-8")
+
+    assert scan_repository(tmp_path) == []
+
