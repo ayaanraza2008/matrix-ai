@@ -64,7 +64,6 @@ def _make_tool(addon_id: str, definition: dict[str, Any], client, read_only_tool
 
     class MCPTool(Tool):
         input_model = model
-        risk = risk
         permission_scope = scope
         idempotent = bool(read_only)
         returns_untrusted = True
@@ -97,6 +96,7 @@ def _make_tool(addon_id: str, definition: dict[str, Any], client, read_only_tool
                 },
             )
 
+    MCPTool.risk = risk
     MCPTool.__name__ = f"MCP_{addon_id}_{safe_name}"
     MCPTool.name = tool_name
     MCPTool.description = description

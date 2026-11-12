@@ -56,13 +56,11 @@ def _make_youtube_tool(config, *, name: str, description: str, input_model, risk
 
     class YouTubeTool(Tool):
         permission_scope = "addons.read" if risk is Risk.LOW else "addons.control"
-        risk = risk
         autonomy_level = 1 if risk is Risk.LOW else 2
         idempotent = risk is Risk.LOW
         returns_untrusted = True
         timeout_seconds = 120.0
         requires_verification = True
-        input_model = input_model
 
         def run_sync(self, args, ctx):
             raise ToolExecutionError("YouTube API tools execute asynchronously through MATRIX")
@@ -147,6 +145,8 @@ def _make_youtube_tool(config, *, name: str, description: str, input_model, risk
                 },
             )
 
+    YouTubeTool.risk = risk
+    YouTubeTool.input_model = input_model
     YouTubeTool.__name__ = f"YouTube_{name.replace('.', '_')}"
     YouTubeTool.name = name
     YouTubeTool.description = description
