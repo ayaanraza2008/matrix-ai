@@ -51,10 +51,15 @@ Review the upstream diff and license before changing the pinned commit.
   multi-domain tasks, up to three supporting specialists. Selection is bounded
   to four profiles and to a fixed prompt-context budget; it does not load all
   283 profiles into every model call.
-- The selected profiles are injected into the local planner prompt with explicit
-  lead/support roles. Their instructions are untrusted domain guidance only.
-  The local model still proposes a normal MATRIX plan; tool schemas, scopes,
-  approvals, and verification remain authoritative.
+- Each profile is instantiated as its own worker object with a stable ID,
+  independent run lock, queue accounting, status, run counters and last-run telemetry.
+- MATRIX sends selected lead/support workers the task independently. They produce
+  bounded JSON analysis reports, scheduled concurrently up to the configured worker cap.
+  A single coordinator combines those untrusted reports with profile reference material
+  and proposes the normal MATRIX plan.
+- Worker reports may suggest tool names but cannot execute tools or supply trusted
+  arguments. The central orchestrator validates every step, evaluates policy, obtains
+  exact approval when required, executes registered tools and verifies evidence.
 - The task audit records the routing strategy, selected specialist IDs,
   divisions, match terms, scores, and whether the guidance was actually injected.
 - Deterministic, exact-intent operations continue to use their typed plans
@@ -69,7 +74,9 @@ Authenticated API endpoints:
 - GET /api/agents/search?q=react&limit=5 — ranked specialist metadata.
 - GET /api/agents/route?q=... — automatic lead/support team preview for a request.
 - GET /api/agents/{slug} — full specialist profile, including its instructions.
-- GET /api/tasks/{task_id}/agents — selected specialists and whether their context reached the planner.
+- GET /api/tasks/{task_id}/agents — selected specialists, individual worker reports and whether context reached the planner.
+- GET /api/workers — worker fleet status and all loaded worker snapshots (no prompt bodies).
+- GET /api/workers/{slug} — one worker's current status, counters and last-run metadata.
 
 ## Autonomy and safety boundaries
 
@@ -85,12 +92,19 @@ verification remain authoritative. HIGH and CRITICAL actions continue to require
 the existing exact approval path. A specialist recommendation never counts as
 verification or proof of completion.
 
-This integration is a specialist prompt-routing layer over one local model
-runtime, not a claim that every upstream profile is an independently running
-agent. True parallel multi-model execution would increase memory and compute
-usage and is intentionally not enabled. The router instead coordinates bounded
-specialist instruction profiles inside one local-model planning call; that is
-autonomous specialist routing, not isolated independent model reasoning.
+The fleet contains 283 independent in-process agent instances with separate
+identity, run locks, queue metrics and result state. They are not 283 separately
+loaded foundation models or OS processes: inference is multiplexed through one
+configured ModelManager and bounded by MATRIX_MODEL_MAX_CONCURRENT_REQUESTS
+(default 1). Specialist actors can be scheduled concurrently, while a low-resource
+local inference server may serialize their actual model calls. Task-level reports
+are persisted in the SQLite audit trail; live per-worker counters reset on restart.
+
+## Worker runtime configuration
+
+- MATRIX_AGENT_MAX_CONCURRENT_WORKERS (default 4, max 16) bounds active specialist actors.
+- MATRIX_AGENT_WORKER_TIMEOUT_SECONDS (default 90, max 300) bounds each worker run.
+- MATRIX_MODEL_MAX_CONCURRENT_REQUESTS (default 1, max 8) independently bounds calls to the shared model provider.
 
 The upstream prompt corpus contains illustrative secret-like strings and private-key
 markers as security-training examples. The MATRIX first-party secret scanner

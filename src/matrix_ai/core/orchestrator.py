@@ -316,7 +316,7 @@ class Orchestrator:
     async def _prepare(self, task_id: str, ctx: ToolContext) -> None:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
-            plan, intent, model_name, selected_agents, specialist_context_used = await self._build_plan(task_id)
+            plan, intent, model_name, selected_agents, specialist_context_used, worker_runs = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
             return
@@ -369,6 +369,25 @@ class Orchestrator:
             },
         )
 
+        for result in worker_runs:
+            self.store.audit(
+                "task.agent_worker_run",
+                actor=f"agent:{result.get('worker_slug', 'unknown')}",
+                task_id=task_id,
+                status=str(result.get("status") or "unknown"),
+                detail={
+                    "worker_slug": result.get("worker_slug"),
+                    "worker_name": result.get("worker_name"),
+                    "division": result.get("division"),
+                    "duration_ms": result.get("duration_ms"),
+                    "summary": result.get("summary", "")[:1200],
+                    "findings": result.get("findings", [])[:5],
+                    "risks": result.get("risks", [])[:4],
+                    "suggested_tools": result.get("suggested_tools", [])[:4],
+                    "error": result.get("error"),
+                },
+            )
+
         self._to(task_id, TaskState.POLICY_CHECK)
         decision = self.policy.evaluate_plan(
             plan, scopes=ctx.scopes, autonomy=ctx.autonomy_level, specs=self.registry.specs()
@@ -395,7 +414,9 @@ class Orchestrator:
             detail={"risk": decision.risk.value, "approval_expected": decision.requires_approval},
         )
 
-    async def _build_plan(self, task_id: str) -> tuple[Plan, str, str | None, list[dict[str, Any]], bool]:
+    async def _build_plan(
+        self, task_id: str
+    ) -> tuple[Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]]]:
         row = self.store.get_task_row(task_id)
         model_name = self.models.model_name if self.models.configured else None
         if row["kind"] == "direct":
@@ -419,10 +440,13 @@ class Orchestrator:
                 ],
                 source="heuristic",
             )
-            return plan, "direct_tool", model_name, [], False
+            return plan, "direct_tool", model_name, [], False, []
 
         intent = await self.planner.plan(row["original_request"])
-        return intent.plan, intent.intent, model_name, intent.selected_agents, intent.specialist_context_used
+        return (
+            intent.plan, intent.intent, model_name, intent.selected_agents,
+            intent.specialist_context_used, intent.worker_runs,
+        )
 
     async def _execute_steps(self, task_id: str, ctx: ToolContext) -> None:
         while True:

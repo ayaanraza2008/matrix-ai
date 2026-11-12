@@ -209,11 +209,18 @@ async def task_agents(
         (event for event in events if event.event_type == "task.specialists_selected"),
         None,
     )
+    worker_runs = [
+        {**event.detail, "status": event.status}
+        for event in events if event.event_type == "task.agent_worker_run"
+    ]
     return {
         "task_id": task_id,
         "selected_agents": selection.detail.get("agents", []) if selection else [],
         "context_injected": bool(selection and selection.detail.get("context_injected")),
         "routing_strategy": selection.detail.get("routing_strategy") if selection else None,
+        "worker_runs": worker_runs,
+        "worker_count": len(worker_runs),
+        "successful_workers": sum(run.get("status") == "completed" for run in worker_runs),
         "status": selection.status if selection else "not_routed",
     }
 
@@ -545,6 +552,19 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
             "total": runtime.integrations.total_count,
         },
     }
+
+
+@router.get("/workers", tags=["agents"])
+async def list_workers(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    return {**runtime.worker_pool.status(), "workers": runtime.worker_pool.list_workers()}
+
+
+@router.get("/workers/{slug}", tags=["agents"])
+async def worker_detail(slug: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    worker = runtime.worker_pool.get_worker(slug)
+    if worker is None:
+        raise NotFoundError(f"worker {slug} not found")
+    return worker
 
 
 @router.get("/agents", tags=["system"])

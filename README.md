@@ -26,7 +26,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Model provider abstraction (Ollama / OpenAI-compatible / offline) | **Implemented** | `models/base.py`, `test_a02_model_offline.py` |
 | Hardware-aware model manager (8 GB RAM discipline) | **Implemented** | `models/manager.py`, `test_a24_resource_budget.py` |
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
-| Agency Agents auto-routing (full-corpus specialist selection, lead/support teams, task audit) | **Implemented** | `core/agents.py`, `test_agency_agents.py` |
+| 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
 | Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
@@ -39,7 +39,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 
 Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
 
-MATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule, with automatic lead/support routing across the full instruction corpus. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, routing, and safety details.
+MATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. Each profile has its own addressable worker instance, lock, status and run counters. Selected workers independently analyze a task and return bounded reports to the coordinator; all real tool actions still pass through MATRIX's central policy, exact-approval and verification pipeline. They share the configured inference provider rather than duplicating 283 model weights. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, API and safety details.
 
 ---
 
@@ -92,6 +92,9 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_FILE_ROOTS` | `<home>\workspace` | `;`-separated roots that file tools may touch |
 | `MATRIX_MODEL_PROVIDER` | `none` | `none`, `ollama`, or `openai`-compatible local server |
 | `MATRIX_MODEL_RAM_BUDGET_MB` | `2500` | Model memory ceiling (8 GB PC discipline) |
+| `MATRIX_MODEL_MAX_CONCURRENT_REQUESTS` | `1` | Active inference requests for the shared model |
+| `MATRIX_AGENT_MAX_CONCURRENT_WORKERS` | `4` | Maximum concurrently active specialist actors |
+| `MATRIX_AGENT_WORKER_TIMEOUT_SECONDS` | `90` | Per-worker execution deadline |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
 | `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool (SSRF-guarded) |

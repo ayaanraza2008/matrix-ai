@@ -20,6 +20,7 @@ from .core.models import (
 )
 from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
+from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
 from .integrations.registry import IntegrationRegistry
 from .memory.service import MemoryService
@@ -46,6 +47,7 @@ class MatrixRuntime:
     models: ModelManager
     memory: MemoryService
     planner: PlannerService
+    worker_pool: AgentWorkerPool
     orchestrator: Orchestrator
     auth: AuthService
     limiter: RateLimiter
@@ -66,7 +68,13 @@ class MatrixRuntime:
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
-        planner = PlannerService(registry, models, store)
+        worker_pool = AgentWorkerPool(
+            models,
+            registry,
+            max_concurrent=config.agent_max_concurrent_workers,
+            timeout_seconds=config.agent_worker_timeout_seconds,
+        )
+        planner = PlannerService(registry, models, store, worker_pool=worker_pool)
         orchestrator = Orchestrator(
             config=config,
             store=store,
@@ -87,6 +95,7 @@ class MatrixRuntime:
             models=models,
             memory=memory,
             planner=planner,
+            worker_pool=worker_pool,
             orchestrator=orchestrator,
             auth=auth,
             limiter=RateLimiter(config.rate_limit_per_minute),
@@ -176,5 +185,6 @@ class MatrixRuntime:
         await self.voice.shutdown()
         self.vision.stop_all()
         await self.orchestrator.shutdown()
+        await self.worker_pool.shutdown()
         self.store.audit("system.stopped", actor="system", status="ok")
         self.db.close()

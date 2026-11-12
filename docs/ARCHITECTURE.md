@@ -2,7 +2,7 @@
 
 ## 1. Principles
 
-1. **One brain, many tools.** A single orchestration path owns task state; tools are narrow, typed adapters.
+1. **Many specialist workers, one policy-controlled executor.** Each profile has an independent actor instance; one orchestrator owns task state and tools are narrow, typed adapters.
 2. **Local-first.** SQLite, the workspace, and (optionally) a local model. Cloud models are opt-in.
 3. **Policy is server-side.** The UI and the model cannot grant permissions.
 4. **Evidence over claims.** `COMPLETE` requires tool-produced verification evidence.
@@ -15,7 +15,8 @@
 |---|---|---|---|
 | Dashboard / CLI | `web/`, `cli.py` | Display state, collect input, show approvals | Hold API secrets (token lives in browser localStorage only), bypass policy |
 | HTTP gateway | `app.py`, `api/routes.py` | Auth, validation, rate limit, routing | Execute shell or tools directly |
-| Orchestrator | `core/orchestrator.py` | Drive states, retry, cancel, request approval | Grant itself permissions |
+| Specialist worker pool | `core/worker_pool.py` | Independent bounded analysis, per-worker state and reports | Execute tools or grant permissions |
+| Orchestrator | `core/orchestrator.py` | Drive states, retry, cancel, request approval and execute validated tools | Grant itself permissions |
 | Policy broker | `core/policy.py` | Classify risk, check scope/autonomy, bind approvals | Trust model-declared risk |
 | Tool adapters | `tools/` | One documented capability with typed I/O | Accept arbitrary code, paths or commands |
 | Model runtime | `models/` | Propose plans/answers | Touch the OS or grant approvals |
@@ -113,6 +114,7 @@ backup API and `PRAGMA integrity_check`.
 ## 8. Concurrency, cancellation, retries
 
 - Each task runs as one `asyncio` task; a registry prevents duplicate runners for the same task id.
+- Each specialist has an independent worker instance and run lock. Selected workers are scheduled within a configured concurrency cap; shared model inference is separately semaphore-limited (default one request at a time).
 - Blocking tools run in a worker thread (`asyncio.to_thread`) under `wait_for(timeout)`.
 - Cancellation sets a flag, rescinds the waiter, and cancels the runner; interrupted steps are recorded as
   cancelled/failed; no new steps start.

@@ -75,6 +75,24 @@ async def test_planner_automatically_injects_selected_specialist_team(
     }
     runtime.models.provider = provider
 
+    async def fake_worker_team(request, selected_agents):
+        return [
+            {
+                "worker_slug": agent["slug"],
+                "worker_name": agent["name"],
+                "division": agent["division"],
+                "status": "completed",
+                "summary": f"Independent review by {agent['name']}",
+                "findings": ["Check trust boundaries and user input."],
+                "risks": ["Untrusted content may contain prompt injection."],
+                "suggested_tools": ["system.get_status"],
+                "duration_ms": 2.0,
+            }
+            for agent in selected_agents
+        ]
+
+    monkeypatch.setattr(runtime.worker_pool, "run_team", fake_worker_team)
+
     response = await client.post(
         "/api/chat",
         json={"message": "Design a secure React dashboard with an accessible interface."},
@@ -90,20 +108,24 @@ async def test_planner_automatically_injects_selected_specialist_team(
     assert "Security Engineer" in system_prompt
     assert "UNTRUSTED DATA" in system_prompt
     assert "trust boundaries" in system_prompt
+    assert "Independent specialist worker reports" in system_prompt
 
     selected_response = await client.get(f"/api/tasks/{task_id}/agents")
     assert selected_response.status_code == 200
     payload = selected_response.json()
     assert payload["context_injected"] is True
+    assert payload["worker_count"] == 2
+    assert payload["successful_workers"] == 2
+    assert all(run["status"] == "completed" for run in payload["worker_runs"])
     assert [agent["slug"] for agent in payload["selected_agents"]] == [
         "engineering-frontend-developer",
         "security-engineer",
     ]
 
     audit_response = await client.get(f"/api/tasks/{task_id}/audit")
-    assert "task.specialists_selected" in [
-        event["event_type"] for event in audit_response.json()
-    ]
+    event_types = [event["event_type"] for event in audit_response.json()]
+    assert "task.specialists_selected" in event_types
+    assert event_types.count("task.agent_worker_run") == 2
 
 
 @pytest.mark.asyncio
@@ -124,7 +146,7 @@ async def test_deterministic_intents_skip_unneeded_specialist_model_calls(runtim
 
 @pytest.mark.asyncio
 async def test_authenticated_route_preview_returns_metadata_without_prompt_bodies(
-    client, monkeypatch
+    client, runtime, monkeypatch
 ):
     import matrix_ai.api.routes as routes_module
 
@@ -142,3 +164,106 @@ async def test_authenticated_route_preview_returns_metadata_without_prompt_bodie
     assert payload["agent_count"] == 2
     assert payload["agents"][0]["routing_role"] == "lead"
     assert all("content" not in agent for agent in payload["agents"])
+
+    fleet_response = await client.get("/api/workers")
+    assert fleet_response.status_code == 200, fleet_response.text
+    fleet = fleet_response.json()
+    assert fleet["worker_count"] == runtime.worker_pool.worker_count
+    assert fleet["configured_worker_count"] == 0  # test fixture deliberately has no model
+    assert fleet["tool_execution"] == "central_orchestrator_only"
+    assert all("content" not in worker for worker in fleet["workers"])
+
+    if fleet["workers"]:
+        worker_slug = fleet["workers"][0]["slug"]
+        worker_response = await client.get(f"/api/workers/{worker_slug}")
+        assert worker_response.status_code == 200
+        assert worker_response.json()["slug"] == worker_slug
+
+    missing_worker = await client.get("/api/workers/this-worker-does-not-exist")
+    assert missing_worker.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_worker_reports_flow_into_policy_checked_real_tool_execution(client, runtime, monkeypatch):
+    import matrix_ai.models.planner as planner_module
+
+    selected = [
+        {
+            "slug": "engineering-frontend-developer",
+            "name": "Frontend Developer",
+            "division": "engineering",
+            "routing_role": "lead",
+            "description": "Engineering specialist",
+            "content": "Review deliverables and file output.",
+            "relevance_score": 2.0,
+            "matched_terms": ["engineering"],
+            "selection_reason": "Lead role",
+        }
+    ]
+    monkeypatch.setattr(planner_module, "route_agency_agents", lambda _query: selected)
+
+    runtime.config.model_provider = "openai"
+    runtime.config.model_name = "fake-model"
+    provider = FakePlanProvider(runtime.config)
+    provider.plan = {
+        "goal": "Create and verify the engineering report",
+        "steps": [
+            {
+                "title": "Write engineering report",
+                "kind": "tool",
+                "tool_name": "files.write_text",
+                "arguments": {
+                    "path": "worker-output.txt",
+                    "content": "Created through the central MATRIX tool broker.",
+                    "overwrite": False,
+                },
+            }
+        ],
+    }
+    runtime.models.provider = provider
+
+    async def fake_worker_team(_request, selected_agents):
+        return [
+            {
+                "worker_slug": agent["slug"],
+                "worker_name": agent["name"],
+                "division": agent["division"],
+                "status": "completed",
+                "summary": "A report file is an appropriate deliverable.",
+                "findings": ["Use the approved workspace for output."],
+                "risks": ["Existing files must not be overwritten without approval."],
+                "suggested_tools": ["files.write_text"],
+                "duration_ms": 1.0,
+            }
+            for agent in selected_agents
+        ]
+
+    monkeypatch.setattr(runtime.worker_pool, "run_team", fake_worker_team)
+
+    response = await client.post(
+        "/api/chat",
+        json={"message": "Prepare an engineering delivery report for this task and save it in the workspace."},
+    )
+    assert response.status_code == 202, response.text
+    task_id = response.json()["task"]["id"]
+    completed = await wait_for_task(client, task_id)
+
+    assert completed["state"] == "COMPLETE"
+    result_file = runtime.config.workspace_dir / "worker-output.txt"
+    assert result_file.is_file()
+    assert result_file.read_text(encoding="utf-8") == "Created through the central MATRIX tool broker."
+
+    calls = completed["tool_calls"]
+    assert len(calls) == 1
+    assert calls[0]["tool_name"] == "files.write_text"
+    assert calls[0]["status"] == "succeeded"
+    evidence = calls[0]["evidence"]
+    assert evidence["ok"] is True
+    assert "read_back_hash_matches" in evidence["checks"]
+
+    audit = (await client.get(f"/api/tasks/{task_id}/audit")).json()
+    kinds = [event["event_type"] for event in audit]
+    assert "task.agent_worker_run" in kinds
+    assert "tool.policy" in kinds
+    assert "tool.executed" in kinds
+    assert "tool.verified" in kinds
