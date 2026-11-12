@@ -276,7 +276,6 @@ class GoalSupervisor:
                         "status": call.status.value,
                         "checks": call.evidence.checks if call.evidence else [],
                         "confidence": call.evidence.confidence if call.evidence else 0,
-                        "tainted": call.tainted,
                     }
                     for call in calls
                 ],
