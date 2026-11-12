@@ -477,6 +477,13 @@ class Store:
                 repaired += cursor.rowcount
         return repaired
 
+    def fail_goal_node_dispatch(self, goal_id: str, node_id: str, error: str) -> None:
+        self.db.execute(
+            "UPDATE goal_nodes SET state='failed', error=?, updated_at=? "
+            "WHERE goal_id=? AND node_id=? AND state='dispatching' AND task_id IS NULL",
+            (error[:1000], iso(), goal_id, node_id),
+        )
+
     def update_goal_node(
         self, goal_id: str, node_id: str, *, state: str, error: str | None = None,
         evidence: dict[str, Any] | None = None,
