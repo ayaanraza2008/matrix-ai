@@ -97,6 +97,34 @@ pip install -e ".[vision]"
 
 Then `vision.ocr_image` works; `GET /api/vision/status` reports `ocr_available: true`.
 
+### Local speech-to-text (optional)
+
+MATRIX uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) locally. The default `tiny`
+model is a conservative starting point for CPU-only computers. The model is loaded on first use, not
+at server startup, and audio is held in memory rather than written to disk.
+
+```powershell
+pip install -e ".[voice]"
+$env:MATRIX_STT_MODEL = "tiny"       # tiny / tiny.en / base / base.en
+$env:MATRIX_STT_CPU_THREADS = "2"
+$env:MATRIX_STT_MAX_AUDIO_SECONDS = "90"
+# Optional: force a language; omit this to use automatic detection.
+$env:MATRIX_STT_LANGUAGE = "hi"
+matrix serve
+```
+
+In the dashboard, open **Voice**, choose **Start session**, then **Start recording**. Finish to send
+the recording to the local MATRIX API for transcription, or discard it to delete it in the browser.
+The browser asks for microphone permission. It records a maximum of 90 seconds; the API independently
+enforces the configured duration and 8 MB request limit. The first transcription downloads the model,
+so outbound internet access is required once. Subsequent inference runs locally; no cloud speech API is
+used. The transcript is returned to the browser but is not stored in the database or audit log.
+
+`tiny` / `tiny.en` are the recommended low-resource choices. `base` may improve accuracy but uses
+more memory and should be benchmarked on the actual PC. The supported model identifiers are restricted
+to these compact profiles. Speech synthesis remains unimplemented; MATRIX reports it as unavailable
+rather than generating fake audio.
+
 ## 5. Using the dashboard
 
 1. Open `http://127.0.0.1:8765`.
@@ -148,7 +176,8 @@ Remote control only works while the PC is powered on, connected and running MATR
 | `403 scope_not_granted` | Task scopes narrower than tool | Grant the scope explicitly or use a broader request |
 | `WAITING_FOR_USER` forever | Approval not decided | Open the task, approve/deny; approvals expire after TTL |
 | OCR `503` | Tesseract missing | Install Tesseract + `[vision]` extra |
-| Voice `503` | No STT/TTS engine | Install faster-whisper/Piper (Phase 3) |
+| Voice transcription `503` | `faster-whisper` extra is missing or its model could not load | Install `.[voice]`; check network on first model download and available RAM |
+| Voice synthesis `503` | No TTS engine is integrated | Text-to-speech remains planned |
 | Port in use | Another instance | `matrix serve --port 8766` |
 | Database locked | Second process | Only one MATRIX instance per home directory |
 
