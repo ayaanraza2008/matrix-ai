@@ -60,6 +60,15 @@ class RemoteAccessManager:
         match = re.search(r"https://[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net(?::\d+)?", text, re.I)
         return match.group(0) if match else None
 
+    def _serve_status(self) -> str:
+        if not self.executable:
+            raise RuntimeError("Tailscale CLI was not found.")
+        result = _run([self.executable, "serve", "status"])
+        output = (result.stdout or "") + (result.stderr or "")
+        if result.returncode != 0 and not re.search(r"no .*serve|serve .*not configured", output, re.I):
+            raise RuntimeError((output or "Tailscale Serve status failed.").strip()[-1200:])
+        return output
+
     def status(self) -> dict[str, Any]:
         if not self.executable:
             return {
@@ -73,8 +82,7 @@ class RemoteAccessManager:
             node_data = json.loads(node.stdout or "{}")
             self_data = node_data.get("Self") or {}
             backend_state = str(node_data.get("BackendState", ""))
-            serve = self._call("serve", "status")
-            serve_text = serve.stdout or ""
+            serve_text = self._serve_status()
             active = REMOTE_TARGET in serve_text
             endpoint = self._endpoint(serve_text)
             online = backend_state.lower() == "running" and bool(self_data)
@@ -105,7 +113,7 @@ class RemoteAccessManager:
             raise RuntimeError("Connect this PC to Tailscale first; MATRIX will not create a public tunnel.")
         if state["serve_enabled"]:
             return state
-        current = self._call("serve", "status").stdout or ""
+        current = self._serve_status()
         no_config = not current.strip() or bool(re.search(r"no .*serve|serve .*not configured", current, re.I))
         if current.strip() and not no_config and REMOTE_TARGET not in current:
             raise RuntimeError(
