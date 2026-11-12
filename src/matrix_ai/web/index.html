@@ -181,10 +181,20 @@
             <div class="stack">
               <label for="voice-transcript">Latest transcript</label>
               <textarea id="voice-transcript" rows="3" readonly placeholder="Your recognized words will appear here."></textarea>
+              <div class="row wrap">
+                <button id="voice-send-transcript" type="button" class="ghost" disabled>Send transcript to chat</button>
+              </div>
             </div>
+            <label class="check"><input type="checkbox" id="voice-speak-replies"> Automatically speak final MATRIX replies</label>
+            <div class="row wrap">
+              <label for="voice-output-voice">Browser voice</label>
+              <select id="voice-output-voice" aria-label="Browser voice"><option value="">System default</option></select>
+              <button id="voice-stop-speech" type="button" class="ghost">Stop speech</button>
+            </div>
+            <p class="hint">Spoken replies use browser/OS voices and play in this browser. Voice availability and offline behavior depend on your browser and installed voices; MATRIX does not upload generated speech audio.</p>
             <form id="voice-speak-form" class="row">
-              <input id="voice-speak-text" placeholder="Text to speak (requires a local TTS engine)" maxlength="2000">
-              <button type="submit">Speak</button>
+              <input id="voice-speak-text" placeholder="Preview text with a browser/system voice" maxlength="2000">
+              <button type="submit">Preview voice</button>
             </form>
           </div>
         </section>
