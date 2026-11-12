@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
-from ..core.agents import agent_catalog, get_agency_agent, search_agency_agents
+from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -197,6 +197,25 @@ async def cancel_task(task_id: str, principal: PrincipalDep, runtime: RuntimeDep
 async def task_audit(task_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> list[AuditEventView]:
     runtime.store.get_task_row(task_id)
     return runtime.store.list_audit(limit=200, task_id=task_id)
+
+
+@router.get("/tasks/{task_id}/agents", tags=["tasks"])
+async def task_agents(
+    task_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    runtime.store.get_task_row(task_id)
+    events = runtime.store.list_audit(limit=500, task_id=task_id)
+    selection = next(
+        (event for event in events if event.event_type == "task.specialists_selected"),
+        None,
+    )
+    return {
+        "task_id": task_id,
+        "selected_agents": selection.detail.get("agents", []) if selection else [],
+        "context_injected": bool(selection and selection.detail.get("context_injected")),
+        "routing_strategy": selection.detail.get("routing_strategy") if selection else None,
+        "status": selection.status if selection else "not_routed",
+    }
 
 
 @router.post(
@@ -541,6 +560,23 @@ async def search_agents(
 ) -> dict[str, Any]:
     matches = search_agency_agents(q, limit=limit)
     return {"query": q, "count": len(matches), "agents": matches}
+
+
+@router.get("/agents/route", tags=["system"])
+async def route_agents(
+    principal: PrincipalDep,
+    q: str = Query(min_length=1, max_length=8000),
+) -> dict[str, Any]:
+    selected = route_agency_agents(q)
+    return {
+        "query": q,
+        "strategy": "automatic_hybrid_full_profile_search_v1",
+        "agent_count": len(selected),
+        "agents": [
+            {key: value for key, value in agent.items() if key != "content"}
+            for agent in selected
+        ],
+    }
 
 
 @router.get("/agents/{slug}", tags=["system"])
