@@ -46,7 +46,7 @@ The model is **untrusted**: it proposes plans, never permissions, never executio
 | T13 | Secret leakage in logs/audit | `redact_text`/`redact_obj` scrub tokens, bearer headers, key blocks; audit stores redacted detail; memory refuses secrets (A22 + unit tests) | Regexes are best-effort; unusual secret formats may slip |
 | T14 | Secret committed to Git | `.gitignore`, `secret_scan.py` in CI and pre-push habit (A22) | Human error remains possible; GitHub push protection is recommended |
 | T15 | Dependency compromise | Small dependency set (FastAPI, Pydantic, psutil, httpx); CI runs lint + tests; dependabot config included | No SBOM/signature verification yet |
-| T16 | Remote exposure of the API | Binds `127.0.0.1` by default; warning when non-loopback; CORS disabled unless configured; no public tunnels | If the owner binds `0.0.0.0` without TLS/reverse proxy, bearer tokens travel in clear text |
+| T16 | Remote exposure of the API | Binds `127.0.0.1` by default; optional Tailscale Serve proxies only `127.0.0.1:8765` within the tailnet; helper never configures Funnel; bearer-token auth remains required | Tailnet ACL/device compromise or owner-token theft still grants access; PC must stay online and signed in |
 | T17 | Missing integration credentials crash core | Adapters fail closed with `missing_credentials`; health checks are on-demand; core tasks unaffected (A21) | Provider outages only affect that adapter |
 | T18 | Audit tampering | Append-only API; no update/delete routes | Local DB write access implies full compromise anyway |
 
@@ -66,8 +66,8 @@ action_hash = sha256(tool_name + ":" + canonical_json(arguments))
 ## 5. Network posture
 
 - Default bind: `127.0.0.1:8765`. Health/docs/dashboard are local.
-- No TLS termination in the app; for remote use, put MATRIX behind WireGuard/Tailscale and a TLS reverse proxy.
-- Remote PC control requires the PC to be powered on, connected and running MATRIX — never claimed otherwise.
+- No TLS termination in the app. Optional `matrix remote-access enable` configures Tailscale Serve HTTPS within the tailnet only; MATRIX remains loopback-bound. `matrix remote-access disable` removes the MATRIX route. Never use public Funnel or port-forward the API.
+- Remote PC control requires the PC to be powered on, the Windows user signed in, Tailscale connected and MATRIX running. `matrix startup install` creates a current-user, limited-privilege ONLOGON task; it does not run as SYSTEM or while the user is signed out.
 - `/api/docs` and `/api/openapi.json` are enabled; disable via reverse proxy if the port is exposed.
 - Rate limit: in-process token bucket per session (default 240 req/min).
 
@@ -84,7 +84,7 @@ Clear it with `active: false`. This is deliberately blunt.
 - Sandboxed tool execution (the OS user is the sandbox).
 - End-to-end encrypted mobile transport (private network + TLS is the recommended path).
 - Signed releases, auto-update, installer.
-- Speech engines and camera capture pipelines (control layers exist; engines are blocked).
+- Wake-word, VAD, echo-cancellation and streaming voice pipelines; real speech engines are optional and still need target-device validation.
 
 ## 8. Reporting a vulnerability
 
