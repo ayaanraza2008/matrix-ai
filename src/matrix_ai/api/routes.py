@@ -13,6 +13,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
+from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
 from ..core.models import (
     DEFAULT_SCOPES,
@@ -618,6 +619,30 @@ async def settings(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, An
 # ---------------------------------------------------------------------------
 # scheduler
 # ---------------------------------------------------------------------------
+@router.get("/automation/status", tags=["automation"])
+async def automation_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    jobs = runtime.store.list_jobs()
+    return {
+        "scheduler_running": runtime.scheduler.running,
+        "emergency_stop": runtime.store.emergency_stop,
+        "configured_autonomy_level": runtime.config.autonomy_level,
+        "maximum_scheduled_job_autonomy": min(runtime.config.autonomy_level, 2),
+        "jobs_total": len(jobs),
+        "jobs_enabled": sum(1 for job in jobs if job.enabled),
+        "policy": {
+            "high_risk_requires_exact_approval": True,
+            "critical_risk_requires_exact_approval": True,
+            "agents_can_grant_themselves_scopes": False,
+            "agents_can_approve_their_own_actions": False,
+        },
+    }
+
+
+@router.get("/access/remote", tags=["access"])
+async def remote_access_status(principal: PrincipalDep) -> dict[str, Any]:
+    return await asyncio.to_thread(RemoteAccessManager().status)
+
+
 @router.get("/jobs", response_model=list[JobView], tags=["automation"])
 async def list_jobs(principal: PrincipalDep, runtime: RuntimeDep) -> list[JobView]:
     return runtime.store.list_jobs()
