@@ -244,7 +244,8 @@ async def test_addon_management_never_auto_installs_huge_repo_or_unknown_mcp(cli
     assert "MATRIX_ADDON_MCP_SERVERS" in connect.json()["message"]
 
 
-def test_hexstrike_requires_an_exact_owner_target_allowlist(config):
+@pytest.mark.asyncio
+async def test_hexstrike_requires_an_exact_owner_target_allowlist(config):
     tools = build_mcp_tools(
         "hexstrike-ai",
         [
