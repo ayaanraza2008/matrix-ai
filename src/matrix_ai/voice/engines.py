@@ -121,7 +121,8 @@ class PiperCliEngine:
 def build_stt_engine() -> SttEngine | None:
     try:
         import faster_whisper  # noqa: F401
-    except ImportError:
+    except (ImportError, OSError):
+        # A partially installed native CTranslate2 runtime must not break MATRIX startup.
         return None
     return FasterWhisperEngine()
 
