@@ -57,6 +57,7 @@ TASK_COLUMNS = {
     "finished_at",
     "kind",
     "device_id",
+    "goal_id",
 }
 
 
@@ -140,18 +141,20 @@ class Store:
         scopes: list[str] | None = None,
         kind: str = "chat",
         deadline_seconds: float | None = None,
+        goal_id: str | None = None,
     ) -> str:
         task_id = uuid.uuid4().hex
         now = iso()
         deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
         self.db.execute(
-            "INSERT INTO tasks(id, user_id, device_id, kind, state, original_request, autonomy_level, "
-            "scopes_json, created_at, updated_at, deadline) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, state, original_request, autonomy_level, "
+            "scopes_json, created_at, updated_at, deadline) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id,
                 user_id,
                 device_id,
                 kind,
+                goal_id,
                 TaskState.RECEIVED.value,
                 original_request,
                 int(autonomy_level),
@@ -229,6 +232,7 @@ class Store:
             "id": row["id"],
             "state": row["state"],
             "kind": row["kind"],
+            "goal_id": row["goal_id"],
             "original_request": row["original_request"],
             "normalized_goal": row["normalized_goal"],
             "risk": row["risk_class"],
@@ -239,6 +243,62 @@ class Store:
             "plan_source": row["plan_source"],
             "degraded": bool(row["degraded"]),
         }
+
+    # -- durable goals ----------------------------------------------------
+    def create_goal(self, *, owner_id: str, title: str, success_criteria: str) -> str:
+        goal_id = uuid.uuid4().hex
+        now = iso()
+        self.db.execute(
+            "INSERT INTO goals(id, owner_id, title, success_criteria, state, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (goal_id, owner_id, title, success_criteria, "queued", now, now),
+        )
+        return goal_id
+
+    def get_goal(self, goal_id: str) -> dict[str, Any]:
+        row = self.db.query_one("SELECT * FROM goals WHERE id=?", (goal_id,))
+        if row is None:
+            raise NotFoundError(f"goal {goal_id} not found")
+        result = dict(row)
+        result["task"] = self._task_summary(self.get_task_row(row["task_id"])) if row["task_id"] else None
+        return result
+
+    def list_goals(self, *, owner_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 200))
+        rows = self.db.query(
+            "SELECT * FROM goals WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+            (owner_id, limit),
+        )
+        return [self.get_goal(row["id"]) for row in rows]
+
+    def attach_goal_task(self, goal_id: str, task_id: str) -> None:
+        self.get_task_row(task_id)
+        cursor = self.db.execute(
+            "UPDATE goals SET task_id=?, state='running', updated_at=? "
+            "WHERE id=? AND task_id IS NULL AND state='queued'",
+            (task_id, iso(), goal_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("goal is already attached to a task or is not queued")
+
+    def sync_goal_for_task(self, task_id: str) -> None:
+        task = self.get_task_row(task_id)
+        goal_id = task["goal_id"]
+        if not goal_id:
+            return
+        state = {
+            TaskState.COMPLETE.value: "completed",
+            TaskState.PARTIAL.value: "partial",
+            TaskState.FAILED.value: "failed",
+            TaskState.CANCELLED.value: "cancelled",
+        }.get(task["state"])
+        if state is None:
+            return
+        self.db.execute(
+            "UPDATE goals SET state=?, result_summary=?, updated_at=?, finished_at=? "
+            "WHERE id=? AND task_id=?",
+            (state, task["summary"] or task["error"], iso(), iso(), goal_id, task_id),
+        )
 
     # -- plans & steps ----------------------------------------------------
     def save_plan(self, task_id: str, plan: Plan) -> None:
