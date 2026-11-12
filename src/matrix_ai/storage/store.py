@@ -438,7 +438,7 @@ class Store:
         with self.db.transaction() as conn:
             conn.execute(
                 "UPDATE goal_nodes SET state='blocked', error='goal deadline expired', updated_at=? "
-                "WHERE goal_id=? AND state='pending'",
+                "WHERE goal_id=? AND state IN ('pending','dispatching')",
                 (now, goal_id),
             )
             conn.execute(
@@ -447,8 +447,62 @@ class Store:
                 (now, now, goal_id),
             )
 
+    def claim_goal_node(self, goal_id: str, node_id: str, *, limit: int = 4) -> bool:
+        """Atomically reserve a ready node within the per-goal concurrency bound."""
+        from ..core.goal_graph import MAX_PARALLEL_READY
+
+        if not 1 <= limit <= MAX_PARALLEL_READY:
+            raise ValueError(f"limit must be between 1 and {MAX_PARALLEL_READY}")
+        with self.db.transaction() as conn:
+            goal = conn.execute("SELECT state FROM goals WHERE id=?", (goal_id,)).fetchone()
+            if goal is None or goal["state"] not in {"planned", "running"}:
+                return False
+            rows = conn.execute(
+                "SELECT node_id, depends_on_json, state FROM goal_nodes WHERE goal_id=?",
+                (goal_id,),
+            ).fetchall()
+            states = {row["node_id"]: row["state"] for row in rows}
+            target = next((row for row in rows if row["node_id"] == node_id), None)
+            if target is None or target["state"] != "pending":
+                return False
+            active = sum(state in {"running", "dispatching"} for state in states.values())
+            if active >= limit:
+                return False
+            dependencies = _json_load(target["depends_on_json"], [])
+            if any(states.get(dependency) != "completed" for dependency in dependencies):
+                return False
+            cursor = conn.execute(
+                "UPDATE goal_nodes SET state='dispatching', attempt_count=attempt_count+1, updated_at=? "
+                "WHERE goal_id=? AND node_id=? AND state='pending'",
+                (iso(), goal_id, node_id),
+            )
+            if cursor.rowcount != 1:
+                return False
+            conn.execute(
+                "UPDATE goals SET state='running', updated_at=? WHERE id=?",
+                (iso(), goal_id),
+            )
+            return True
+
+    def reset_orphaned_goal_node_claims(self, goal_id: str) -> int:
+        """Return claims with no task to pending after a process crash."""
+        cursor = self.db.execute(
+            "UPDATE goal_nodes SET state='pending', updated_at=? "
+            "WHERE goal_id=? AND state='dispatching' AND task_id IS NULL",
+            (iso(), goal_id),
+        )
+        return cursor.rowcount
+
+    def fail_goal_node_dispatch(self, goal_id: str, node_id: str, error: str) -> None:
+        self.db.execute(
+            "UPDATE goal_nodes SET state='failed', error=?, updated_at=? "
+            "WHERE goal_id=? AND node_id=? AND state='dispatching' AND task_id IS NULL",
+            (error[:1000], iso(), goal_id, node_id),
+        )
+        self.refresh_blocked_goal_nodes(goal_id)
+
     def attach_goal_node_task(self, goal_id: str, node_id: str, task_id: str) -> None:
-        """Link a task to its planned node; unique task identity makes recovery idempotent."""
+        """Link a task to its claimed node; unique task identity makes recovery idempotent."""
         task = self.get_task_row(task_id)
         goal = self.get_goal(goal_id)
         if task["goal_id"] != goal_id or task["goal_node_id"] != node_id:
@@ -464,7 +518,7 @@ class Store:
                 raise NotFoundError(f"goal node {node_id} not found")
             if row["task_id"] not in (None, task_id):
                 raise ValueError("goal node is already linked to another task")
-            if row["state"] not in {"pending", "running"}:
+            if row["state"] not in {"dispatching", "running"}:
                 raise ValueError("goal node is not schedulable")
             conn.execute(
                 "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
@@ -486,7 +540,7 @@ class Store:
             GoalNode(item["node_id"], tuple(item["depends_on"])) for item in nodes
         )
         completed = [item["node_id"] for item in nodes if item["state"] == "completed"]
-        running = [item["node_id"] for item in nodes if item["state"] == "running"]
+        running = [item["node_id"] for item in nodes if item["state"] in {"running", "dispatching"}]
         failed = [
             item["node_id"] for item in nodes
             if item["state"] in {"failed", "blocked", "cancelled"}
