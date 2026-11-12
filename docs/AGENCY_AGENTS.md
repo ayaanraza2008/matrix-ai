@@ -42,19 +42,34 @@ Review the upstream diff and license before changing the pinned commit.
 - The existing 12 MATRIX logical roles remain intact.
 - The API catalog adds the upstream specialist profiles with division, name,
   description, emoji/vibe metadata, source commit, and prompt-only authority.
-- Free-form requests are matched against agent names, descriptions, division,
-  and vibe. Up to two relevant profiles are selected for planner context.
-- The chosen Markdown instructions are truncated and serialized into a small
-  reference payload. The model still runs through MATRIX's existing local model
-  manager; this does not spawn 283 workers or require another paid API.
-- Deterministic heuristic tasks continue to use their existing typed plans.
-  Specialist routing is used only for free-form/model-planned requests.
+- Every free-form planning request is automatically searched against all
+  loaded profile metadata and the full Markdown instruction body with a cached,
+  weighted BM25-style lexical index. Domain aliases improve matching for common
+  tasks such as frontend/backend work, APIs, security, deployment, research,
+  analytics, marketing, mobile, testing, and product delivery.
+- MATRIX automatically chooses a lead specialist and, for broader or
+  multi-domain tasks, up to three supporting specialists. Selection is bounded
+  to four profiles and to a fixed prompt-context budget; it does not load all
+  283 profiles into every model call.
+- The selected profiles are injected into the local planner prompt with explicit
+  lead/support roles. Their instructions are untrusted domain guidance only.
+  The local model still proposes a normal MATRIX plan; tool schemas, scopes,
+  approvals, and verification remain authoritative.
+- The task audit records the routing strategy, selected specialist IDs,
+  divisions, match terms, scores, and whether the guidance was actually injected.
+- Deterministic, exact-intent operations continue to use their typed plans
+  directly, because they do not need a second model decision. Their behavior is
+  not delayed or widened by specialist routing.
+- MATRIX uses one configured local model runtime; these profiles are not 283
+  separately running model processes. No additional paid API is required.
 
 Authenticated API endpoints:
 
 - GET /api/agents — built-in roles plus loaded specialist metadata.
 - GET /api/agents/search?q=react&limit=5 — ranked specialist metadata.
+- GET /api/agents/route?q=... — automatic lead/support team preview for a request.
 - GET /api/agents/{slug} — full specialist profile, including its instructions.
+- GET /api/tasks/{task_id}/agents — selected specialists and whether their context reached the planner.
 
 ## Autonomy and safety boundaries
 
@@ -73,7 +88,9 @@ verification or proof of completion.
 This integration is a specialist prompt-routing layer over one local model
 runtime, not a claim that every upstream profile is an independently running
 agent. True parallel multi-model execution would increase memory and compute
-usage and is intentionally not enabled by this change.
+usage and is intentionally not enabled. The router instead coordinates bounded
+specialist instruction profiles inside one local-model planning call; that is
+autonomous specialist routing, not isolated independent model reasoning.
 
 The upstream prompt corpus contains illustrative secret-like strings and private-key
 markers as security-training examples. The MATRIX first-party secret scanner

@@ -316,7 +316,7 @@ class Orchestrator:
     async def _prepare(self, task_id: str, ctx: ToolContext) -> None:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
-            plan, intent, model_name = await self._build_plan(task_id)
+            plan, intent, model_name, selected_agents, specialist_context_used = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
             return
@@ -340,6 +340,32 @@ class Orchestrator:
                 "plan_source": plan.source,
                 "steps": len(plan.steps),
                 "notes": plan.notes,
+            },
+        )
+
+        self.store.audit(
+            "task.specialists_selected",
+            actor="agency-router",
+            task_id=task_id,
+            status="context_injected" if specialist_context_used else (
+                "selected_without_model" if selected_agents else "no_specialist_needed"
+            ),
+            detail={
+                "routing_strategy": "hybrid_full_profile_search_v1",
+                "context_injected": specialist_context_used,
+                "selected_count": len(selected_agents),
+                "agents": [
+                    {
+                        "slug": agent.get("slug"),
+                        "name": agent.get("name"),
+                        "division": agent.get("division"),
+                        "routing_role": agent.get("routing_role"),
+                        "relevance_score": agent.get("relevance_score"),
+                        "matched_terms": agent.get("matched_terms", []),
+                        "selection_reason": agent.get("selection_reason"),
+                    }
+                    for agent in selected_agents
+                ],
             },
         )
 
@@ -369,7 +395,7 @@ class Orchestrator:
             detail={"risk": decision.risk.value, "approval_expected": decision.requires_approval},
         )
 
-    async def _build_plan(self, task_id: str) -> tuple[Plan, str, str | None]:
+    async def _build_plan(self, task_id: str) -> tuple[Plan, str, str | None, list[dict[str, Any]], bool]:
         row = self.store.get_task_row(task_id)
         model_name = self.models.model_name if self.models.configured else None
         if row["kind"] == "direct":
@@ -393,10 +419,10 @@ class Orchestrator:
                 ],
                 source="heuristic",
             )
-            return plan, "direct_tool", model_name
+            return plan, "direct_tool", model_name, [], False
 
         intent = await self.planner.plan(row["original_request"])
-        return intent.plan, intent.intent, model_name
+        return intent.plan, intent.intent, model_name, intent.selected_agents, intent.specialist_context_used
 
     async def _execute_steps(self, task_id: str, ctx: ToolContext) -> None:
         while True:

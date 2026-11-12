@@ -8,6 +8,7 @@ from matrix_ai.core.agents import (
     get_agency_agent,
     load_agency_agents,
     render_specialist_context,
+    route_agency_agents,
     search_agency_agents,
     select_agency_agents,
 )
@@ -124,3 +125,98 @@ def test_missing_submodule_degrades_to_builtin_roles(tmp_path):
 
     assert len(catalog) == len(AGENT_ROLES)
     assert select_agency_agents("React website", root=tmp_path / "not-present") == []
+
+def test_search_matches_specialist_instructions_not_only_metadata(tmp_path):
+    _write_agent(
+        tmp_path, "engineering", "engineering-platform-specialist",
+        name="Platform Specialist",
+        description="Reliable infrastructure engineer",
+        body="Operate Kubernetes clusters with Helm charts, container orchestration, and GitOps deployment.",
+    )
+
+    matches = select_agency_agents(
+        "deploy a Kubernetes service with Helm and GitOps", root=tmp_path
+    )
+
+    assert matches
+    assert matches[0]["slug"] == "engineering-platform-specialist"
+    assert "instructions" in matches[0]["matched_fields"]
+
+
+def test_automatic_router_builds_a_cross_division_team_for_complex_work(tmp_path):
+    _write_agent(
+        tmp_path, "design", "design-ux-architect",
+        name="UX Architect",
+        description="User experience research, interaction design, and responsive interfaces",
+        body="Create user-centered journeys and accessible web products.",
+    )
+    _write_agent(
+        tmp_path, "engineering", "engineering-backend-architect",
+        name="Backend Architect",
+        description="Secure backend APIs, databases, and scalable application architecture",
+        body="Design authentication, APIs, and database systems.",
+    )
+    _write_agent(
+        tmp_path, "security", "security-engineer",
+        name="Security Engineer",
+        description="Threat modeling, vulnerability analysis, privacy, and application security",
+        body="Review attack surfaces and harden production applications.",
+    )
+    _write_agent(
+        tmp_path, "marketing", "marketing-growth-strategist",
+        name="Growth Strategist",
+        description="Product launches, positioning, campaigns, and go to market strategy",
+        body="Plan customer acquisition and launch campaigns.",
+    )
+
+    selected = route_agency_agents(
+        "Design and build a secure production web platform, perform a threat audit, "
+        "then prepare the product launch and marketing strategy.",
+        root=tmp_path,
+    )
+
+    assert 2 <= len(selected) <= 4
+    assert selected[0]["routing_role"] == "lead"
+    assert all(agent["routing_role"] == "support" for agent in selected[1:])
+    assert {agent["division"] for agent in selected} >= {"security", "engineering"}
+
+
+def test_router_returns_no_team_for_unmatched_noise(tmp_path):
+    _write_agent(
+        tmp_path, "engineering", "engineering-backend-architect",
+        name="Backend Architect",
+        description="API and database engineering",
+        body="Design scalable backend systems.",
+    )
+
+    assert route_agency_agents("purple xylophone nebula", root=tmp_path) == []
+
+
+def test_context_preserves_lead_and_support_roles_and_is_bounded():
+    selected = [
+        {
+            "slug": "security-engineer",
+            "name": "Security Engineer",
+            "division": "security",
+            "routing_role": "lead",
+            "selection_reason": "Best overall match",
+            "description": "Security testing",
+            "content": "x" * 5000,
+        },
+        {
+            "slug": "backend-architect",
+            "name": "Backend Architect",
+            "division": "engineering",
+            "routing_role": "support",
+            "selection_reason": "Complementary role",
+            "description": "Backend development",
+            "content": "y" * 5000,
+        },
+    ]
+
+    context = render_specialist_context(selected, max_agent_chars=64, max_total_chars=900)
+
+    assert '"routing_role": "lead"' in context
+    assert '"routing_role": "support"' in context
+    assert len(context) <= 900
+
