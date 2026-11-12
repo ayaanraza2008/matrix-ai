@@ -199,3 +199,13 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Third-party model weights (Qwen, Whisper, Piper voices) carry their own licenses; check before redistribution.
+
+
+### Free local voice
+
+Install the optional offline speech stack with `pip install -e ".[voice]"`. MATRIX uses
+faster-whisper on CPU/INT8 for speech-to-text and Piper for local text-to-speech. Download a
+Piper ONNX voice separately and set `MATRIX_PIPER_MODEL`; see
+[`docs/VOICE_AND_TELEPHONY.md`](docs/VOICE_AND_TELEPHONY.md). The first Whisper model load may
+download weights into the local cache. Speech clips are temporary and are not stored in MATRIX's
+database. Phone/PSTN calls remain an optional transport and carrier charges are not free.
