@@ -106,3 +106,8 @@ This is a durable goal wrapper around the existing single-task orchestrator, **n
 ### Goal deadline and evidence metadata
 
 Schema v3 adds a persisted goal deadline, task-step verification status, aggregate evidence and an explicit success-criteria status. Goal deadlines are bounded by the configured task deadline, so an API caller cannot silently extend the runtime's safety budget. A completed task maps to task_steps_verified only when the orchestrator's aggregate evidence says every step passed verification. The API deliberately reports criteria_status=not_evaluated: semantic evaluation of the user's free-form success criteria is a separate remaining capability, not something inferred from task completion.
+
+
+### Honest goal completion semantics
+
+A task reaching COMPLETE now moves its parent goal to awaiting_verification, not completed. The task's individual steps may all have strong execution evidence, but MATRIX does not yet independently evaluate arbitrary natural-language goal success criteria. The goal therefore stays explicitly pending semantic verification instead of claiming that task completion proves the whole goal was achieved.
