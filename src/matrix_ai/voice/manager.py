@@ -178,7 +178,7 @@ class VoiceSessionManager:
                 raise
             except Exception as exc:  # noqa: BLE001 - codec errors vary by media container
                 raise ValidationFailure("audio could not be decoded; try recording again") from exc
-    
+
         if not transcript:
             raise ValidationFailure("no speech was detected in the audio")
         return {
