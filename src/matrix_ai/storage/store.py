@@ -468,7 +468,7 @@ class Store:
             )
 
     def ready_goal_nodes(self, goal_id: str, *, limit: int = 4) -> list[dict[str, Any]]:
-        from ..core.goal_graph import GoalGraph, GoalNode, MAX_PARALLEL_READY
+        from ..core.goal_graph import MAX_PARALLEL_READY, GoalGraph, GoalNode
 
         if not 1 <= limit <= MAX_PARALLEL_READY:
             raise ValueError(f"limit must be between 1 and {MAX_PARALLEL_READY}")
