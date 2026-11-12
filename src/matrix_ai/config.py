@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import sys
 from dataclasses import dataclass, field
@@ -143,6 +144,7 @@ class MatrixConfig:
     task_deadline_seconds: float = 900.0
 
     rate_limit_per_minute: int = 240
+    additional_scopes: tuple[str, ...] = ()
     allow_web_fetch: bool = True
     web_fetch_max_bytes: int = 400_000
     cors_origins: tuple[str, ...] = ()
@@ -179,6 +181,9 @@ class MatrixConfig:
             else:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
+        self.additional_scopes = tuple(sorted(set(self.additional_scopes)))
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
+            raise ConfigError("MATRIX_EXTRA_SCOPES entries must use domain.action format; wildcard is not allowed")
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
@@ -234,6 +239,7 @@ class MatrixConfig:
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "additional_scopes": list(self.additional_scopes),
             "allow_web_fetch": self.allow_web_fetch,
             "allowed_app_ids": sorted(self.allowed_apps),
             "allowed_command_ids": sorted(self.allowed_commands),
@@ -282,6 +288,7 @@ class MatrixConfig:
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
+            additional_scopes=tuple(part.strip() for part in (_env("MATRIX_EXTRA_SCOPES", "") or "").split(";") if part.strip()),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
             file_roots=roots,
             allowed_apps=apps,
