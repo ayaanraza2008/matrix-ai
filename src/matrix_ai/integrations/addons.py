@@ -284,9 +284,15 @@ class AddonManager:
             except OSError:
                 continue
             if addon["id"] == "anthropic-cybersecurity-skills":
-                lowered = content[:5000].casefold()
-                defensive_markers = ("incident response", "detection", "hardening", "defensive", "threat hunting", "secure configuration")
-                if not any(marker in lowered for marker in defensive_markers):
+                relative_path = resolved.relative_to(root).as_posix().casefold()
+                standards_reference = "/references/standards.md" in relative_path
+                allowed_document = (
+                    relative_path == "readme.md"
+                    or relative_path.startswith("mappings/")
+                    or relative_path == "docs/mitre-f3-mapping.md"
+                    or standards_reference
+                )
+                if not allowed_document:
                     continue
             haystack = (resolved.name + " " + content[:6000]).casefold()
             matches = sum(1 for term in terms if term in haystack)

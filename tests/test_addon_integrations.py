@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from matrix_ai.core.models import Risk
-from matrix_ai.errors import ConfigError, ToolUnavailable, ValidationFailure
+from matrix_ai.errors import ConfigError, ToolExecutionError, ToolUnavailable, ValidationFailure
 from matrix_ai.integrations.addon_catalog import ADDON_BY_ID, ADDONS
 from matrix_ai.integrations.addons import AddonError
 from matrix_ai.integrations.mcp_addons import MCPStdioClient
@@ -288,7 +288,7 @@ def test_hexstrike_requires_an_exact_owner_target_allowlist(config):
     ctx = ToolContext(task_id="test", config=allowed_config, scopes=["addons.control"])
     assert (await allowed.run(args, ctx))["called"] == "nmap_scan"
 
-    with pytest.raises(Exception, match="not in MATRIX_HEXSTRIKE_ALLOWED_TARGETS"):
+    with pytest.raises(ToolExecutionError, match="not in MATRIX_HEXSTRIKE_ALLOWED_TARGETS"):
         await allowed.run(
             allowed.validate({"target": "203.0.113.99"}),
             ctx,
@@ -331,3 +331,13 @@ async def test_stdio_mcp_server_initializes_lists_and_calls_tools(tmp_path):
         assert output["_untrusted_mcp_result"] is True
     finally:
         await client.close()
+
+
+def test_hexstrike_target_configuration_rejects_urls_and_wildcards(config):
+    assert replace(config, hexstrike_allowed_targets=("localhost", "127.0.0.1")).hexstrike_allowed_targets == (
+        "127.0.0.1", "localhost"
+    )
+    with pytest.raises(ConfigError):
+        replace(config, hexstrike_allowed_targets=("https://example.test",))
+    with pytest.raises(ConfigError):
+        replace(config, hexstrike_allowed_targets=("*.example.test",))

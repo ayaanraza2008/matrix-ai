@@ -33,7 +33,7 @@ Unknown/no-recognised licence repositories (Free for Dev and Build Your Own X) a
 
 For a free-form request, MATRIX matches the request against the add-on catalogue. It may retrieve bounded Markdown references only from repositories which are installed and marked as context-enabled. Retrieved material is labelled untrusted reference data; it cannot grant a tool, change scopes, approve an action or replace the policy engine.
 
-MATRIX excludes G0DM0D3, HexStrike and Harness² from normal model context. The cybersecurity skill pack is filtered to defensive/hardening/detection/incident-response material. Free-for-Dev and Build Your Own X are link catalogues, not executable agents. A selected but not installed add-on is returned as a recommendation; MATRIX does not clone it automatically.
+MATRIX excludes G0DM0D3, HexStrike and Harness² from normal model context. The cybersecurity skill pack exposes only its repository overview, framework mappings and standards-reference files; operational exploit playbooks and skill execution instructions are never injected into normal planner context. Free-for-Dev and Build Your Own X are link catalogues, not executable agents. A selected but not installed add-on is returned as a recommendation; MATRIX does not clone it automatically.
 
 ## Owner API
 
@@ -117,7 +117,7 @@ Awesome Free LLM APIs is a reference catalogue only. MATRIX does not harvest key
 
 - All real tool actions, including remote MCP actions, still go through the central typed registry, server-side scopes, policy and exact approval broker.
 - Browser forms, purchases, uploads, account changes, mobile taps/installs and all security-tool operations default to HIGH risk unless a specific read-only tool is allowlisted in owner configuration.
-- HexStrike is for authorized targets/labs only. Its external tools must be installed separately; configure and isolate its API server, then connect the MCP bridge with no read-only allowlist. Do not expose it to public networks.
+- HexStrike is for authorized targets/labs only. Its external tools must be installed separately; configure and isolate its API server, then connect the MCP bridge. Set MATRIX_HEXSTRIKE_ALLOWED_TARGETS to exact hosts/IPs you own or have written permission to test. The adapter rejects target arguments outside that list, and HexStrike tools always remain HIGH risk. Do not expose it to public networks.
 - Harness² documentation describes executors with sandbox disabled/unrestricted networking; MATRIX does not offer it as a normal MCP service. Run evaluations only in a disposable isolated environment.
 - G0DM0D3 is a jailbreak/red-team corpus; it is not added to planner prompts or normal work contexts.
 - OpenViking and AgentMemory remain separate optional memory services. MATRIX's SQLite memory remains the source of truth; no private memory is mirrored until an owner explicitly configures a second store.
