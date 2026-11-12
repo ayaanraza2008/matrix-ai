@@ -166,6 +166,13 @@ class MatrixConfig:
     youtube_client_secrets_path: str | None = None
     youtube_token_path: str | None = None
     youtube_max_upload_bytes: int = 2_000_000_000
+    instagram_access_token: str | None = None
+    instagram_user_id: str | None = None
+    meta_graph_version: str = "v22.0"
+    linkedin_access_token: str | None = None
+    linkedin_person_urn: str | None = None
+    linkedin_organization_urn: str | None = None
+    linkedin_api_version: str = "202610"
 
     def __post_init__(self) -> None:
         self.home = Path(self.home).expanduser().resolve()
@@ -256,6 +263,8 @@ class MatrixConfig:
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
                 "youtube": bool(self.youtube_token_path and Path(self.youtube_token_path).is_file()),
+                "instagram": bool(self.instagram_access_token and self.instagram_user_id),
+                "linkedin": bool(self.linkedin_access_token and (self.linkedin_person_urn or self.linkedin_organization_urn)),
             },
         }
 
@@ -310,4 +319,11 @@ class MatrixConfig:
             youtube_client_secrets_path=_env("MATRIX_YOUTUBE_CLIENT_SECRETS"),
             youtube_token_path=_env("MATRIX_YOUTUBE_TOKEN_FILE"),
             youtube_max_upload_bytes=_env_int("MATRIX_YOUTUBE_MAX_UPLOAD_BYTES", 2_000_000_000),
+            instagram_access_token=_env("MATRIX_INSTAGRAM_ACCESS_TOKEN"),
+            instagram_user_id=_env("MATRIX_INSTAGRAM_USER_ID"),
+            meta_graph_version=_env("MATRIX_META_GRAPH_VERSION", "v22.0") or "v22.0",
+            linkedin_access_token=_env("MATRIX_LINKEDIN_ACCESS_TOKEN"),
+            linkedin_person_urn=_env("MATRIX_LINKEDIN_PERSON_URN"),
+            linkedin_organization_urn=_env("MATRIX_LINKEDIN_ORGANIZATION_URN"),
+            linkedin_api_version=_env("MATRIX_LINKEDIN_API_VERSION", "202610") or "202610",
         )
