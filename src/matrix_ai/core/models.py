@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 
 def utcnow() -> datetime:
@@ -127,7 +127,7 @@ class PlanStep(BaseModel):
     kind: StepKind = StepKind.TOOL
     tool_name: str | None = None
     arguments: dict[str, Any] = Field(default_factory=dict)
-    depends_on: list[int] = Field(default_factory=list)
+    depends_on: list[StrictInt] = Field(default_factory=list)
 
     @field_validator("depends_on")
     @classmethod
