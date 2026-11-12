@@ -30,6 +30,8 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 EXCLUDED_DIRS = {
     ".git",
+    # Vendored prompt corpus contains intentionally synthetic secret examples.
+    "agency-agents",
     ".venv",
     "venv",
     "node_modules",
