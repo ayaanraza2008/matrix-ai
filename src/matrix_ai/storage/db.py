@@ -84,8 +84,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
-
 CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
