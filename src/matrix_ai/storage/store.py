@@ -272,7 +272,9 @@ class Store:
         return [self.get_goal(row["id"]) for row in rows]
 
     def attach_goal_task(self, goal_id: str, task_id: str) -> None:
-        self.get_task_row(task_id)
+        task = self.get_task_row(task_id)
+        if task["goal_id"] != goal_id:
+            raise ValueError("task is not linked to this goal")
         cursor = self.db.execute(
             "UPDATE goals SET task_id=?, state='running', updated_at=? "
             "WHERE id=? AND task_id IS NULL AND state='queued'",
@@ -280,6 +282,13 @@ class Store:
         )
         if cursor.rowcount != 1:
             raise ValueError("goal is already attached to a task or is not queued")
+
+    def fail_goal_start(self, goal_id: str, summary: str) -> None:
+        self.db.execute(
+            "UPDATE goals SET state='failed', result_summary=?, updated_at=?, finished_at=? "
+            "WHERE id=? AND task_id IS NULL AND state='queued'",
+            (summary[:1000], iso(), iso(), goal_id),
+        )
 
     def sync_goal_for_task(self, task_id: str) -> None:
         task = self.get_task_row(task_id)
