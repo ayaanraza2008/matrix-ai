@@ -997,7 +997,11 @@ async function beginVoiceRecording() {
     return;
   }
   try {
-    const status = await api('/voice/status');
+    let status = await api('/voice/status');
+    if (status.state === 'speaking' && voiceSessionId) {
+      await api('/voice/barge-in', { method: 'POST', body: {} });
+      status = await api('/voice/status');
+    }
     if (status.muted || status.state !== 'listening') {
       toast('Unmute the microphone and make sure the session is listening', 'error');
       return;
