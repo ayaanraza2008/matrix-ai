@@ -27,7 +27,7 @@ Source install is deliberately **source-only**. It uses a sparse checkout, fetch
 | [Scientific Agent Skills](https://github.com/K-Dense-AI/scientific-agent-skills) | 177 scientific/research skills and databases | MIT | Selected bounded reference skills |
 | [Browser Use](https://github.com/browser-use/browser-use) | Local browser agent and Chrome DevTools Protocol automation | MIT | Owner-configured local MCP |
 
-Unknown/no-recognised licence repositories (Free for Dev and Build Your Own X) are treated as local link indices only. The links within those catalogues have their own licences and terms. AGPL-3.0 projects (OpenViking and G0DM0D3) are kept as separable optional sources; network deployments and redistribution must respect AGPL obligations.
+Unknown/no-recognised licence repositories (Free for Dev and Build Your Own X) are treated as local link indices only and cannot be cloned by the installer. The links within those catalogues have their own licences and terms. AGPL-3.0 projects (OpenViking and G0DM0D3) are kept as separable optional sources; network deployments and redistribution must respect AGPL obligations.
 
 ## How MATRIX selects add-ons
 

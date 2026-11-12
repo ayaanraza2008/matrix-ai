@@ -334,8 +334,8 @@ async def test_stdio_mcp_server_initializes_lists_and_calls_tools(tmp_path):
 
 
 def test_hexstrike_target_configuration_rejects_urls_and_wildcards(config):
-    assert replace(config, hexstrike_allowed_targets=("localhost", "127.0.0.1")).hexstrike_allowed_targets == (
-        "127.0.0.1", "localhost"
+    assert replace(config, hexstrike_allowed_targets=("localhost", "127.0.0.1", "::1")).hexstrike_allowed_targets == (
+        "::1", "127.0.0.1", "localhost"
     )
     with pytest.raises(ConfigError):
         replace(config, hexstrike_allowed_targets=("https://example.test",))
@@ -424,3 +424,10 @@ async def test_hexstrike_without_target_is_blocked_even_when_allowlist_has_entri
     ctx = ToolContext(task_id="test", config=replace(config, hexstrike_allowed_targets=("127.0.0.1",)), scopes=["addons.control"])
     with pytest.raises(ToolExecutionError, match="requires an explicit target"):
         await tool.run(args, ctx)
+
+
+def test_unknown_license_catalogues_cannot_be_cloned(runtime):
+    with pytest.raises(AddonError, match="link-only catalogue"):
+        runtime.addon_manager.install("free-for-dev")
+    with pytest.raises(AddonError, match="link-only catalogue"):
+        runtime.addon_manager.install("build-your-own-x")

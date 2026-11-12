@@ -230,7 +230,7 @@ class MatrixConfig:
             if not isinstance(item, str):
                 raise ConfigError("HexStrike targets must be IP addresses or exact hostnames")
             host = item.strip().casefold().rstrip(".")
-            if not host or len(host) > 253 or any(char in host for char in "/\\:*@ "):
+            if not host or len(host) > 253 or any(char in host for char in "/\\*@ "):
                 raise ConfigError("HexStrike targets must be exact IP addresses or hostnames, not URLs or wildcards")
             try:
                 ipaddress.ip_address(host)

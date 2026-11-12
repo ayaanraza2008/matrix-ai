@@ -141,6 +141,10 @@ class AddonManager:
         addon = ADDON_BY_ID.get(addon_id)
         if addon is None:
             raise AddonError(f"unknown add-on: {addon_id}")
+        if addon.get("license") == "UNKNOWN":
+            raise AddonError(
+                f"{addon_id} has no recognized repository licence; MATRIX keeps it as a link-only catalogue"
+            )
         existing = self._installed_info(addon_id)
         if existing:
             return {"addon_id": addon_id, "status": "already_installed", **existing}
