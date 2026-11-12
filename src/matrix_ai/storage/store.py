@@ -321,15 +321,6 @@ class Store:
         verification_status = "task_steps_verified" if verified else (
             "task_steps_not_verified" if state in {"partial", "failed"} else "not_applicable"
         )
-        self.db.execute(
-            "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
-            "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
-            "WHERE id=? AND task_id=?",
-            (
-                state, task["summary"] or task["error"], verification_status,
-                json.dumps(evidence), iso(), iso(), goal_id, task_id,
-            ),
-        )
         node_id = task["goal_node_id"]
         if node_id:
             node_state = "completed" if verified else (
@@ -349,6 +340,78 @@ class Store:
                 ),
             )
             self.refresh_blocked_goal_nodes(goal_id)
+            node_rows = self.db.query(
+                "SELECT state, evidence_json FROM goal_nodes WHERE goal_id=?",
+                (goal_id,),
+            )
+            terminal = {"completed", "failed", "blocked", "cancelled"}
+            if node_rows and all(row["state"] in terminal for row in node_rows):
+                all_completed = all(row["state"] == "completed" for row in node_rows)
+                combined_evidence = [
+                    _json_load(row["evidence_json"], {}) for row in node_rows
+                ]
+                self.db.execute(
+                    "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
+                    "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? WHERE id=?",
+                    (
+                        "awaiting_verification" if all_completed else (
+                            "partial" if any(row["state"] == "completed" for row in node_rows) else "failed"
+                        ),
+                        "All goal nodes finished; independent success-criteria evaluation is still required.",
+                        "task_steps_verified" if all_completed else "task_steps_not_verified",
+                        json.dumps(combined_evidence),
+                        iso(),
+                        iso(),
+                        goal_id,
+                    ),
+                )
+        else:
+            self.db.execute(
+                "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
+                "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
+                "WHERE id=? AND task_id=?",
+                (
+                    state, task["summary"] or task["error"], verification_status,
+                    json.dumps(evidence), iso(), iso(), goal_id, task_id,
+                ),
+            )
+
+    def reconcile_goal_node_tasks(self) -> int:
+        """Recover the create-task/link crash window using the unique node identity."""
+        rows = self.db.query(
+            "SELECT id, goal_id, goal_node_id FROM tasks "
+            "WHERE goal_id IS NOT NULL AND goal_node_id IS NOT NULL"
+        )
+        repaired = 0
+        with self.db.transaction() as conn:
+            for task in rows:
+                cursor = conn.execute(
+                    "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
+                    "WHERE goal_id=? AND node_id=? AND task_id IS NULL AND state='pending'",
+                    (task["id"], iso(), task["goal_id"], task["goal_node_id"]),
+                )
+                repaired += cursor.rowcount
+        return repaired
+
+    def get_goal_node_task(self, goal_id: str, node_id: str):
+        return self.db.query_one(
+            "SELECT * FROM tasks WHERE goal_id=? AND goal_node_id=?",
+            (goal_id, node_id),
+        )
+
+    def expire_goal_plan(self, goal_id: str) -> None:
+        now = iso()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goal_nodes SET state='blocked', error='goal deadline expired', updated_at=? "
+                "WHERE goal_id=? AND state='pending'",
+                (now, goal_id),
+            )
+            conn.execute(
+                "UPDATE goals SET state='failed', result_summary='Goal deadline expired before remaining nodes could start.', "
+                "verification_status='not_verified', updated_at=?, finished_at=? WHERE id=?",
+                (now, now, goal_id),
+            )
 
     def attach_goal_node_task(self, goal_id: str, node_id: str, task_id: str) -> None:
         """Link a task to its planned node; unique task identity makes recovery idempotent."""
