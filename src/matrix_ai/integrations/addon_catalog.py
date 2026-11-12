@@ -150,7 +150,7 @@ ADDONS: tuple[dict[str, Any], ...] = (
         "keywords": ["agent evaluation", "benchmark", "harness", "test agent", "improve agent", "task evaluation"],
         "context_paths": ["README.md", "docs/**"],
         "sparse_paths": ["README.md", "LICENSE", "docs/**", "harness2/**", "pyproject.toml"],
-        "context_enabled": True,
+        "context_enabled": False,
         "risk": "critical",
         "install_note": "Upstream documentation describes executors with sandbox disabled and unrestricted network access. Use only in a disposable isolated benchmark environment; never attach it to the normal MATRIX runtime.",
     },

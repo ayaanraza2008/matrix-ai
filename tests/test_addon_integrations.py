@@ -337,7 +337,7 @@ async def test_stdio_mcp_server_initializes_lists_and_calls_tools(tmp_path):
 
 def test_hexstrike_target_configuration_rejects_urls_and_wildcards(config):
     assert replace(config, hexstrike_allowed_targets=("localhost", "127.0.0.1", "::1")).hexstrike_allowed_targets == (
-        "::1", "127.0.0.1", "localhost"
+        "127.0.0.1", "::1", "localhost"
     )
     with pytest.raises(ConfigError):
         replace(config, hexstrike_allowed_targets=("https://example.test",))
