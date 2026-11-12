@@ -66,7 +66,7 @@ python -m pytest
 matrix serve
 ```
 
-Open **http://127.0.0.1:8765**, then paste the owner token printed by the CLI (also stored at `%LOCALAPPDATA%\MATRIX\owner_token.txt`). The dashboard keeps it in `localStorage` on your machine only.
+Open **http://127.0.0.1:8765**, then paste the owner token printed by the CLI (also stored at `%LOCALAPPDATA%\MATRIX\owner_token.txt`). The dashboard keeps the token in memory only; re-enter it after a full page reload. It is not persisted in browser `localStorage`.
 
 Optional local brain (recommended, free):
 
