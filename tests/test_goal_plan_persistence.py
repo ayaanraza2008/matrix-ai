@@ -41,7 +41,7 @@ async def test_goal_plan_rejects_cycles_before_persisting(client, runtime):
     )
     assert response.status_code == 422
     assert "cycle" in response.json()["detail"]
-    assert runtime.db.query_one("SELECT COUNT(*) AS c FROM goals")[0] == 0
+    assert runtime.store.db.query_one("SELECT COUNT(*) AS c FROM goals")[0] == 0
 
 
 @pytest.mark.asyncio
