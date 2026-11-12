@@ -101,18 +101,26 @@ async def test_telegram_bridge_requires_both_credentials(tmp_path):
 
 
 
-async def test_telegram_reports_waiting_for_owner_approval(tmp_path, monkeypatch):
+async def test_telegram_reports_result_after_owner_approval(tmp_path, monkeypatch):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
-    store.task_view = lambda task_id: SimpleNamespace(state=TaskState.WAITING_FOR_USER)
+    states = iter([
+        SimpleNamespace(state=TaskState.WAITING_FOR_USER),
+        SimpleNamespace(state=TaskState.COMPLETE, summary="File saved and verified.", error=None),
+    ])
+    store.task_view = lambda task_id: next(states)
+
     async def no_wait(_seconds):
         return None
+
     monkeypatch.setattr("matrix_ai.telegram.asyncio.sleep", no_wait)
 
     await bridge._report_task("task-123")
 
-    assert len(sent) == 1
+    assert len(sent) == 2
     assert "needs owner approval" in sent[0]
     assert "cannot auto-approve" in sent[0]
+    assert "MATRIX complete" in sent[1]
+    assert "File saved and verified." in sent[1]
 
 
 async def test_telegram_report_failures_are_audited(tmp_path, monkeypatch):
