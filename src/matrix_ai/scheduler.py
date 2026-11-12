@@ -1,8 +1,8 @@
 """Bounded background scheduler.
 
 Only user-created jobs run; each tick re-checks the emergency stop, every job is
-rate-limited by its own interval, and proactive work never exceeds the
-autonomy level stored with the job.
+rate-limited by its own interval, and the configured global autonomy level is a
+hard ceiling for each job's requested autonomy.
 """
 
 from __future__ import annotations
@@ -36,6 +36,10 @@ class Scheduler:
         self.config = config
         self._task: asyncio.Task | None = None
 
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
     async def tick(self) -> list[dict]:
         results: list[dict] = []
         due = self.store.due_jobs()
@@ -49,7 +53,7 @@ class Scheduler:
             try:
                 task_id = self.orchestrator.create_task(
                     request=job.prompt,
-                    autonomy_level=min(int(job.autonomy_level), 1),
+                    autonomy_level=min(int(job.autonomy_level), int(self.config.autonomy_level)),
                     kind="job",
                 )
                 await self.orchestrator.enqueue(task_id)
