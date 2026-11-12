@@ -119,7 +119,7 @@ async def test_telegram_reports_result_after_owner_approval(tmp_path, monkeypatc
     assert len(sent) == 2
     assert "needs owner approval" in sent[0]
     assert "cannot auto-approve" in sent[0]
-    assert "MATRIX complete" in sent[1]
+    assert "MATRIX complete" in sent[1].lower()
     assert "File saved and verified." in sent[1]
 
 
