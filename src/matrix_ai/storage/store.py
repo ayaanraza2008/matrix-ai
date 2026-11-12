@@ -393,6 +393,31 @@ class Store:
                 repaired += cursor.rowcount
         return repaired
 
+    def begin_cancel_goal_plan(self, goal_id: str) -> list[str]:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goals SET state='cancelling', updated_at=? WHERE id=? AND state IN ('planned','running')",
+                (iso(), goal_id),
+            )
+            conn.execute(
+                "UPDATE goal_nodes SET state='cancelled', error='goal cancelled by owner', updated_at=? "
+                "WHERE goal_id=? AND state='pending'",
+                (iso(), goal_id),
+            )
+            rows = conn.execute(
+                "SELECT task_id FROM goal_nodes WHERE goal_id=? AND state='running' AND task_id IS NOT NULL",
+                (goal_id,),
+            ).fetchall()
+        return [str(row["task_id"]) for row in rows]
+
+    def finish_cancel_goal_plan(self, goal_id: str) -> None:
+        now = iso()
+        self.db.execute(
+            "UPDATE goals SET state='cancelled', result_summary='Goal cancelled by owner.', "
+            "verification_status='not_applicable', updated_at=?, finished_at=? WHERE id=?",
+            (now, now, goal_id),
+        )
+
     def get_goal_node_task(self, goal_id: str, node_id: str):
         return self.db.query_one(
             "SELECT * FROM tasks WHERE goal_id=? AND goal_node_id=?",
