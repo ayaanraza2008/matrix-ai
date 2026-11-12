@@ -516,7 +516,8 @@ class Orchestrator:
         self.store.update_step(
             task_id,
             step.idx,
-            status=StepStatus.COMPLETED.value,
+            status=StepStatus.COMPLETED.value if ok else StepStatus.FAILED.value,
+            error=None if ok else "answer_unavailable",
             finished_at=iso(),
             evidence_json=json.dumps(evidence.model_dump()),
         )
@@ -730,7 +731,16 @@ class Orchestrator:
 
             self._fail_step(task_id, step.idx, "tool_failed", error)
             self._to(task_id, TaskState.VERIFY)
-            self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_failed",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self._to(task_id, TaskState.VERIFY)
@@ -752,11 +762,20 @@ class Orchestrator:
                 status="failed",
                 detail={"checks": evidence.checks},
             )
-            self._abort(
-                task_id,
-                "verification_failed",
-                f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
-            )
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(
+                    task_id,
+                    "verification_failed",
+                    f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
+                )
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_unverified",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self.store.update_step(
