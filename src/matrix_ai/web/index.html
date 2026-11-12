@@ -191,10 +191,10 @@
               <select id="voice-output-voice" aria-label="Browser voice"><option value="">System default</option></select>
               <button id="voice-stop-speech" type="button" class="ghost">Stop speech</button>
             </div>
-            <p class="hint">Spoken replies use browser/OS voices and play in this browser. Voice availability and offline behavior depend on your browser and installed voices; MATRIX does not upload generated speech audio.</p>
+            <p class="hint">When enabled, Windows SAPI speaks locally through the PC's default audio device. Otherwise MATRIX uses browser/OS speech where supported. Voice quality and language depend on installed voices; MATRIX does not upload generated audio.</p>
             <form id="voice-speak-form" class="row">
-              <input id="voice-speak-text" placeholder="Preview text with a browser/system voice" maxlength="2000">
-              <button type="submit">Preview voice</button>
+              <input id="voice-speak-text" placeholder="Preview text with a local or browser voice" maxlength="2000">
+              <button type="submit">Preview speech</button>
             </form>
           </div>
         </section>
