@@ -10,6 +10,8 @@ from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.youtube_tools import (
     YouTubeGetChannelTool,
     YouTubeListCommentsTool,
+    YouTubeUpdateVideoTool,
+    YouTubeUploadVideoInput,
 )
 
 
@@ -31,6 +33,30 @@ class FakeChannels:
                 "statistics": {"videoCount": "12", "viewCount": "340"},
                 "contentDetails": {"relatedPlaylists": {"uploads": "uploads-123"}},
             }]
+        })
+
+
+class FakeVideos:
+    def list(self, **kwargs):
+        return FakeRequest({
+            "items": [{
+                "id": kwargs["id"],
+                "snippet": {
+                    "channelId": "channel-123",
+                    "title": "Old title",
+                    "description": "Old description",
+                    "categoryId": "22",
+                    "tags": ["old"],
+                },
+                "status": {"privacyStatus": "private", "license": "youtube"},
+            }]
+        })
+
+    def update(self, **kwargs):
+        return FakeRequest({
+            "id": kwargs["body"]["id"],
+            "snippet": kwargs["body"].get("snippet", {}),
+            "status": kwargs["body"].get("status", {}),
         })
 
 
@@ -62,6 +88,9 @@ class FakeService:
 
     def commentThreads(self):
         return FakeComments()
+
+    def videos(self):
+        return FakeVideos()
 
 
 def test_youtube_read_tools_use_authenticated_channel_service(runtime, monkeypatch):
@@ -134,3 +163,33 @@ async def test_youtube_integration_is_reported_unconfigured_without_token(runtim
     integration = runtime.integrations.get("youtube")
     result = await integration.safe_check()
     assert result.status == "missing_credentials"
+
+
+def test_youtube_update_video_preserves_existing_metadata_and_confirms_owner(runtime, monkeypatch):
+    import matrix_ai.tools.youtube_tools as youtube_tools
+
+    monkeypatch.setattr(youtube_tools, "build_youtube_service", lambda config, scope: FakeService())
+    tool = YouTubeUpdateVideoTool()
+    args = tool.validate({"video_id": "abcdefghijk", "title": "New title"})
+    output = tool.run_sync(args, ToolContext(
+        task_id="test", config=runtime.config, store=runtime.store
+    ))
+    assert output["video_id"] == "abcdefghijk"
+    assert output["title"] == "New title"
+    assert tool.verify(args, output).ok
+
+
+def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
+    with pytest.raises(Exception, match="private"):
+        YouTubeUploadVideoInput.model_validate({
+            "path": "video.mp4",
+            "title": "Scheduled video",
+            "privacy_status": "public",
+            "publish_at": "2030-01-01T12:00:00Z",
+        })
+    with pytest.raises(Exception, match="timezone"):
+        YouTubeUploadVideoInput.model_validate({
+            "path": "video.mp4",
+            "title": "Scheduled video",
+            "publish_at": "2030-01-01T12:00:00",
+        })
