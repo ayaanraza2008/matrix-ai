@@ -520,6 +520,26 @@ class Store:
         )
         return cursor.rowcount
 
+    def cancelling_goal_ids(self) -> list[str]:
+        rows = self.db.query("SELECT id FROM goals WHERE state='cancelling' ORDER BY updated_at")
+        return [str(row["id"]) for row in rows]
+
+    def goal_node_task_ids(self, goal_id: str) -> list[str]:
+        rows = self.db.query(
+            "SELECT id FROM tasks WHERE goal_id=? AND goal_node_id IS NOT NULL "
+            "AND state NOT IN ('COMPLETE','PARTIAL','FAILED','CANCELLED')",
+            (goal_id,),
+        )
+        return [str(row["id"]) for row in rows]
+
+    def finish_cancel_goal_graph(self, goal_id: str) -> None:
+        now = iso()
+        self.db.execute(
+            "UPDATE goals SET state='cancelled', result_summary='Goal cancelled by owner.', "
+            "verification_status='not_applicable', updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
+            (now, now, goal_id),
+        )
+
     def begin_cancel_goal_graph(self, goal_id: str) -> list[str]:
         """Make a goal non-dispatchable before cancelling any live node tasks."""
         self.reconcile_goal_node_tasks()
