@@ -352,7 +352,8 @@ class Store:
                 ]
                 self.db.execute(
                     "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
-                    "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? WHERE id=?",
+                    "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
+                    "WHERE id=? AND state NOT IN ('cancelling','cancelled')",
                     (
                         "awaiting_verification" if all_completed else (
                             "partial" if any(row["state"] == "completed" for row in node_rows) else "failed"
