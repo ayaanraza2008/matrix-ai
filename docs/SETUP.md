@@ -124,13 +124,24 @@ After recognition, press **Send transcript to chat** to submit the words as a no
 Enable **Automatically speak final MATRIX replies** for opt-in spoken responses, or use the **Speak**
 control under an assistant message. The browser speech selector uses voices exposed by the browser/OS.
 Some installed voices may require internet access; offline behavior is determined by that voice provider.
-Speech playback happens in the browser and generated audio is not uploaded to the MATRIX API. Press
-**Stop speech** or start microphone recording to interrupt playback.
+Speech playback can happen in the browser or on the MATRIX host PC. Browser-generated audio is not
+uploaded to the MATRIX API. Press **Stop speech** or use **Barge in** to interrupt output.
 
-`tiny` / `tiny.en` are the recommended low-resource choices. `base` may improve accuracy but uses
-more memory and should be benchmarked on the actual PC. The supported model identifiers are restricted
-to these compact profiles. Browser/system speech provides reply playback without a server-side TTS
-model; a dedicated local Piper service remains a future milestone.
+For server-side speech on Windows, enable the built-in SAPI adapter before starting MATRIX:
+
+```powershell
+$env:MATRIX_TTS_PROVIDER = "windows-sapi"
+matrix serve
+```
+
+This uses Windows PowerShell 5.1 and the installed Windows speech voice; no Python TTS package or paid
+service is needed. The default is disabled (`none`). SAPI playback comes from the PC running MATRIX,
+not from a remote browser or Android device. The voice and supported languages depend on installed
+Windows speech packs. See [Local voice output](LOCAL_VOICE.md) for the adapter's security and limits.
+
+`tiny` / `tiny.en` are the recommended low-resource STT choices. `base` may improve accuracy but
+uses more memory and should be benchmarked on the actual PC. The supported STT model identifiers are
+restricted to these compact profiles. A higher-quality neural local TTS adapter remains future work.
 
 ## 5. Using the dashboard
 
