@@ -65,7 +65,7 @@ jobs:
         with:
           gradle-version: "8.7"
       - name: Assemble debug APK
-        run: gradle --no-daemon --project-dir android assembleDebug
+        run: gradle --no-daemon --project-dir android assembleDebug assembleRelease
 
   dependency-audit:
     name: dependency audit (advisory)
