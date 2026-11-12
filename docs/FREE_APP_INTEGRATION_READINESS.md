@@ -13,7 +13,7 @@ The default deployment should remain local-first and free of paid AI APIs. A pro
 | Service / route | What exists | What is still needed before calling it fully integrated |
 |---|---|---|
 | Telegram Bot API | Optional health/credential probe on main; private two-way polling bridge is proposed in PR #19 | Merge its dependency chain, configure a fresh bot token and owner chat ID, run the Windows process, and pass a real private-chat send/receive/stop test |
-| GitHub | Token validation adapter on the base branch; native MATRIX read-only account/repository/issue/PR tools are proposed in PR #26 | Merge the connector chain, configure a fine-grained read-only token, add approved write actions, and pass live account/repository acceptance tests |
+| GitHub | Token validation adapter on the base branch; native MATRIX GitHub account/repository/issue/PR reads plus approval-gated issue creation/comments are proposed in PR #26 | Merge the connector chain, configure a fine-grained token, opt in to github.write only if needed, and pass live account/repository/write acceptance tests |
 | Google Workspace | OAuth client-file validation only | OAuth consent/callback/token refresh plus scoped Gmail and Calendar actions and provider-side verification |
 | Home Assistant | API reachability/token probe only | Entity discovery, read-state and service-call tools, area/device allowlists, confirmation for state-changing actions |
 | Open-Meteo | No-key connectivity probe | Typed forecast tool with validated location/timezone inputs, caching, rate limits and response tests |
@@ -29,7 +29,7 @@ The no-paid-service baseline should prioritize:
 
 1. Telegram Bot API long polling for remote text chat (no public webhook or inbound port).
 2. Ollama or another local OpenAI-compatible model for optional local reasoning; deterministic tools remain available without a model.
-3. Open-Meteo for weather without an API key.\n4. Native GitHub read-only actions (`github_whoami`, `github_get_repository`, `github_list_issues`, `github_get_pull_request`) using a fine-grained token with only the repository/account read permissions needed.
+3. Open-Meteo for weather without an API key.\n4. Native GitHub read actions (`github_whoami`, `github_get_repository`, `github_list_issues`, `github_get_pull_request`) using a fine-grained read token. Optional issue creation/comments require explicit `MATRIX_EXTRA_SCOPES=github.write` plus per-action approval.
 4. Home Assistant for local smart-home control where the user already runs Home Assistant.
 5. Local browser automation only after a reviewed local runtime is installed.
 6. Local SQLite memory and local workspace storage.
