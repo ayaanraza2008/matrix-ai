@@ -7,7 +7,7 @@ MATRIX goals can be represented as bounded directed acyclic graphs (DAGs). The o
 - `GET /api/goals/{goal_id}/graph` returns persisted node state and task links.
 - `POST /api/goals/{goal_id}/cancel` cancels the goal and any active node task.
 
-Every node is a normal MATRIX task. The GoalSupervisor does not call tools directly: it creates a `goal_node` task and sends it through the existing planner, policy engine, scope checks, approval workflow, orchestrator, task-level retries, verifier and audit trail. Only one node is dispatched at a time. A node is eligible only after every dependency is completed.
+Every node is a normal MATRIX task. The GoalSupervisor does not call tools directly: it creates a `goal_node` task and sends it through the existing planner, policy engine, scope checks, approval workflow, orchestrator, task-level retries, verifier and audit trail. At most four ready nodes are dispatched concurrently per goal. A node is eligible only after every dependency is completed.
 
 ## Failure and recovery
 
