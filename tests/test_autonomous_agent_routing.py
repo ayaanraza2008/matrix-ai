@@ -164,3 +164,20 @@ async def test_authenticated_route_preview_returns_metadata_without_prompt_bodie
     assert payload["agent_count"] == 2
     assert payload["agents"][0]["routing_role"] == "lead"
     assert all("content" not in agent for agent in payload["agents"])
+
+    fleet_response = await client.get("/api/workers")
+    assert fleet_response.status_code == 200, fleet_response.text
+    fleet = fleet_response.json()
+    assert fleet["worker_count"] == runtime.worker_pool.worker_count
+    assert fleet["configured_worker_count"] == 0  # test fixture deliberately has no model
+    assert fleet["tool_execution"] == "central_orchestrator_only"
+    assert all("content" not in worker for worker in fleet["workers"])
+
+    if fleet["workers"]:
+        worker_slug = fleet["workers"][0]["slug"]
+        worker_response = await client.get(f"/api/workers/{worker_slug}")
+        assert worker_response.status_code == 200
+        assert worker_response.json()["slug"] == worker_slug
+
+    missing_worker = await client.get("/api/workers/this-worker-does-not-exist")
+    assert missing_worker.status_code == 404
