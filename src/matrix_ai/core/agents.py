@@ -222,7 +222,7 @@ def select_agency_agents(
         if score:
             ranked.append((score, agent["name"].casefold(), agent))
     ranked.sort(key=lambda item: (-item[0], item[1]))
-    bounded_limit = max(1, min(int(limit), 5))
+    bounded_limit = max(1, min(int(limit), 10))
     return [{**agent, "relevance_score": score} for score, _, agent in ranked[:bounded_limit]]
 
 
