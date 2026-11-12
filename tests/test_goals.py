@@ -93,3 +93,46 @@ async def test_terminal_task_state_is_reflected_in_goal(runtime):
     goal = runtime.store.get_goal(goal_id)
     assert goal["state"] == "completed"
     assert goal["finished_at"]
+
+
+def test_schema_v1_database_migrates_to_goal_linkage(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "legacy.sqlite"
+    initial = Database(path)
+    initial.execute("DROP INDEX IF EXISTS idx_tasks_goal")
+    initial.execute("ALTER TABLE tasks DROP COLUMN goal_id")
+    initial.execute("DROP TABLE goals")
+    initial.execute("PRAGMA user_version=1")
+    initial.close()
+
+    upgraded = Database(path)
+    columns = {row["name"] for row in upgraded.query("PRAGMA table_info(tasks)")}
+    assert "goal_id" in columns
+    assert upgraded.query_one(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='goals'"
+    )
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_resumes_received_goal_task(runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Recover my status check", success_criteria="Verify current status"
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="what is my system status?", user_id="owner", kind="goal", goal_id=goal_id
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+
+    recovered = await runtime.orchestrator.recover_after_restart()
+    assert recovered["resumed"] == 1
+
+    for _ in range(200):
+        goal = runtime.store.get_goal(goal_id)
+        if goal["state"] in {"completed", "partial", "failed", "cancelled"}:
+            break
+        await asyncio.sleep(0.025)
+
+    assert goal["state"] == "completed"
