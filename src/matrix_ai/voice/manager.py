@@ -12,9 +12,11 @@ import asyncio
 import base64
 import binascii
 import importlib.util
+import io
 import shutil
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 from typing import Protocol
 
 from ..config import MatrixConfig
@@ -47,6 +49,7 @@ class VoiceSessionManager:
         self._sessions: dict[str, VoiceSession] = {}
         self._active_id: str | None = None
         self._speak_task: asyncio.Task | None = None
+        self._stt_model: Any | None = None
         self.stt_provider = self._detect_stt()
         self.tts_provider = tts_engine.name if tts_engine is not None else self._detect_tts()
 
@@ -144,8 +147,81 @@ class VoiceSessionManager:
             raise ValidationFailure("audio must be base64-encoded") from exc
         if len(payload) > MAX_AUDIO_BYTES:
             raise ValidationFailure("audio exceeds the 8 MB limit")
-        # Audio is processed in memory only; raw audio is never persisted by default.
-        raise ToolUnavailable("speech-to-text adapter is registered but not implemented in this release")
+        # Audio is decoded from memory; raw audio is never written to disk.
+        model = self._load_stt_model()
+        try:
+            segments, info = model.transcribe(
+                io.BytesIO(payload),
+                language=self.config.stt_language,
+                task="transcribe",
+                beam_size=1,
+                best_of=1,
+                temperature=0,
+                condition_on_previous_text=False,
+                without_timestamps=True,
+            )
+            duration = float(info.duration)
+            if duration <= 0:
+                raise ValidationFailure("audio contains no decodable speech")
+            if duration > self.config.stt_max_audio_seconds:
+                raise ValidationFailure(
+                    f"audio is longer than the {self.config.stt_max_audio_seconds}-second limit"
+                )
+            transcript = " ".join(
+                str(segment.text).strip() for segment in segments if str(segment.text).strip()
+            ).strip()
+        except ValidationFailure:
+            raise
+        except Exception as exc:  # noqa: BLE001 - codec errors vary by media container
+            raise ValidationFailure("audio could not be decoded; try recording again") from exc
+
+        if not transcript:
+            raise ValidationFailure("no speech was detected in the audio")
+        return {
+            "text": transcript,
+            "language": getattr(info, "language", None),
+            "duration_seconds": round(duration, 2),
+            "provider": "faster-whisper",
+            "persisted": False,
+        }
+
+    def _load_stt_model(self):
+        """Load one compact CPU/INT8 model on first use, never during startup."""
+        if self._stt_model is not None:
+            return self._stt_model
+        if self.stt_provider == "unavailable":
+            raise ToolUnavailable(
+                "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
+            )
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:  # defensive if the package disappears after capability detection
+            self.stt_provider = "unavailable"
+            raise ToolUnavailable(
+                "faster-whisper is not installed. Install MATRIX with the 'voice' extra."
+            ) from exc
+        try:
+            self._stt_model = WhisperModel(
+                self.config.stt_model_size,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=self.config.stt_cpu_threads,
+                num_workers=1,
+            )
+        except Exception as exc:  # noqa: BLE001 - download/runtime errors are provider-specific
+            raise ToolUnavailable(
+                f"Could not load local speech model '{self.config.stt_model_size}'. "
+                "Check network access for its first download and available memory."
+            ) from exc
+        return self._stt_model
+
+    async def transcribe_async(
+        self, audio_base64: str, *, session_id: str | None = None
+    ) -> dict:
+        """Keep model loading and decoding off the API event loop."""
+        return await asyncio.to_thread(
+            self.transcribe, audio_base64, session_id=session_id
+        )
 
     # -- speech output & barge-in ----------------------------------------
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
