@@ -299,21 +299,21 @@ def test_hexstrike_requires_an_exact_owner_target_allowlist(config):
 async def test_stdio_mcp_server_initializes_lists_and_calls_tools(tmp_path):
     server_file = tmp_path / "fake_mcp_server.py"
     server_file.write_text(
-        "import json, sys\\n"
-        "for line in sys.stdin:\\n"
-        "    message = json.loads(line)\\n"
-        "    method = message.get('method')\\n"
-        "    if 'id' not in message:\\n"
-        "        continue\\n"
-        "    if method == 'initialize':\\n"
-        "        result = {'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake', 'version': '1'}}\\n"
-        "    elif method == 'tools/list':\\n"
-        "        result = {'tools': [{'name': 'ping', 'description': 'Ping', 'inputSchema': {'type': 'object', 'properties': {}}}]}\\n"
-        "    elif method == 'tools/call':\\n"
-        "        result = {'content': [{'type': 'text', 'text': 'pong'}]}\\n"
-        "    else:\\n"
-        "        result = {}\\n"
-        "    print(json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}), flush=True)\\n",
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    message = json.loads(line)\n"
+        "    method = message.get('method')\n"
+        "    if 'id' not in message:\n"
+        "        continue\n"
+        "    if method == 'initialize':\n"
+        "        result = {'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake', 'version': '1'}}\n"
+        "    elif method == 'tools/list':\n"
+        "        result = {'tools': [{'name': 'ping', 'description': 'Ping', 'inputSchema': {'type': 'object', 'properties': {}}}]}\n"
+        "    elif method == 'tools/call':\n"
+        "        result = {'content': [{'type': 'text', 'text': 'pong'}]}\n"
+        "    else:\n"
+        "        result = {}\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}), flush=True)\n",
         encoding="utf-8",
     )
     client = MCPStdioClient(
