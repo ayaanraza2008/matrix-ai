@@ -384,9 +384,16 @@ class Store:
             (iso(), goal_id),
         )
 
-    def claim_goal_node(self, goal_id: str, node_id: str) -> bool:
-        """Atomically claim one ready node; dispatch itself happens after commit."""
+    def claim_goal_node(self, goal_id: str, node_id: str, *, limit: int = 4) -> bool:
+        """Atomically reserve one dependency-ready node within the per-goal concurrency bound."""
+        from ..core.goal_graph import MAX_PARALLEL_READY
+
+        if not 1 <= limit <= MAX_PARALLEL_READY:
+            raise ValueError(f"limit must be between 1 and {MAX_PARALLEL_READY}")
         with self.db.transaction() as conn:
+            goal = conn.execute("SELECT state FROM goals WHERE id=?", (goal_id,)).fetchone()
+            if goal is None or goal["state"] not in {"planned", "running"}:
+                return False
             rows = conn.execute(
                 "SELECT node_id, depends_on_json, state FROM goal_nodes WHERE goal_id=?",
                 (goal_id,),
@@ -394,6 +401,9 @@ class Store:
             states = {row["node_id"]: row["state"] for row in rows}
             target = next((row for row in rows if row["node_id"] == node_id), None)
             if target is None or target["state"] != "pending":
+                return False
+            active = sum(state in {"running", "dispatching"} for state in states.values())
+            if active >= limit:
                 return False
             dependencies = _json_load(target["depends_on_json"], [])
             if any(states.get(dep) != "completed" for dep in dependencies):
@@ -403,20 +413,69 @@ class Store:
                 "updated_at=? WHERE goal_id=? AND node_id=? AND state='pending'",
                 (iso(), goal_id, node_id),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            conn.execute(
+                "UPDATE goals SET state='running', updated_at=? WHERE id=? AND state IN ('planned','running')",
+                (iso(), goal_id),
+            )
+            return True
 
     def attach_goal_node_task(self, goal_id: str, node_id: str, task_id: str) -> None:
+        """Idempotently link the unique durable task for this goal node."""
         task = self.get_task_row(task_id)
         goal = self.get_goal(goal_id)
-        if task["user_id"] != goal["owner_id"] or task["kind"] != "goal_node":
-            raise ValueError("goal node task owner or kind does not match")
-        cursor = self.db.execute(
-            "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
-            "WHERE goal_id=? AND node_id=? AND state='dispatching' AND task_id IS NULL",
-            (task_id, iso(), goal_id, node_id),
+        if (
+            task["user_id"] != goal["owner_id"]
+            or task["kind"] != "goal_node"
+            or task["goal_id"] != goal_id
+            or task["goal_node_id"] != node_id
+        ):
+            raise ValueError("goal node task owner or identity does not match")
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT state, task_id FROM goal_nodes WHERE goal_id=? AND node_id=?",
+                (goal_id, node_id),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"goal node {node_id} not found")
+            if row["task_id"] not in (None, task_id):
+                raise ValueError("goal node is already linked to another task")
+            if row["state"] not in {"dispatching", "running"}:
+                raise ValueError("goal node is not in a dispatchable state")
+            conn.execute(
+                "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
+                "WHERE goal_id=? AND node_id=?",
+                (task_id, iso(), goal_id, node_id),
+            )
+            conn.execute(
+                "UPDATE goals SET state='running', updated_at=? WHERE id=? AND state IN ('planned','running')",
+                (iso(), goal_id),
+            )
+
+    def get_goal_node_task(self, goal_id: str, node_id: str):
+        return self.db.query_one(
+            "SELECT * FROM tasks WHERE goal_id=? AND goal_node_id=?",
+            (goal_id, node_id),
         )
-        if cursor.rowcount != 1:
-            raise ValueError("goal node is not in a dispatchable state")
+
+    def reconcile_goal_node_tasks(self) -> int:
+        """Repair the task-created/node-linked crash window using the unique node identity."""
+        rows = self.db.query(
+            "SELECT id, goal_id, goal_node_id FROM tasks "
+            "WHERE goal_id IS NOT NULL AND goal_node_id IS NOT NULL"
+        )
+        repaired = 0
+        with self.db.transaction() as conn:
+            for task in rows:
+                cursor = conn.execute(
+                    "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
+                    "WHERE goal_id=? AND node_id=? AND task_id IS NULL "
+                    "AND state IN ('pending','dispatching','running')",
+                    (task["id"], iso(), task["goal_id"], task["goal_node_id"]),
+                )
+                repaired += cursor.rowcount
+        return repaired
 
     def update_goal_node(
         self, goal_id: str, node_id: str, *, state: str, error: str | None = None,
@@ -432,6 +491,7 @@ class Store:
         )
 
     def recover_goal_graphs(self) -> list[dict[str, Any]]:
+        self.reconcile_goal_node_tasks()
         rows = self.db.query(
             "SELECT id, owner_id, state FROM goals WHERE state IN ('planned','running') "
             "AND task_id IS NULL ORDER BY created_at"
