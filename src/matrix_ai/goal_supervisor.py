@@ -36,14 +36,18 @@ class GoalSupervisor:
         self._ensure_runner(goal_id)
         return self.status(goal_id)
 
-    async def recover_after_restart(self) -> dict[str, int]:
-        resumed = 0
+    async def recover_cancellations(self) -> int:
         cancelled = 0
         for goal_id in self.store.cancelling_goal_ids():
             for task_id in self.store.goal_node_task_ids(goal_id):
                 await self.orchestrator.cancel(task_id)
             self.store.finish_cancel_goal_graph(goal_id)
             cancelled += 1
+        return cancelled
+
+    async def recover_after_restart(self) -> dict[str, int]:
+        cancelled = await self.recover_cancellations()
+        resumed = 0
         for goal in self.store.recover_goal_graphs():
             self._ensure_runner(goal["id"])
             resumed += 1
