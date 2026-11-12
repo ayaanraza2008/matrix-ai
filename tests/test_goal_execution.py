@@ -116,3 +116,34 @@ async def test_goal_cancel_marks_unstarted_nodes_cancelled(client):
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["state"] == "cancelled"
     assert cancelled.json()["nodes"][0]["state"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_second_pass_can_verify_completed_nodes(client, runtime, monkeypatch):
+    from types import SimpleNamespace
+
+    async def fake_complete(messages, **kwargs):
+        return SimpleNamespace(
+            text='{"status":"verified","reason":"The status evidence supports the stated criteria.","supporting_nodes":["status"],"missing_evidence":[]}'
+        )
+
+    monkeypatch.setattr(type(runtime.models), "configured", property(lambda _self: True))
+    monkeypatch.setattr(runtime.models, "complete", fake_complete)
+
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Verify a status goal",
+            "success_criteria": "The system status check completed successfully.",
+            "nodes": [{"node_id": "status", "title": "what is my system status?"}],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+    started = await client.post(f"/api/goals/{goal_id}/start")
+    assert started.status_code == 202, started.text
+    finished = await _wait_for_goal(client, goal_id)
+
+    assert finished["state"] == "completed"
+    assert finished["criteria_status"] == "verified_by_model"
+    assert finished["verification_status"] == "second_pass_model_assessed"
