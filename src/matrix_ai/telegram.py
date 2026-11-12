@@ -263,22 +263,22 @@ class TelegramChatBridge:
         token = self.config.telegram_bot_token
         url = f"https://api.telegram.org/file/bot{token}/{file_path}"
         audio = bytearray()
-        async with self._client.stream("GET", url) as response:
-            response.raise_for_status()
-            length = response.headers.get("content-length")
-            if length:
-                try:
-                    if int(length) > MAX_AUDIO_BYTES:
-                        raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
-                except ValueError as exc:
-                    raise ValidationFailure("Telegram returned an invalid audio size") from exc
-            try:
+        try:
+            async with self._client.stream("GET", url) as response:
+                response.raise_for_status()
+                length = response.headers.get("content-length")
+                if length:
+                    try:
+                        if int(length) > MAX_AUDIO_BYTES:
+                            raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
+                    except ValueError as exc:
+                        raise ValidationFailure("Telegram returned an invalid audio size") from exc
                 async for chunk in response.aiter_bytes():
                     audio.extend(chunk)
                     if len(audio) > MAX_AUDIO_BYTES:
                         raise ValidationFailure("Telegram voice note exceeds MATRIX's 8 MB audio limit")
-            except httpx.HTTPError as exc:
-                raise ToolUnavailable("Telegram voice note download was interrupted.") from exc
+        except httpx.HTTPError as exc:
+            raise ToolUnavailable("Telegram voice note download was interrupted.") from exc
         mime = str(voice_message.get("mime_type") or "").lower()
         suffix = {
             "audio/ogg": ".ogg",
