@@ -21,6 +21,7 @@ from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
 from .web_tools import FetchPublicUrlTool
+from .youtube_tools import build_youtube_tools
 
 
 class ToolRegistry:
@@ -80,5 +81,6 @@ def build_registry() -> ToolRegistry:
             MemorySaveTool(),
             FetchPublicUrlTool(),
             OcrImageTool(),
+            *build_youtube_tools(),
         ]
     )
