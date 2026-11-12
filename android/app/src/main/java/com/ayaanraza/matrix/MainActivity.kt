@@ -54,7 +54,7 @@ fun MatrixApp() {
     var baseUrl by rememberSaveable { mutableStateOf("http://10.0.2.2:8765") }
     var code by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
-    var token by rememberSaveable { mutableStateOf<String?>(null) }
+    var token by remember { mutableStateOf<String?>(null) }
     var lastTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf("Not connected. Start MATRIX on the PC and run: matrix pair-code") }
     var busy by remember { mutableStateOf(false) }
@@ -126,6 +126,20 @@ fun MatrixApp() {
         )
         Button(onClick = { pairDevice() }, enabled = !busy && code.isNotBlank()) {
             Text(if (token == null) "Pair device" else "Re-pair device")
+        }
+
+        if (token != null) {
+            Button(
+                onClick = {
+                    client.token = null
+                    token = null
+                    lastTaskId = null
+                    output = "Local session cleared. Pair again to reconnect."
+                },
+                enabled = !busy,
+            ) {
+                Text("Clear local session")
+            }
         }
 
         HorizontalDivider()
