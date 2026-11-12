@@ -141,8 +141,10 @@ class VoiceSessionManager:
             raise ValidationFailure("audio exceeds the 8 MB limit")
         try:
             result = self.stt_engine.transcribe(payload)
-        except (ValueError, RuntimeError) as exc:
-            raise ToolUnavailable(f"Local speech-to-text failed: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001 - codec/model errors vary by optional backend
+            raise ToolUnavailable(
+                f"Local speech-to-text failed ({type(exc).__name__})."
+            ) from exc
         transcript = str(result.get("text", "")).strip()
         session.last_utterance = transcript[:500] or None
         return {**result, "text": transcript, "session_id": session.id}
