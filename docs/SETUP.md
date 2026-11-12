@@ -120,10 +120,17 @@ enforces the configured duration and 8 MB request limit. The first transcription
 so outbound internet access is required once. Subsequent inference runs locally; no cloud speech API is
 used. The transcript is returned to the browser but is not stored in the database or audit log.
 
+After recognition, press **Send transcript to chat** to submit the words as a normal MATRIX request.
+Enable **Automatically speak final MATRIX replies** for opt-in spoken responses, or use the **Speak**
+control under an assistant message. The browser speech selector uses voices exposed by the browser/OS.
+Some installed voices may require internet access; offline behavior is determined by that voice provider.
+Speech playback happens in the browser and generated audio is not uploaded to the MATRIX API. Press
+**Stop speech** or start microphone recording to interrupt playback.
+
 `tiny` / `tiny.en` are the recommended low-resource choices. `base` may improve accuracy but uses
 more memory and should be benchmarked on the actual PC. The supported model identifiers are restricted
-to these compact profiles. Speech synthesis remains unimplemented; MATRIX reports it as unavailable
-rather than generating fake audio.
+to these compact profiles. Browser/system speech provides reply playback without a server-side TTS
+model; a dedicated local Piper service remains a future milestone.
 
 ## 5. Using the dashboard
 
@@ -177,7 +184,7 @@ Remote control only works while the PC is powered on, connected and running MATR
 | `WAITING_FOR_USER` forever | Approval not decided | Open the task, approve/deny; approvals expire after TTL |
 | OCR `503` | Tesseract missing | Install Tesseract + `[vision]` extra |
 | Voice transcription `503` | `faster-whisper` extra is missing or its model could not load | Install `.[voice]`; check network on first model download and available RAM |
-| Voice synthesis `503` | No TTS engine is integrated | Text-to-speech remains planned |
+| Voice preview unavailable | Browser has no exposed speech voices | Install/enable a browser or OS speech voice; browser support varies |
 | Port in use | Another instance | `matrix serve --port 8766` |
 | Database locked | Second process | Only one MATRIX instance per home directory |
 
