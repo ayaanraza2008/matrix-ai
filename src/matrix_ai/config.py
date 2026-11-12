@@ -129,6 +129,11 @@ class MatrixConfig:
     model_ram_budget_mb: int = 2500
     model_request_timeout_s: float = 60.0
     model_idle_unload_s: int = 900
+    # Local speech recognition: lazily loaded, CPU/INT8 by default.
+    stt_model_size: str = "tiny"
+    stt_language: str | None = None  # None = automatic language detection
+    stt_cpu_threads: int = 2
+    stt_max_audio_seconds: int = 90
 
     autonomy_level: int = 2
     approval_ttl_seconds: int = 300
@@ -177,6 +182,12 @@ class MatrixConfig:
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        if not self.stt_model_size.strip():
+            raise ConfigError("MATRIX_STT_MODEL must not be empty")
+        if not 1 <= self.stt_cpu_threads <= 16:
+            raise ConfigError("MATRIX_STT_CPU_THREADS must be between 1 and 16")
+        if not 1 <= self.stt_max_audio_seconds <= 600:
+            raise ConfigError("MATRIX_STT_MAX_AUDIO_SECONDS must be between 1 and 600")
 
     # -- helpers -----------------------------------------------------------
     def _load_or_create_owner_token(self) -> str:
@@ -259,6 +270,10 @@ class MatrixConfig:
             owner_token=_env("MATRIX_OWNER_TOKEN"),
             model_provider=(_env("MATRIX_MODEL_PROVIDER", "none") or "none").lower(),
             model_name=_env("MATRIX_MODEL_NAME", "qwen2.5:0.5b-instruct-q4_K_M") or "qwen2.5:0.5b-instruct-q4_K_M",
+            stt_model_size=_env("MATRIX_STT_MODEL", "tiny") or "tiny",
+            stt_language=_env("MATRIX_STT_LANGUAGE"),
+            stt_cpu_threads=_env_int("MATRIX_STT_CPU_THREADS", 2),
+            stt_max_audio_seconds=_env_int("MATRIX_STT_MAX_AUDIO_SECONDS", 90),
             ollama_url=_env("MATRIX_OLLAMA_URL", "http://127.0.0.1:11434") or "http://127.0.0.1:11434",
             openai_base_url=_env("MATRIX_OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
             or "http://127.0.0.1:8080/v1",
