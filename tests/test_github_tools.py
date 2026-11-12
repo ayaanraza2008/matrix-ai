@@ -12,7 +12,6 @@ from matrix_ai.tools.github_tools import (
     GitHubEmptyInput,
     GitHubGetPullRequestTool,
     GitHubGetRepositoryTool,
-    GitHubIssuesInput,
     GitHubListIssuesTool,
     GitHubWhoAmITool,
 )
@@ -52,10 +51,7 @@ def test_github_tools_registered_and_read_only():
 def test_github_requires_token(tmp_path):
     tool = GitHubWhoAmITool()
     with pytest.raises(ToolUnavailable, match="MATRIX_GITHUB_TOKEN"):
-        tool.run_sync(GitHubEmptyInput(), make_context(tmp_path, token=None). __class__(
-            task_id="github-test",
-            config=MatrixConfig(home=tmp_path, github_token=None),
-        ))
+        tool.run_sync(\n            GitHubEmptyInput(),\n            ToolContext(task_id="github-test", config=MatrixConfig(home=tmp_path, github_token=None)),\n        )
 
 
 def test_github_whoami_uses_bearer_token_and_returns_minimal_data(tmp_path, monkeypatch):
