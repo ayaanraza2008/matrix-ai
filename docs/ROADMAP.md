@@ -18,6 +18,12 @@ reproducible demonstration — not when code exists.
 
 ## Next milestones
 
+### M0.1 — Startup recovery (Phase 1 reliability follow-up)
+- Reconcile persisted tasks before background workers start.
+- Requeue untouched RECEIVED tasks; preserve valid pending approvals; resume only already-approved exact actions.
+- Mark interrupted tool calls and active steps as failed with an explicit uncertain-outcome message; never blindly replay them.
+- Acceptance: startup recovery tests cover requeue, pending approval preservation, approved-action resume and in-flight no-replay.
+
 ### M1 — Model on the 8 GB PC (Phase 2 exit)
 - Pull `qwen2.5:0.5b-instruct-q4_K_M`; keep ≤ 2 500 MB budget.
 - Add a benchmark script: tool-selection accuracy, JSON validity, Hindi/English prompts, p50 latency, peak RSS.
