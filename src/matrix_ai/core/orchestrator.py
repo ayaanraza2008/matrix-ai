@@ -1054,7 +1054,6 @@ class Orchestrator:
     # ------------------------------------------------------------------
     def _summarize_task(self, task_id: str, row, steps, calls, all_done: bool) -> str:
         answer = (self.store.get_task_row(task_id)["summary"] or "").strip()
-        answer_steps = [step for step in steps if step.kind is StepKind.ANSWER and step.status is StepStatus.COMPLETED]
         parts: list[str] = []
         for step in steps:
             if step.kind is StepKind.ANSWER:
