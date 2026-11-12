@@ -17,6 +17,8 @@ from .file_tools import (
     WriteTextTool,
 )
 from .github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
     GitHubGetPullRequestTool,
     GitHubGetRepositoryTool,
     GitHubListIssuesTool,
@@ -89,6 +91,8 @@ def build_registry() -> ToolRegistry:
             OcrImageTool(),
             OpenMeteoForecastTool(),
             GitHubWhoAmITool(),
+            GitHubCreateIssueTool(),
+            GitHubCommentIssueTool(),
             GitHubGetRepositoryTool(),
             GitHubListIssuesTool(),
             GitHubGetPullRequestTool(),
