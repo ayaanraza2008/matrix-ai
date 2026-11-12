@@ -173,3 +173,86 @@ async def test_goal_supervisor_recovers_orphaned_dispatch_claim(client, runtime)
     assert result["state"] == "awaiting_verification"
     assert result["nodes"][0]["state"] == "completed"
     assert result["nodes"][0]["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_goal_node_task_identity_repairs_create_link_crash_window(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Repair task linkage",
+            "nodes": [{"node_id": "status", "title": "what is my system status?"}],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+    owner_id = planned.json()["owner_id"]
+
+    assert runtime.store.claim_goal_node(goal_id, "status") is True
+    task_id = runtime.orchestrator.create_task(
+        request="goal node status check",
+        user_id=owner_id,
+        kind="goal_node",
+        goal_id=goal_id,
+        goal_node_id="status",
+    )
+    assert runtime.store.get_goal_graph(goal_id)[0]["task_id"] is None
+
+    runtime.store.recover_goal_graphs()
+    node = runtime.store.get_goal_graph(goal_id)[0]
+    assert node["task_id"] == task_id
+    assert node["state"] == "running"
+
+    import sqlite3
+
+    with pytest.raises(sqlite3.IntegrityError):
+        runtime.orchestrator.create_task(
+            request="duplicate node task",
+            user_id=owner_id,
+            kind="goal_node",
+            goal_id=goal_id,
+            goal_node_id="status",
+        )
+
+
+@pytest.mark.asyncio
+async def test_goal_node_claims_respect_four_node_concurrency_bound(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Bounded ready wave",
+            "nodes": [
+                {"node_id": f"node-{i}", "title": "what is my system status?"}
+                for i in range(5)
+            ],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+
+    for i in range(4):
+        assert runtime.store.claim_goal_node(goal_id, f"node-{i}", limit=4) is True
+    assert runtime.store.claim_goal_node(goal_id, "node-4", limit=4) is False
+
+
+@pytest.mark.asyncio
+async def test_goal_cancellation_closes_dispatch_gate_before_cancelling_tasks(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Stop further dispatch",
+            "nodes": [
+                {"node_id": "first", "title": "what is my system status?"},
+                {"node_id": "second", "title": "what is my system status?"},
+            ],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+    assert runtime.store.claim_goal_node(goal_id, "first") is True
+
+    task_ids = runtime.store.begin_cancel_goal_graph(goal_id)
+    assert task_ids == []
+    assert runtime.store.claim_goal_node(goal_id, "second") is False
+    runtime.store.finish_goal_graph(goal_id, state="cancelled", summary="Cancelled in test.")
+    assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
