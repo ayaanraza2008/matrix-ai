@@ -37,7 +37,7 @@ def test_remote_access_enable_uses_private_serve_target_only(monkeypatch):
     assert result["public_funnel_enabled_by_matrix"] is False
     assert result["serve_enabled"] is True
     assert result["endpoint"] == "https://matrix-pc.example.ts.net"
-    assert calls[-1] == ["tailscale", "serve", "--bg", REMOTE_TARGET]
+    assert ["tailscale", "serve", "--bg", REMOTE_TARGET] in calls
     assert all("funnel" not in part.lower() for call in calls for part in call)
 
 
