@@ -45,7 +45,7 @@ def load_youtube_credentials(config: MatrixConfig, required_scope: str):
         raise ToolExecutionError("Install MATRIX's optional YouTube dependencies: pip install -e '.[youtube]'.") from exc
 
     try:
-        credentials = Credentials.from_authorized_user_file(str(path), scopes=YOUTUBE_OAUTH_SCOPES)
+        credentials = Credentials.from_authorized_user_file(str(path))
     except (OSError, ValueError) as exc:
         raise ToolExecutionError("The local YouTube OAuth token file is missing or invalid.") from exc
 
@@ -58,7 +58,8 @@ def load_youtube_credentials(config: MatrixConfig, required_scope: str):
     if not credentials.valid:
         raise ToolExecutionError("YouTube OAuth credentials are expired or invalid. Reconnect with 'matrix youtube-auth'.")
 
-    if not credentials.has_scopes([required_scope]):
+    granted_scopes = set(credentials.granted_scopes or credentials.scopes or [])
+    if required_scope not in granted_scopes:
         raise ToolExecutionError(
             "The saved YouTube token lacks the required permission. Re-run 'matrix youtube-auth' to grant the updated scopes."
         )
