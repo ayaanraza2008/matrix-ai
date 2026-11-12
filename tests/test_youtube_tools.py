@@ -123,8 +123,10 @@ def test_youtube_comment_reader_returns_bounded_comment_metadata(runtime, monkey
 def test_youtube_write_tools_are_opt_in_and_approval_gated(runtime):
     registry = runtime.registry
     reply = registry.get("youtube.reply_comment")
+    update = registry.get("youtube.update_video")
     upload = registry.get("youtube.upload_video")
     assert reply.risk is Risk.HIGH
+    assert update.risk is Risk.HIGH
     assert upload.risk is Risk.CRITICAL
     assert "youtube.read" in runtime.policy.task_scopes(None)
     assert "youtube.write" not in runtime.policy.task_scopes(None)
@@ -194,3 +196,12 @@ def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
             "title": "Scheduled video",
             "publish_at": "2030-01-01T12:00:00",
         })
+
+
+def test_youtube_upload_defaults_to_private():
+    args = YouTubeUploadVideoInput.model_validate({
+        "path": "approved/video.mp4",
+        "title": "Draft upload",
+    })
+    assert args.privacy_status == "private"
+    assert args.publish_at is None
