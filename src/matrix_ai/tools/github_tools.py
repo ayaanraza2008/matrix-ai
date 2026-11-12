@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 import httpx
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
@@ -27,6 +27,13 @@ class GitHubEmptyInput(StrictModel):
 
 class GitHubRepositoryInput(StrictModel):
     repository: str = Field(min_length=3, max_length=201, description="owner/repository")
+
+    @field_validator("repository")
+    @classmethod
+    def validate_repository(cls, value: str) -> str:
+        if not _REPOSITORY.fullmatch(value):
+            raise ValueError("repository must use the owner/repository format")
+        return value
 
 
 class GitHubIssuesInput(GitHubRepositoryInput):
