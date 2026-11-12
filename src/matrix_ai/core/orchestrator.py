@@ -97,6 +97,7 @@ class Orchestrator:
         scopes: list[str] | None = None,
         kind: str = "chat",
         goal_id: str | None = None,
+        goal_node_id: str | None = None,
         deadline_seconds: float | None = None,
     ) -> str:
         if self.policy.emergency_stop:
@@ -113,6 +114,7 @@ class Orchestrator:
             kind=kind,
             deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
             goal_id=goal_id,
+            goal_node_id=goal_node_id,
         )
         self.store.audit(
             "task.created",
@@ -122,6 +124,7 @@ class Orchestrator:
             detail={
                 "kind": kind,
                 "goal_id": goal_id,
+                "goal_node_id": goal_node_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
