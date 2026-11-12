@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     user_id TEXT NOT NULL,
     device_id TEXT,
     kind TEXT NOT NULL DEFAULT 'chat',
+    goal_id TEXT,
     state TEXT NOT NULL,
     original_request TEXT NOT NULL,
     normalized_goal TEXT,
@@ -83,6 +84,22 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
+
+CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    success_criteria TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'queued',
+    task_id TEXT,
+    result_summary TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goals_owner_created ON goals(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_state ON goals(state);
 
 CREATE TABLE IF NOT EXISTS plan_steps (
     task_id TEXT NOT NULL,
@@ -227,6 +244,10 @@ class Database:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
             if version < SCHEMA_VERSION:
                 self._conn.executescript(SCHEMA_SQL)
+                columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+                if "goal_id" not in columns:
+                    self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_id TEXT")
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id)")
                 self._ensure_fts()
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
