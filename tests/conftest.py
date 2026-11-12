@@ -27,6 +27,7 @@ def config(tmp_path: Path) -> MatrixConfig:
         home=tmp_path / "home",
         owner_token=TEST_TOKEN,
         model_provider="none",
+        addon_auto_install_sources=False,  # tests never fetch third-party sources
         rate_limit_per_minute=100_000,
         approval_wait_seconds=3.0,
         approval_ttl_seconds=120,

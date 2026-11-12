@@ -33,7 +33,7 @@ Unknown/no-recognised licence repositories (Free for Dev and Build Your Own X) a
 
 For a free-form request, MATRIX matches the request against the add-on catalogue. It may retrieve bounded Markdown references only from repositories which are installed and marked as context-enabled. Retrieved material is labelled untrusted reference data; it cannot grant a tool, change scopes, approve an action or replace the policy engine.
 
-MATRIX excludes G0DM0D3, HexStrike and Harness² from normal model context. The cybersecurity skill pack exposes only its repository overview, framework mappings and standards-reference files; operational exploit playbooks and skill execution instructions are never injected into normal planner context. Free-for-Dev and Build Your Own X are link catalogues, not executable agents. A selected but not installed add-on is returned as a recommendation; MATRIX does not clone it automatically.
+MATRIX excludes G0DM0D3, HexStrike and Harness² from normal model context. The cybersecurity skill pack exposes only its repository overview, framework mappings and standards-reference files; operational exploit playbooks and skill execution instructions are never injected into normal planner context. Free-for-Dev and Build Your Own X are link catalogues, not executable agents. A context-enabled repository selected by a task is automatically sparse-fetched at its pinned commit when its estimated size is <=200 MB and MATRIX_ADDON_AUTO_INSTALL_SOURCES is true (default). Larger repositories are never auto-fetched.
 
 ## Owner API
 
@@ -69,7 +69,7 @@ Example OpenWhispr remote MCP configuration (create a personal API key in OpenWh
 $env:MATRIX_ADDON_MCP_SERVERS = '{"openwhispr":{"transport":"streamable_http","url":"https://mcp.openwhispr.com/mcp","headers":{"Authorization":"Bearer <OpenWhispr-personal-api-key>"},"read_only_tools":[]}}'
 ~~~
 
-The only remote MCP hostname currently accepted is mcp.openwhispr.com. Its desktop app still needs to be installed/launched and microphone access granted for local listening. The remote MCP API exposes notes, folders, transcriptions and usage available to the supplied key; it does not turn arbitrary spoken words into approval for destructive actions.
+The only remote MCP hostname currently accepted is mcp.openwhispr.com. Set MATRIX_ADDON_AUTO_INSTALL_SOURCES=false to disable task-triggered source fetches. Its desktop app still needs to be installed/launched and microphone access granted for local listening. The remote MCP API exposes notes, folders, transcriptions and usage available to the supplied key; it does not turn arbitrary spoken words into approval for destructive actions.
 
 Example local Browser Use MCP configuration (Python environment and Chrome must be installed by the owner):
 
@@ -77,7 +77,7 @@ Example local Browser Use MCP configuration (Python environment and Chrome must 
 $env:MATRIX_ADDON_MCP_SERVERS = '{"browser-use":{"command":"uvx","args":["--from","browser-use==1.0.2","browser-use","--cli-mcp"],"read_only_tools":[]}}'
 ~~~
 
-Other stdio-capable servers (Mobile MCP, REA, AgentMemory, Craft Anything, HexStrike) use their upstream-documented command and arguments. Do not copy an arbitrary command from a third-party comment. For each connection, review the server command, target access and dependencies first.
+Other stdio-capable servers (Mobile MCP, REA, AgentMemory, Craft Anything) use their upstream-documented command and arguments. When those commands are configured in MATRIX_ADDON_MCP_SERVERS, MATRIX connects them only when the task router selects that add-on. HexStrike must be connected manually; it is never auto-connected. Do not copy an arbitrary command from a third-party comment. For each connection, review the server command, target access and dependencies first.
 
 After setting the environment, restart MATRIX and explicitly connect the desired server:
 

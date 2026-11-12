@@ -341,3 +341,86 @@ def test_hexstrike_target_configuration_rejects_urls_and_wildcards(config):
         replace(config, hexstrike_allowed_targets=("https://example.test",))
     with pytest.raises(ConfigError):
         replace(config, hexstrike_allowed_targets=("*.example.test",))
+
+
+@pytest.mark.asyncio
+async def test_selected_safe_sources_are_lazily_fetched_and_security_sources_skipped(runtime, monkeypatch):
+    from matrix_ai.integrations.addon_catalog import ADDON_BY_ID
+
+    runtime.config.addon_auto_install_sources = True
+    installed = []
+    connected = []
+
+    def fake_install(addon_id, *, allow_large=False):
+        installed.append((addon_id, allow_large))
+        return {"commit": ADDON_BY_ID[addon_id]["commit"]}
+
+    async def fake_connect(addon_id, _registry):
+        connected.append(addon_id)
+        return {"status": "connected"}
+
+    monkeypatch.setattr(runtime.addon_manager, "_installed_info", lambda _addon_id: None)
+    monkeypatch.setattr(runtime.addon_manager, "install", fake_install)
+    monkeypatch.setattr(runtime.addon_manager, "connect", fake_connect)
+    runtime.config.addon_mcp_servers["hexstrike-ai"] = {
+        "command": "python",
+        "args": ["hexstrike_mcp.py"],
+        "env": {},
+        "read_only_tools": [],
+    }
+    selected = [
+        {"id": "ecc"},
+        {"id": "scientific-agent-skills"},
+        {"id": "cal-diy"},
+        {"id": "g0dm0d3"},
+        {"id": "hexstrike-ai"},
+    ]
+    await runtime.addon_manager.prepare_selected(selected, runtime.registry)
+
+    assert installed == [("ecc", False)]
+    assert connected == []
+    assert all(addon_id not in {"g0dm0d3", "hexstrike-ai", "harness2"} for addon_id, _ in installed)
+
+
+@pytest.mark.asyncio
+async def test_selected_owner_configured_browser_mcp_auto_connects(runtime, monkeypatch):
+    connected = []
+    runtime.config.addon_mcp_servers["browser-use"] = {
+        "transport": "stdio",
+        "command": "uvx",
+        "args": ["browser-use"],
+        "env": {},
+        "read_only_tools": [],
+    }
+
+    async def fake_connect(addon_id, _registry):
+        connected.append(addon_id)
+        return {"status": "connected"}
+
+    monkeypatch.setattr(runtime.addon_manager, "connect", fake_connect)
+    await runtime.addon_manager.prepare_selected(
+        [{"id": "browser-use"}],
+        runtime.registry,
+    )
+    assert connected == ["browser-use"]
+
+
+@pytest.mark.asyncio
+async def test_hexstrike_without_target_is_blocked_even_when_allowlist_has_entries(config):
+    definition = {
+        "name": "run_security_action",
+        "description": "Run a scan",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
+    }
+    tool = build_mcp_tools(
+        "hexstrike-ai",
+        [definition],
+        FakeMCPClient(),
+        read_only_tools={"run_security_action"},
+        target_allowlist={"127.0.0.1"},
+    )[0]
+    args = tool.validate({})
+    ctx = ToolContext(task_id="test", config=replace(config, hexstrike_allowed_targets=("127.0.0.1",)), scopes=["addons.control"])
+    with pytest.raises(ToolExecutionError, match="requires an explicit target"):
+        await tool.run(args, ctx)
