@@ -410,14 +410,15 @@ class Store:
             )
             conn.execute(
                 "UPDATE goal_nodes SET state='cancelled', error='goal cancelled by owner', updated_at=? "
-                "WHERE goal_id=? AND state='pending'",
+                "WHERE goal_id=? AND state IN ('pending','dispatching')",
                 (iso(), goal_id),
             )
             rows = conn.execute(
-                "SELECT task_id FROM goal_nodes WHERE goal_id=? AND state='running' AND task_id IS NOT NULL",
+                "SELECT id FROM tasks WHERE goal_id=? AND goal_node_id IS NOT NULL "
+                "AND state NOT IN ('COMPLETE','PARTIAL','FAILED','CANCELLED')",
                 (goal_id,),
             ).fetchall()
-        return [str(row["task_id"]) for row in rows]
+        return [str(row["id"]) for row in rows]
 
     def finish_cancel_goal_plan(self, goal_id: str) -> None:
         now = iso()
