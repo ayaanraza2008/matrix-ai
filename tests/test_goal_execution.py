@@ -69,7 +69,7 @@ async def test_goal_supervisor_runs_dependency_order_and_waits_for_goal_verifica
     finished = await _wait_for_goal(client, goal_id)
 
     assert finished["state"] == "awaiting_verification"
-    assert finished["verification_status"] == "pending_independent_review"
+    assert finished["verification_status"] == "pending_owner_review"
     assert [node["state"] for node in finished["nodes"]] == ["completed", "completed"]
     assert finished["nodes"][0]["task_id"] != finished["nodes"][1]["task_id"]
 
