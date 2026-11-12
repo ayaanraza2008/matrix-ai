@@ -42,6 +42,7 @@ const STATE = {
   emergency: false,
   coreState: 'IDLE',
   booted: false,
+  speakReplies: localStorage.getItem('matrix_speak_replies') === 'true',
 };
 
 const VIEW_META = {
@@ -409,8 +410,71 @@ $$('[data-quick]').forEach((button) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* chat                                                                */
+/* chat + browser speech                                                */
 /* ------------------------------------------------------------------ */
+let activeSpeechUtterance = null;
+
+function browserSpeechSupported() {
+  return 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+}
+
+function stopBrowserSpeech() {
+  if (!browserSpeechSupported()) return;
+  window.speechSynthesis.cancel();
+  activeSpeechUtterance = null;
+}
+
+function populateBrowserVoices() {
+  const select = $('#voice-output-voice');
+  if (!select) return;
+  const selected = localStorage.getItem('matrix_speech_voice') || '';
+  const voices = browserSpeechSupported() ? window.speechSynthesis.getVoices() : [];
+  clearNode(select);
+  const fallback = el('option', '', 'System default');
+  fallback.value = '';
+  select.appendChild(fallback);
+  voices.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((voice) => {
+    const option = el('option', '', `${voice.name} (${voice.lang})`);
+    option.value = voice.voiceURI;
+    select.appendChild(option);
+  });
+  select.value = voices.some((voice) => voice.voiceURI === selected) ? selected : '';
+}
+
+function speakBrowserText(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (!browserSpeechSupported()) {
+    toast('Browser speech is not supported here. Try a current desktop browser with speech voices installed.', 'error');
+    return false;
+  }
+  stopBrowserSpeech();
+  const utterance = new SpeechSynthesisUtterance(text.slice(0, 4000));
+  const selected = $('#voice-output-voice')?.value || '';
+  const voice = window.speechSynthesis.getVoices().find((item) => item.voiceURI === selected);
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+  } else {
+    utterance.lang = navigator.language || 'en-US';
+  }
+  utterance.onend = () => {
+    if (activeSpeechUtterance === utterance) activeSpeechUtterance = null;
+  };
+  utterance.onerror = (event) => {
+    if (activeSpeechUtterance === utterance) activeSpeechUtterance = null;
+    if (!['canceled', 'interrupted'].includes(event.error)) toast('Browser speech could not be played', 'error');
+  };
+  activeSpeechUtterance = utterance;
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+
+if (browserSpeechSupported()) {
+  window.speechSynthesis.addEventListener('voiceschanged', populateBrowserVoices);
+  populateBrowserVoices();
+}
+
 function appendMessage(role, body, meta = []) {
   const wrapper = el('div', 'msg ' + role);
   wrapper.appendChild(el('div', 'who', role === 'user' ? 'You' : 'MATRIX'));
@@ -418,6 +482,12 @@ function appendMessage(role, body, meta = []) {
   wrapper.appendChild(content);
   const metaRow = el('div', 'meta');
   meta.forEach((node) => metaRow.appendChild(node));
+  if (role === 'assistant' && browserSpeechSupported()) {
+    const speak = el('button', 'small ghost', 'Speak');
+    speak.type = 'button';
+    speak.addEventListener('click', () => speakBrowserText(content.textContent));
+    metaRow.appendChild(speak);
+  }
   wrapper.appendChild(metaRow);
   $('#chat-log').appendChild(wrapper);
   $('#chat-log').scrollTop = $('#chat-log').scrollHeight;
@@ -455,6 +525,7 @@ $('#chat-form').addEventListener('submit', async (event) => {
   const input = $('#chat-input');
   const message = input.value.trim();
   if (!message) return;
+  stopBrowserSpeech();
   input.value = '';
   appendMessage('user', message);
   const pending = appendMessage('assistant', 'Working…', [pill('RECEIVED', 'live')]);
@@ -464,8 +535,10 @@ $('#chat-form').addEventListener('submit', async (event) => {
       setMessageBody(pending, update.summary || 'Working…');
       setMessageMeta(pending, update);
     });
-    setMessageBody(pending, task.summary || '(no summary returned)');
+    const finalReply = task.summary || '(no summary returned)';
+    setMessageBody(pending, finalReply);
     setMessageMeta(pending, task);
+    if (STATE.speakReplies) speakBrowserText(finalReply);
     const pendingApproval = (task.approvals || []).find((entry) => entry.status === 'pending');
     if (pendingApproval) {
       appendApproval(task);
@@ -797,8 +870,9 @@ async function loadVoice() {
   const cards = [
     ['Session', status.state, status.available ? 'server-side session' : 'unavailable'],
     ['Microphone', status.muted ? 'MUTED' : status.state === 'idle' ? 'idle' : 'LIVE', status.muted ? 'capture refused' : 'capture allowed'],
-    ['Speech to text', status.stt_provider, 'engine'],
-    ['Text to speech', status.tts_provider, 'engine'],
+    ['Speech to text', status.stt_provider, 'server engine'],
+    ['Server TTS', status.tts_provider, 'optional local engine'],
+    ['Browser speech', browserSpeechSupported() ? 'available' : 'unavailable', 'browser / OS voice'],
   ];
   cards.forEach(([label, value, sub]) => {
     const card = el('div', 'card');
@@ -823,6 +897,11 @@ async function loadVoice() {
   }
   $('#voice-detail').textContent =
     status.detail || 'Microphone state is server-side. A muted session refuses capture with HTTP 409.';
+  $('#voice-speak-replies').checked = STATE.speakReplies;
+  $('#voice-speak-replies').disabled = !browserSpeechSupported();
+  $('#voice-speak-text').disabled = !browserSpeechSupported();
+  $('#voice-speak-form').querySelector('button').disabled = !browserSpeechSupported();
+  populateBrowserVoices();
 }
 
 async function voiceAction(path, body = {}, okMessage) {
@@ -892,6 +971,7 @@ async function beginVoiceRecording() {
       toast('Unmute the microphone and make sure the session is listening', 'error');
       return;
     }
+    stopBrowserSpeech();
     voiceStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -940,6 +1020,7 @@ async function beginVoiceRecording() {
           body: { audio_base64: btoa(binary), session_id: sessionId },
         });
         $('#voice-transcript').value = result.text;
+        $('#voice-send-transcript').disabled = false;
         $('#voice-detail').textContent =
           'Recognized locally with ' + result.provider + ' (' +
           result.language + ', ' + result.duration_seconds + 's). Audio was not saved.';
@@ -982,21 +1063,41 @@ $('#voice-mute').addEventListener('click', () => {
 });
 $('#voice-unmute').addEventListener('click', () => voiceAction('unmute', {}, 'Microphone unmuted'));
 $('#voice-stop').addEventListener('click', async () => {
+  stopBrowserSpeech();
   stopVoiceRecording(true);
   await voiceAction('stop', {}, 'Session stopped');
   voiceSessionId = null;
 });
 $('#voice-barge').addEventListener('click', async () => {
+  stopBrowserSpeech();
   stopVoiceRecording(true);
   const result = await voiceAction('barge-in');
   if (result) toast(result.interrupted ? 'Speech interrupted' : 'Nothing was speaking', 'info');
 });
-$('#voice-speak-form').addEventListener('submit', async (event) => {
+$('#voice-speak-replies').checked = STATE.speakReplies;
+$('#voice-speak-replies').addEventListener('change', (event) => {
+  STATE.speakReplies = event.target.checked;
+  localStorage.setItem('matrix_speak_replies', String(STATE.speakReplies));
+  toast(STATE.speakReplies ? 'Automatic reply speech enabled' : 'Automatic reply speech disabled', 'info');
+});
+$('#voice-output-voice').addEventListener('change', (event) => {
+  localStorage.setItem('matrix_speech_voice', event.target.value);
+});
+$('#voice-stop-speech').addEventListener('click', () => {
+  stopBrowserSpeech();
+  toast('Speech stopped', 'info');
+});
+$('#voice-send-transcript').addEventListener('click', () => {
+  const transcript = $('#voice-transcript').value.trim();
+  if (!transcript) return;
+  switchView('chat');
+  $('#chat-input').value = transcript;
+  $('#chat-form').requestSubmit();
+});
+$('#voice-speak-form').addEventListener('submit', (event) => {
   event.preventDefault();
   const text = $('#voice-speak-text').value.trim();
-  if (!text) return;
-  const result = await voiceAction('speak', { text });
-  if (result) toast('Speaking', 'ok');
+  if (speakBrowserText(text)) toast('Browser voice started', 'ok');
 });
 
 /* ------------------------------------------------------------------ */
