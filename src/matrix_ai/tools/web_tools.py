@@ -43,20 +43,28 @@ Resolver = Callable[..., list]
 
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     """HTTP connection that connects to a previously vetted numeric address."""
+
     def __init__(self, host: str, port: int, address: str, *, timeout: float) -> None:
         super().__init__(host, port, timeout=timeout)
         self._pinned_address = address
+
     def connect(self) -> None:
-        self.sock = self._create_connection((self._pinned_address, self.port), self.timeout, self.source_address)
+        self.sock = self._create_connection(
+            (self._pinned_address, self.port), self.timeout, self.source_address
+        )
 
 
 class _PinnedHTTPSConnection(_PinnedHTTPConnection):
     """Preserve hostname verification and TLS SNI while pinning the TCP peer."""
+
     def __init__(self, host: str, port: int, address: str, *, timeout: float) -> None:
         super().__init__(host, port, address, timeout=timeout)
         self._context = ssl.create_default_context()
+
     def connect(self) -> None:
-        raw_socket = self._create_connection((self._pinned_address, self.port), self.timeout, self.source_address)
+        raw_socket = self._create_connection(
+            (self._pinned_address, self.port), self.timeout, self.source_address
+        )
         try:
             self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
         except BaseException:
@@ -77,12 +85,16 @@ def _fetch_pinned(url: str, addresses: list[str], max_bytes: int) -> tuple[int, 
     if parsed.query:
         path += "?" + parsed.query
     try:
-        connection.request("GET", path, headers={
-            "Host": parsed.netloc,
-            "User-Agent": "MATRIX/0.1 (+local-first assistant)",
-            "Accept": "text/html,text/plain,application/json,application/xml",
-            "Connection": "close",
-        })
+        connection.request(
+            "GET",
+            path,
+            headers={
+                "Host": parsed.netloc,
+                "User-Agent": "MATRIX/0.1 (+local-first assistant)",
+                "Accept": "text/html,text/plain,application/json,application/xml",
+                "Connection": "close",
+            },
+        )
         response = connection.getresponse()
         status = response.status
         content_type = response.getheader("content-type", "").split(";", 1)[0].strip().lower()
