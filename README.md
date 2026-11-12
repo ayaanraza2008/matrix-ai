@@ -29,7 +29,8 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
 | Local speech-to-text | **Implemented (optional)** | Browser push-to-talk + lazy CPU/INT8 faster-whisper; `test_a11_voice.py` |
-| Text-to-speech | **Blocked** | No local TTS engine is wired yet; API returns `503` honestly |
+| Voice conversation | **Partial** | Send recognized transcripts to Chat; opt-in browser/system speech for final replies |
+| Server-side text-to-speech | **Planned** | Local Piper adapter remains separate from browser speech |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
@@ -85,7 +86,7 @@ $env:MATRIX_STT_LANGUAGE = "hi"
 matrix serve
 ```
 
-Open **Voice**, start a session, record a short utterance, then choose **Finish & transcribe**. MATRIX processes audio in memory with CPU/INT8 faster-whisper, returns the transcript, and stores neither the audio nor transcript in its audit log. The first use downloads the selected model. Text-to-speech remains a separate, not-yet-integrated feature.
+Open **Voice**, start a session, record a short utterance, then choose **Finish & transcribe**. MATRIX processes audio in memory with CPU/INT8 faster-whisper, returns the transcript, and stores neither the audio nor transcript in its audit log. Choose **Send transcript to chat** to submit the recognized words. Enable **Automatically speak final MATRIX replies** to use a browser/system voice, or press **Speak** under any assistant message. The first STT use downloads the selected model. Browser voice availability and offline behavior depend on the installed browser/OS voices; server-side Piper TTS remains planned.
 
 ---
 
@@ -131,7 +132,7 @@ Windows PC                                     Android (scaffold)
     SQLite (WAL) + approved workspace + optional local model runtime
 ```
 
-Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md), and the full target architecture in [`docs/JARVIS_VISION.md`](docs/JARVIS_VISION.md).
 
 ### Why the state machine matters
 
@@ -184,7 +185,7 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **Speech-to-text is optional.** Install `.[voice]`; faster-whisper downloads its selected model on first use and runs CPU/INT8. Text-to-speech is not yet integrated and still returns `503`.
+- **Speech-to-text is optional.** Install `.[voice]`; faster-whisper downloads its selected model on first use and runs CPU/INT8. Browser/system speech reads replies where supported; voice quality and offline availability depend on installed voices. Server-side local TTS is not yet integrated.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
