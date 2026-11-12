@@ -19,7 +19,7 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
     assert response.status_code == 202, response.text
     created = response.json()
     assert created["id"]
-    assert created["state"] in {"running", "completed"}
+    assert created["state"] in {"running", "awaiting_verification"}
     assert created["task_id"]
     assert created["task"]["goal_id"] == created["id"]
 
@@ -139,7 +139,7 @@ async def test_startup_recovery_resumes_received_goal_task(runtime):
             break
         await asyncio.sleep(0.025)
 
-    assert goal["state"] == "completed"
+    assert goal["state"] == "awaiting_verification"}
 
 
 @pytest.mark.asyncio
