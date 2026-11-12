@@ -229,3 +229,26 @@ async def test_cancel_goal_plan_stops_dispatch_and_cancels_running_nodes(client,
     assert cancelled.json()["state"] == "cancelled"
     nodes = {node["node_id"]: node["state"] for node in runtime.store.get_goal_graph(goal_id)}
     assert nodes == {"one": "cancelled", "two": "cancelled"}
+
+
+def test_recovery_reconciles_terminal_task_created_before_node_link(tmp_path):
+    from matrix_ai.storage.db import Database
+    from matrix_ai.storage.store import Store
+
+    db = Database(tmp_path / "goal-node-recovery.sqlite")
+    store = Store(db)
+    store.ensure_user("owner")
+    goal_id = store.create_goal(owner_id="owner", title="Goal", success_criteria="Done")
+    store.save_goal_graph(
+        goal_id, [{"node_id": "step", "title": "Step", "depends_on": []}]
+    )
+    task_id = store.create_task(
+        user_id="owner", original_request="Step", kind="goal_node",
+        goal_id=goal_id, goal_node_id="step",
+    )
+    store.update_task(task_id, state="COMPLETE", evidence_json='{"verified": true}')
+    assert store.reconcile_goal_node_tasks() == 1
+    node = store.get_goal_graph(goal_id)[0]
+    assert node["task_id"] == task_id
+    assert node["state"] == "completed"
+    db.close()
