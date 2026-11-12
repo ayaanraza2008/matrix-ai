@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import random
 import time
 from typing import Any
@@ -153,6 +154,61 @@ class Orchestrator:
         self.store.update_task(task_id, intent=json.dumps(payload))
         return task_id
 
+    async def dispatch_goal_ready_nodes(self, goal_id: str) -> list[str]:
+        """Create and enqueue at most four dependency-ready node tasks."""
+        goal = self.store.get_goal(goal_id)
+        if goal["state"] not in {"planned", "running"}:
+            return []
+        deadline = parse_dt(goal.get("deadline"))
+        remaining = (deadline - utcnow()).total_seconds() if deadline else self.config.task_deadline_seconds
+        if remaining <= 0:
+            self.store.expire_goal_plan(goal_id)
+            self.store.audit(
+                "goal.deadline_expired", actor="scheduler", status="failed",
+                detail={"goal_id": goal_id},
+            )
+            return []
+
+        ready = self.store.ready_goal_nodes(goal_id, limit=4)
+        dispatched: list[str] = []
+        for node in ready:
+            existing = self.store.get_goal_node_task(goal_id, node["node_id"])
+            if existing is not None:
+                task_id = str(existing["id"])
+            else:
+                try:
+                    task_id = self.create_task(
+                        request=(
+                            f"Goal: {goal['title']}\n"
+                            f"Node: {node['title']}\n"
+                            f"Node ID: {node['node_id']}\n"
+                            f"Overall success criteria: {goal['success_criteria']}\n"
+                            "Complete only this node; do not claim the entire goal is complete."
+                        ),
+                        user_id=goal["owner_id"],
+                        kind="goal_node",
+                        goal_id=goal_id,
+                        goal_node_id=node["node_id"],
+                        deadline_seconds=min(remaining, self.config.task_deadline_seconds),
+                    )
+                except sqlite3.IntegrityError:
+                    existing = self.store.get_goal_node_task(goal_id, node["node_id"])
+                    if existing is None:
+                        raise
+                    task_id = str(existing["id"])
+            self.store.attach_goal_node_task(goal_id, node["node_id"], task_id)
+            task = self.store.get_task_row(task_id)
+            if TaskStateMachine.is_terminal(task["state"]):
+                self.store.sync_goal_for_task(task_id)
+            else:
+                await self.enqueue(task_id)
+            dispatched.append(task_id)
+            self.store.audit(
+                "goal.node_dispatched", actor="scheduler", task_id=task_id,
+                status="running", detail={"goal_id": goal_id, "node_id": node["node_id"]},
+            )
+        return dispatched
+
     async def enqueue(self, task_id: str) -> None:
         existing = self._runners.get(task_id)
         if existing is not None and not existing.done():
@@ -291,6 +347,16 @@ class Orchestrator:
             self._mark_cancelled(task_id)
         except Exception as exc:  # defensive: never leave a task in a running state
             self._abort(task_id, "internal_error", f"{type(exc).__name__}: {exc}")
+        finally:
+            try:
+                row = self.store.get_task_row(task_id)
+                if row["goal_id"] and row["goal_node_id"] and TaskStateMachine.is_terminal(row["state"]):
+                    await self.dispatch_goal_ready_nodes(str(row["goal_id"]))
+            except Exception as exc:  # scheduler failures are audited, never hide task outcomes
+                self.store.audit(
+                    "goal.scheduler_error", actor="scheduler", task_id=task_id,
+                    status="failed", detail={"error": f"{type(exc).__name__}: {exc}"[:500]},
+                )
 
     async def run(self, task_id: str) -> None:
         row = self.store.get_task_row(task_id)
