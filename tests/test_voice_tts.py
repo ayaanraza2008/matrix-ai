@@ -57,7 +57,7 @@ async def test_windows_sapi_passes_text_as_json_stdin_not_command_text(monkeypat
     assert spoken not in " ".join(str(arg) for arg in args)
     assert json.loads(process.input.decode("utf-8")) == {"text": spoken}
     assert kwargs["stdin"] == asyncio.subprocess.PIPE
-    assert kwargs["shell"] if "shell" in kwargs else False is False
+    assert "shell" not in kwargs
 
 
 @pytest.mark.asyncio
