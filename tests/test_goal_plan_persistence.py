@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 
@@ -166,9 +168,39 @@ def test_task_goal_node_identity_is_unique_and_persisted(tmp_path):
     store.attach_goal_node_task(goal_id, "step", task_id)
     assert store.get_task_row(task_id)["goal_node_id"] == "step"
     assert store.get_goal_node_task(goal_id, "step")["id"] == task_id
-    with pytest.raises(Exception):
+    with pytest.raises(sqlite3.IntegrityError):
         store.create_task(
             user_id="owner", original_request="Duplicate", kind="goal_node",
             goal_id=goal_id, goal_node_id="step",
         )
+    db.close()
+
+
+def test_verified_goal_node_unlocks_its_dependent_node(tmp_path):
+    from matrix_ai.storage.db import Database
+    from matrix_ai.storage.store import Store
+
+    db = Database(tmp_path / "goal-node-completion.sqlite")
+    store = Store(db)
+    store.ensure_user("owner")
+    goal_id = store.create_goal(owner_id="owner", title="Goal", success_criteria="Done")
+    store.save_goal_graph(
+        goal_id,
+        [
+            {"node_id": "first", "title": "First", "depends_on": []},
+            {"node_id": "second", "title": "Second", "depends_on": ["first"]},
+        ],
+    )
+    task_id = store.create_task(
+        user_id="owner", original_request="First", kind="goal_node",
+        goal_id=goal_id, goal_node_id="first",
+    )
+    store.attach_goal_node_task(goal_id, "first", task_id)
+    store.update_task(
+        task_id, state="COMPLETE", evidence_json='{"verified": true}', summary="First verified"
+    )
+    store.sync_goal_for_task(task_id)
+    nodes = {node["node_id"]: node for node in store.get_goal_graph(goal_id)}
+    assert nodes["first"]["state"] == "completed"
+    assert [node["node_id"] for node in store.ready_goal_nodes(goal_id)] == ["second"]
     db.close()
