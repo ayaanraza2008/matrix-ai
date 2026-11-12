@@ -330,6 +330,103 @@ class Store:
                 json.dumps(evidence), iso(), iso(), goal_id, task_id,
             ),
         )
+        node_id = task["goal_node_id"]
+        if node_id:
+            node_state = "completed" if verified else (
+                "cancelled" if task["state"] == TaskState.CANCELLED.value else "failed"
+            )
+            self.db.execute(
+                "UPDATE goal_nodes SET state=?, error=?, evidence_json=?, updated_at=? "
+                "WHERE goal_id=? AND node_id=? AND task_id=?",
+                (
+                    node_state,
+                    None if verified else (task["error"] or task["summary"] or "node task not verified")[:1000],
+                    json.dumps(evidence),
+                    iso(),
+                    goal_id,
+                    node_id,
+                    task_id,
+                ),
+            )
+            self.refresh_blocked_goal_nodes(goal_id)
+
+    def attach_goal_node_task(self, goal_id: str, node_id: str, task_id: str) -> None:
+        """Link a task to its planned node; unique task identity makes recovery idempotent."""
+        task = self.get_task_row(task_id)
+        goal = self.get_goal(goal_id)
+        if task["goal_id"] != goal_id or task["goal_node_id"] != node_id:
+            raise ValueError("task does not identify this goal node")
+        if task["user_id"] != goal["owner_id"]:
+            raise ValueError("task owner does not match goal owner")
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT state, task_id FROM goal_nodes WHERE goal_id=? AND node_id=?",
+                (goal_id, node_id),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"goal node {node_id} not found")
+            if row["task_id"] not in (None, task_id):
+                raise ValueError("goal node is already linked to another task")
+            if row["state"] not in {"pending", "running"}:
+                raise ValueError("goal node is not schedulable")
+            conn.execute(
+                "UPDATE goal_nodes SET task_id=?, state='running', updated_at=? "
+                "WHERE goal_id=? AND node_id=?",
+                (task_id, iso(), goal_id, node_id),
+            )
+            conn.execute(
+                "UPDATE goals SET state='running', updated_at=? WHERE id=? AND state IN ('planned','running')",
+                (iso(), goal_id),
+            )
+
+    def ready_goal_nodes(self, goal_id: str, *, limit: int = 4) -> list[dict[str, Any]]:
+        from ..core.goal_graph import GoalGraph, GoalNode, MAX_PARALLEL_READY
+
+        if not 1 <= limit <= MAX_PARALLEL_READY:
+            raise ValueError(f"limit must be between 1 and {MAX_PARALLEL_READY}")
+        nodes = self.get_goal_graph(goal_id)
+        graph = GoalGraph(
+            GoalNode(item["node_id"], tuple(item["depends_on"])) for item in nodes
+        )
+        completed = [item["node_id"] for item in nodes if item["state"] == "completed"]
+        running = [item["node_id"] for item in nodes if item["state"] == "running"]
+        failed = [
+            item["node_id"] for item in nodes
+            if item["state"] in {"failed", "blocked", "cancelled"}
+        ]
+        ready = graph.ready_nodes(completed, running=running, failed=failed, limit=limit)
+        by_id = {item["node_id"]: item for item in nodes}
+        return [by_id[node_id] for node_id in ready]
+
+    def refresh_blocked_goal_nodes(self, goal_id: str) -> int:
+        """Persist descendants that can never run after a prerequisite failed."""
+        nodes = self.get_goal_graph(goal_id)
+        graph = {
+            item["node_id"]: set(item["depends_on"]) for item in nodes
+        }
+        failed = {
+            item["node_id"] for item in nodes
+            if item["state"] in {"failed", "blocked", "cancelled"}
+        }
+        blocked = set(failed)
+        changed = True
+        while changed:
+            changed = False
+            for node_id, dependencies in graph.items():
+                if node_id not in blocked and dependencies & blocked:
+                    blocked.add(node_id)
+                    changed = True
+        newly_blocked = blocked - failed
+        if newly_blocked:
+            now = iso()
+            with self.db.transaction() as conn:
+                for node_id in newly_blocked:
+                    conn.execute(
+                        "UPDATE goal_nodes SET state='blocked', error='blocked by failed prerequisite', updated_at=? "
+                        "WHERE goal_id=? AND node_id=? AND state='pending'",
+                        (now, goal_id, node_id),
+                    )
+        return len(newly_blocked)
 
     def save_goal_graph(self, goal_id: str, nodes: list[dict[str, Any]]) -> None:
         """Persist a validated DAG as a plan; this does not dispatch any work."""
