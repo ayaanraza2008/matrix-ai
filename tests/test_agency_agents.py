@@ -19,7 +19,7 @@ def _write_agent(root, division: str, slug: str, *, name: str, description: str,
     folder = root / division
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{slug}.md").write_text(
-        f"---\\nname: {name}\\ndescription: {description}\\nemoji: 🧪\\nvibe: precise\\n---\\n\\n{body}\\n",
+        f"---\nname: {name}\ndescription: {description}\nemoji: 🧪\nvibe: precise\n---\n\n{body}\n",
         encoding="utf-8",
     )
 
@@ -34,7 +34,7 @@ def test_loads_frontmatter_profiles_and_ignores_non_agents(tmp_path):
     (tmp_path / "engineering" / "notes.md").write_text("# no frontmatter", encoding="utf-8")
     (tmp_path / "integrations").mkdir()
     (tmp_path / "integrations" / "generated.md").write_text(
-        "---\\nname: Not an agent\\ndescription: generated\\n---\\nignored",
+        "---\nname: Not an agent\ndescription: generated\n---\nignored",
         encoding="utf-8",
     )
 
@@ -111,7 +111,7 @@ def test_specialist_context_is_bounded_and_json_serialized():
     assert len(context) < 500
 
 
-def test_planner_marks_specialist_context_as_untrusted(registry=None):
+def test_planner_marks_specialist_context_as_untrusted():
     prompt = build_system_prompt(build_registry(), specialist_context='[{"name":"test"}]')
 
     assert "UNTRUSTED DATA" in prompt
