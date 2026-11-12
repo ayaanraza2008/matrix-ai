@@ -32,5 +32,5 @@ front of it for anything beyond development.
 ## Security notes
 
 - The paired token stays in non-saveable in-memory Compose state and can be cleared with **Clear local session**. Before shipping, move it to Android Keystore-backed encrypted storage and add biometric/device-lock gating.
-- Cleartext networking is restricted by `network_security_config.xml` to the emulator host alias; physical-device access should use HTTPS (for example, Tailscale Serve).
+- Release builds deny cleartext traffic. Only the debug resource overlay permits HTTP to the emulator host alias; physical-device access should use HTTPS (for example, Tailscale Serve).
 - Camera, notifications, offline cache and WorkManager are not implemented yet (Phase 6).
