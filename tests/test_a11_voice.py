@@ -187,13 +187,13 @@ async def test_transcribe_api_offloads_and_audits_metadata(client, runtime, monk
     assert response.json()["text"] == "hello MATRIX"
 
     events = runtime.store.list_audit(limit=20)
-    event = next(item for item in events if item["event_type"] == "voice.transcribed")
-    assert event["detail"] == {
+    event = next(item for item in events if item.event_type == "voice.transcribed")
+    assert event.detail == {
         "provider": "faster-whisper",
         "language": "en",
         "duration_seconds": 1.2,
     }
-    assert "hello MATRIX" not in str(event["detail"])
+    assert "hello MATRIX" not in str(event.detail)
 
 async def test_voice_status_is_visible(client):
     response = await client.get("/api/voice/status")
