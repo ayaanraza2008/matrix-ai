@@ -214,7 +214,7 @@ class TelegramChatBridge:
                     return
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
-                    await self._send(f"MATRIX {view.state.value}:\\n{result}")
+                    await self._send(f"MATRIX {view.state.value}:\n{result}")
                     return
             await self._send(
                 f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."
