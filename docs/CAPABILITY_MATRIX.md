@@ -18,9 +18,10 @@ gap · **scaffold** = structure only, not runnable here · **blocked** = waiting
 | Tool-call JSON parsing/validation | 2 | done | `models/planner.py`, `test_planner.py` | No constrained grammar decoding | Evaluate GBNF/ollama grammar support |
 | Local chat + deterministic intent routing | 2 | partial | `HeuristicPlanner`, `PlannerService` | No model configured by default; no embeddings | Benchmark Qwen 0.5B/1.5B on the 8 GB PC |
 | Speech-to-text | 3 | partial | `voice/manager.py`, `/api/voice/transcribe`, browser PTT in `web/`, `test_a11_voice.py` | Optional faster-whisper extra + first model download; real audio not benchmarked on owner hardware | Verify English/Hindi quality, latency and RAM on target PC |
-| Text-to-speech | 3 | blocked | `voice/manager.py` | No engine installed | Piper voice selection + license check |
+| Browser reply speech | 3 | partial | `web/app.js`, Web Speech API; per-message Speak, opt-in auto-speak, voice selector and stop control | Depends on browser/OS voice availability; some voices may be online-only | Verify English/Hindi voice quality and cancellation on target browser |
+| Server-side TTS | 3 | blocked | `voice/manager.py` TTS protocol | No local server engine wired | Add Piper adapter with a separately licensed voice |
 | Wake word / VAD | 3 | not started | — | Depends on STT stack | openWakeWord + Silero VAD |
-| Voice session control: mute, barge-in, browser PTT, discard | 3 | partial | `test_a11_voice.py`, `web/app.js` | Physical microphone and real Whisper E2E not verified in CI | Run on target Windows PC; then add TTS |
+| Voice session control: mute, barge-in, browser PTT, discard, transcript-to-chat | 3 | partial | `test_a11_voice.py`, `web/app.js` | Physical microphone and real Whisper E2E not verified in CI; browser playback is separate from server TTS | Run on target Windows PC; then add local Piper/VAD |
 | Camera/screenshot capture sessions | 4 | done (control) | `vision/manager.py`, `test_a13_vision.py` | No frame source/MediaPipe | OpenCV/MediaPipe adapter |
 | OCR | 4 | partial | `tools/vision_tools.py`, `test_a15_ocr.py` (skipped) | Tesseract absent on build machine | Install Tesseract; verify English/Hindi |
 | Gesture detection | 4 | not started | — | MediaPipe not added | Evaluate CPU cost on Ryzen 5700U |
