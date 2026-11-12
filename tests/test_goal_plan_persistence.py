@@ -277,3 +277,22 @@ def test_goal_node_claims_enforce_global_parallelism_limit(tmp_path):
     assert not store.claim_goal_node(goal_id, "node-5")
     assert len(store.ready_goal_nodes(goal_id)) == 2
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_restart_finishes_goal_cancellation_before_requeueing_orphan_node_task(runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Interrupted cancellation", success_criteria="Done"
+    )
+    runtime.store.save_goal_graph(
+        goal_id, [{"node_id": "step", "title": "Step", "depends_on": []}]
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="Step", user_id="owner", kind="goal_node",
+        goal_id=goal_id, goal_node_id="step",
+    )
+    runtime.store.begin_cancel_goal_plan(goal_id)
+    result = await runtime.orchestrator.recover_after_restart()
+    assert runtime.store.get_task_row(task_id)["state"] == "CANCELLED"
+    assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
+    assert result["failed"] == 1
