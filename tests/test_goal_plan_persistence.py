@@ -204,3 +204,28 @@ def test_verified_goal_node_unlocks_its_dependent_node(tmp_path):
     assert nodes["first"]["state"] == "completed"
     assert [node["node_id"] for node in store.ready_goal_nodes(goal_id)] == ["second"]
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_goal_plan_stops_dispatch_and_cancels_running_nodes(client, runtime, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", AsyncMock())
+    created = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Cancelable plan",
+            "nodes": [
+                {"node_id": "one", "title": "One"},
+                {"node_id": "two", "title": "Two", "depends_on": ["one"]},
+            ],
+        },
+    )
+    goal_id = created.json()["id"]
+    started = await client.post(f"/api/goals/{goal_id}/start")
+    assert started.status_code == 202
+    cancelled = await client.post(f"/api/goals/{goal_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "cancelled"
+    nodes = {node["node_id"]: node["state"] for node in runtime.store.get_goal_graph(goal_id)}
+    assert nodes == {"one": "cancelled", "two": "cancelled"}
