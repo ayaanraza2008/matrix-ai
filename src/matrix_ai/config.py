@@ -134,6 +134,8 @@ class MatrixConfig:
     stt_language: str | None = None  # None = automatic language detection
     stt_cpu_threads: int = 2
     stt_max_audio_seconds: int = 90
+    # Optional local Windows speech output. Disabled unless explicitly selected.
+    tts_provider: str = "none"  # none | windows-sapi
 
     autonomy_level: int = 2
     approval_ttl_seconds: int = 300
@@ -182,6 +184,8 @@ class MatrixConfig:
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        if self.tts_provider not in {"none", "windows-sapi"}:
+            raise ConfigError("MATRIX_TTS_PROVIDER must be one of: none, windows-sapi")
         if self.stt_model_size not in {"tiny", "tiny.en", "base", "base.en"}:
             raise ConfigError("MATRIX_STT_MODEL must be one of: tiny, tiny.en, base, base.en")
         if not 1 <= self.stt_cpu_threads <= 16:
@@ -229,6 +233,7 @@ class MatrixConfig:
             "file_roots": [str(p) for p in self.file_roots],
             "model_provider": self.model_provider,
             "model_name": self.model_name,
+            "tts_provider": self.tts_provider,
             "allow_cloud_models": self.allow_cloud_models,
             "model_ram_budget_mb": self.model_ram_budget_mb,
             "autonomy_level": self.autonomy_level,
@@ -270,6 +275,7 @@ class MatrixConfig:
             owner_token=_env("MATRIX_OWNER_TOKEN"),
             model_provider=(_env("MATRIX_MODEL_PROVIDER", "none") or "none").lower(),
             model_name=_env("MATRIX_MODEL_NAME", "qwen2.5:0.5b-instruct-q4_K_M") or "qwen2.5:0.5b-instruct-q4_K_M",
+            tts_provider=(_env("MATRIX_TTS_PROVIDER", "none") or "none").strip().lower(),
             stt_model_size=_env("MATRIX_STT_MODEL", "tiny") or "tiny",
             stt_language=_env("MATRIX_STT_LANGUAGE"),
             stt_cpu_threads=_env_int("MATRIX_STT_CPU_THREADS", 2),
