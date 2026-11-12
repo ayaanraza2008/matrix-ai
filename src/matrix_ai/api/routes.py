@@ -426,7 +426,12 @@ async def cancel_goal(
     goal = runtime.store.get_goal(goal_id)
     if goal["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal {goal_id} not found")
-    if goal["task_id"] and goal["state"] in {"queued", "running"}:
+    if goal["state"] in {"planned", "running", "cancelling"} and runtime.store.get_goal_graph(goal_id):
+        task_ids = runtime.store.begin_cancel_goal_plan(goal_id)
+        for task_id in task_ids:
+            await runtime.orchestrator.cancel(task_id)
+        runtime.store.finish_cancel_goal_plan(goal_id)
+    elif goal["task_id"] and goal["state"] in {"queued", "running"}:
         await runtime.orchestrator.cancel(goal["task_id"])
     return runtime.store.get_goal(goal_id)
 
