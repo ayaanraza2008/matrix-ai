@@ -68,6 +68,7 @@ async def test_telegram_rejects_other_chat_and_group_messages(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
     await bridge._handle_update(update(chat_id=999, sender_id=999, text="do something"))
     await bridge._handle_update(update(chat_type="group", text="do something"))
+    await bridge._handle_update(update(chat_id=123456789, sender_id=999, text="do something"))
     assert not orchestrator.created
     assert not sent
 
