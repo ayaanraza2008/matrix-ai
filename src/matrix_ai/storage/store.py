@@ -534,11 +534,17 @@ class Store:
 
     def finish_cancel_goal_graph(self, goal_id: str) -> None:
         now = iso()
-        self.db.execute(
-            "UPDATE goals SET state='cancelled', result_summary='Goal cancelled by owner.', "
-            "verification_status='not_applicable', updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
-            (now, now, goal_id),
-        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goal_nodes SET state='cancelled', error=COALESCE(error,'goal cancelled by owner'), updated_at=? "
+                "WHERE goal_id=? AND state IN ('pending','dispatching','running')",
+                (now, goal_id),
+            )
+            conn.execute(
+                "UPDATE goals SET state='cancelled', result_summary='Goal cancelled by owner.', "
+                "verification_status='not_applicable', updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
+                (now, now, goal_id),
+            )
 
     def begin_cancel_goal_graph(self, goal_id: str) -> list[str]:
         """Make a goal non-dispatchable before cancelling any live node tasks."""
