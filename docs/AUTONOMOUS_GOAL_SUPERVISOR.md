@@ -111,3 +111,10 @@ Schema v3 adds a persisted goal deadline, task-step verification status, aggrega
 ### Honest goal completion semantics
 
 A task reaching COMPLETE now moves its parent goal to awaiting_verification, not completed. The task's individual steps may all have strong execution evidence, but MATRIX does not yet independently evaluate arbitrary natural-language goal success criteria. The goal therefore stays explicitly pending semantic verification instead of claiming that task completion proves the whole goal was achieved.
+
+
+### Bounded dependency-graph validation (infrastructure only)
+
+The branch now includes a side-effect-free `GoalGraph` validator. It rejects empty/duplicate node IDs, unknown/self/duplicate dependencies, malformed dependency sequences, cycles, excessive graph size and excessive fan-in. It provides deterministic topological ordering and a bounded ready-node selector that does not unlock descendants of failed nodes.
+
+This is a tested planning primitive, **not a persistent multi-task scheduler**: goal tasks are still single-linked in the current API, graph state is not yet stored in SQLite, and the orchestrator does not yet dispatch a goal DAG. Do not count multi-task execution, pause/resume, replanning or goal-level recovery as implemented until those are integrated and accepted end-to-end.
