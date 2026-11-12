@@ -39,7 +39,10 @@ def _run(argv: list[str], *, timeout: float = 15.0) -> subprocess.CompletedProce
 class RemoteAccessManager:
     """Manage an HTTPS reverse proxy available only to the configured tailnet."""
 
-    def __init__(self, executable: str | None = None) -> None:
+    def __init__(self, executable: str | None = None, *, port: int = 8765) -> None:
+        if isinstance(port, bool) or not 1 <= int(port) <= 65535:
+            raise ValueError("MATRIX Tailscale target port must be between 1 and 65535.")
+        self.target = f"127.0.0.1:{int(port)}"
         configured = os.getenv("MATRIX_TAILSCALE_BIN")
         self.executable = executable or configured or shutil.which("tailscale")
         if not self.executable and sys.platform == "win32":
@@ -88,7 +91,7 @@ class RemoteAccessManager:
             self_data = node_data.get("Self") or {}
             backend_state = str(node_data.get("BackendState", ""))
             serve_text = self._serve_status()
-            active = REMOTE_TARGET in serve_text
+            active = self.target in serve_text
             endpoint = self._endpoint(serve_text)
             online = backend_state.lower() == "running" and bool(self_data)
             return {
@@ -120,11 +123,11 @@ class RemoteAccessManager:
             return state
         current = self._serve_status()
         no_config = not current.strip() or bool(re.search(r"no .*serve|serve .*not configured", current, re.I))
-        if current.strip() and not no_config and REMOTE_TARGET not in current:
+        if current.strip() and not no_config and self.target not in current:
             raise RuntimeError(
                 "Another Tailscale Serve route is already configured. Review it manually before enabling MATRIX."
             )
-        result = self._call("serve", "--bg", REMOTE_TARGET)
+        result = self._call("serve", "--bg", self.target)
         updated = self.status()
         if not updated["serve_enabled"]:
             updated["detail"] = (result.stdout or "").strip()[-800:] or "Serve command completed; status is not yet visible."
@@ -134,7 +137,7 @@ class RemoteAccessManager:
         state = self.status()
         if not state["installed"] or not state["serve_enabled"]:
             return state
-        self._call("serve", "--https=443", REMOTE_TARGET, "off")
+        self._call("serve", "--https=443", self.target, "off")
         return self.status()
 
 
