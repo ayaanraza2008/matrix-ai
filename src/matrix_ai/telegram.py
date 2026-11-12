@@ -15,16 +15,23 @@ import httpx
 from .config import MatrixConfig
 from .core.models import TERMINAL_TASK_STATES, TaskState
 from .core.orchestrator import Orchestrator
+from .errors import RateLimited
+from .security.ratelimit import RateLimiter
 from .storage.store import Store
 
 log = logging.getLogger("matrix.telegram")
 
 
 class TelegramChatBridge:
-    def __init__(self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store) -> None:
+    def __init__(
+        self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
+        rate_limiter: RateLimiter | None = None,
+    ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
+        # Share the runtime limiter so Telegram cannot bypass API task throttling.
+        self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
         self._task: asyncio.Task | None = None
         self._offset: int | None = None
         self._client: httpx.AsyncClient | None = None
@@ -179,6 +186,21 @@ class TelegramChatBridge:
             return
         if command.startswith("/"):
             await self._send("Unknown command. Send /help for available commands.")
+            return
+
+        try:
+            self.rate_limiter.check(f"telegram:{allowed_id}")
+        except RateLimited as exc:
+            retry_after = int(exc.detail.get("retry_after_seconds", 60))
+            self.store.audit(
+                "telegram.rate_limited",
+                actor="telegram",
+                status="blocked",
+                detail={"retry_after_seconds": retry_after},
+            )
+            await self._send(
+                f"Task rate limit reached. Please try again in about {retry_after} seconds."
+            )
             return
 
         try:
