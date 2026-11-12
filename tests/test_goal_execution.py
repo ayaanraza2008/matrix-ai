@@ -147,3 +147,29 @@ async def test_goal_criteria_second_pass_can_verify_completed_nodes(client, runt
     assert finished["state"] == "completed"
     assert finished["criteria_status"] == "verified_by_model"
     assert finished["verification_status"] == "second_pass_model_assessed"
+
+
+@pytest.mark.asyncio
+async def test_goal_supervisor_recovers_orphaned_dispatch_claim(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Recover a dispatch claim",
+            "nodes": [{"node_id": "status", "title": "what is my system status?"}],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+
+    assert runtime.store.claim_goal_node(goal_id, "status") is True
+    assert runtime.store.get_goal_graph(goal_id)[0]["state"] == "dispatching"
+
+    recovered = await runtime.goal_supervisor.recover_after_restart()
+    assert recovered["resumed"] == 1
+    runner = runtime.goal_supervisor._runners[goal_id]
+    await runner
+
+    result = runtime.goal_supervisor.status(goal_id)
+    assert result["state"] == "awaiting_verification"
+    assert result["nodes"][0]["state"] == "completed"
+    assert result["nodes"][0]["task_id"]
