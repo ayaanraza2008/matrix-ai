@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from matrix_ai.core.models import Risk
 from matrix_ai.core.policy import PolicyEngine
@@ -180,7 +181,7 @@ def test_youtube_update_video_preserves_existing_metadata_and_confirms_owner(run
 
 
 def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
-    with pytest.raises(Exception, match="private"):
+    with pytest.raises(ValidationError, match="private"):
         YouTubeUploadVideoInput.model_validate({
             "path": "video.mp4",
             "title": "Scheduled video",
