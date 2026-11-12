@@ -7,6 +7,7 @@ degraded or working - never a fake "online".
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -36,6 +37,7 @@ class ModelManager:
         self._last_used_at: float | None = None
         self._assume_loaded = False
         self.last_error: str | None = None
+        self._request_slots = asyncio.Semaphore(config.model_max_concurrent_requests)
 
     # -- capability -------------------------------------------------------
     @property
@@ -58,9 +60,10 @@ class ModelManager:
         max_tokens: int = 512,
         json_mode: bool = False,
     ) -> ModelResponse:
-        response = await self.provider.complete(
-            messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
-        )
+        async with self._request_slots:
+            response = await self.provider.complete(
+                messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
+            )
         self._last_used_at = time.monotonic()
         self._assume_loaded = True
         self.last_error = None
@@ -127,6 +130,7 @@ class ModelManager:
             "recommended_profile": recommended,
             "profiles": list(MODEL_PROFILES),
             "concurrent_models": 1,
+            "max_concurrent_requests": self.config.model_max_concurrent_requests,
         }
 
     def fits_budget(self, ram_mb: int) -> bool:

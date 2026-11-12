@@ -129,6 +129,11 @@ class MatrixConfig:
     model_ram_budget_mb: int = 2500
     model_request_timeout_s: float = 60.0
     model_idle_unload_s: int = 900
+    model_max_concurrent_requests: int = 1
+
+    # Agent actors are many; inference and active worker runs stay resource-bounded.
+    agent_max_concurrent_workers: int = 4
+    agent_worker_timeout_seconds: int = 90
 
     autonomy_level: int = 2
     approval_ttl_seconds: int = 300
@@ -175,6 +180,9 @@ class MatrixConfig:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
+        self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
+        self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
+        self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
@@ -220,6 +228,9 @@ class MatrixConfig:
             "model_name": self.model_name,
             "allow_cloud_models": self.allow_cloud_models,
             "model_ram_budget_mb": self.model_ram_budget_mb,
+            "model_max_concurrent_requests": self.model_max_concurrent_requests,
+            "agent_max_concurrent_workers": self.agent_max_concurrent_workers,
+            "agent_worker_timeout_seconds": self.agent_worker_timeout_seconds,
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -265,6 +276,9 @@ class MatrixConfig:
             openai_api_key=_env("MATRIX_OPENAI_API_KEY"),
             allow_cloud_models=_env_bool("MATRIX_ALLOW_CLOUD_MODELS", False),
             model_ram_budget_mb=_env_int("MATRIX_MODEL_RAM_BUDGET_MB", 2500),
+            model_max_concurrent_requests=_env_int("MATRIX_MODEL_MAX_CONCURRENT_REQUESTS", 1),
+            agent_max_concurrent_workers=_env_int("MATRIX_AGENT_MAX_CONCURRENT_WORKERS", 4),
+            agent_worker_timeout_seconds=_env_int("MATRIX_AGENT_WORKER_TIMEOUT_SECONDS", 90),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
