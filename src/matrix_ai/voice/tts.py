@@ -83,7 +83,7 @@ class WindowsSapiTtsEngine:
                     raise ToolUnavailable(
                         "Windows speech synthesis failed. Check the Windows speech service and installed voices."
                     )
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 await self._terminate_process(process)
                 raise ToolUnavailable("Windows speech synthesis timed out.") from exc
             except asyncio.CancelledError:
@@ -112,7 +112,7 @@ class WindowsSapiTtsEngine:
             return
         try:
             await asyncio.wait_for(process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
 
