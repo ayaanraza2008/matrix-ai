@@ -19,10 +19,10 @@ from .core.models import (
     iso,
 )
 from .core.orchestrator import Orchestrator
-from .goal_supervisor import GoalSupervisor
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
+from .goal_supervisor import GoalSupervisor
 from .integrations.registry import IntegrationRegistry
 from .memory.service import MemoryService
 from .models.manager import ModelManager
