@@ -44,6 +44,18 @@ def _env_int(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be an integer") from exc
 
 
+def _is_local_host(host: str) -> bool:
+    import ipaddress
+
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local") or host.endswith(".internal"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
 def default_home() -> Path:
     configured = _env("MATRIX_HOME")
     if configured:
@@ -150,6 +162,9 @@ class MatrixConfig:
     allowed_apps: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ALLOWED_APPS))
     allowed_commands: dict[str, dict] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_ALLOWED_COMMANDS)))
     addon_mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    youtube_automation_enabled: bool = False
+    youtube_automation_url: str = "http://127.0.0.1:3456"
+    youtube_automation_api_key: str | None = None
     log_level: str = "INFO"
 
     # Optional integrations - never required, never logged, never committed.
@@ -185,6 +200,15 @@ class MatrixConfig:
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
         self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
         self.addon_mcp_servers = self._validate_addon_servers(self.addon_mcp_servers)
+        from urllib.parse import urlparse
+
+        parsed_youtube_url = urlparse(self.youtube_automation_url)
+        if self.youtube_automation_enabled and (
+            parsed_youtube_url.scheme not in {"http", "https"}
+            or not parsed_youtube_url.hostname
+            or not _is_local_host(parsed_youtube_url.hostname)
+        ):
+            raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
@@ -200,7 +224,7 @@ class MatrixConfig:
         result: dict[str, dict[str, Any]] = {}
         for addon_id, spec in raw.items():
             addon = ADDON_BY_ID.get(addon_id) if isinstance(addon_id, str) else None
-            if addon is None or addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp"}:
+            if addon is None or addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp", "security_mcp_bridge"}:
                 raise ConfigError(f"MATRIX_ADDON_MCP_SERVERS has an unsupported add-on id: {addon_id}")
             if not isinstance(spec, dict):
                 raise ConfigError(f"MCP server configuration for {addon_id} must be an object")
@@ -298,6 +322,8 @@ class MatrixConfig:
             "agent_max_concurrent_workers": self.agent_max_concurrent_workers,
             "agent_worker_timeout_seconds": self.agent_worker_timeout_seconds,
             "configured_addon_mcp_servers": sorted(self.addon_mcp_servers),
+            "youtube_automation_enabled": self.youtube_automation_enabled,
+            "youtube_automation_api_key_present": bool(self.youtube_automation_api_key),
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -352,6 +378,9 @@ class MatrixConfig:
             model_max_concurrent_requests=_env_int("MATRIX_MODEL_MAX_CONCURRENT_REQUESTS", 1),
             agent_max_concurrent_workers=_env_int("MATRIX_AGENT_MAX_CONCURRENT_WORKERS", 4),
             agent_worker_timeout_seconds=_env_int("MATRIX_AGENT_WORKER_TIMEOUT_SECONDS", 90),
+            youtube_automation_enabled=_env_bool("MATRIX_YOUTUBE_AUTOMATION_ENABLED", False),
+            youtube_automation_url=_env("MATRIX_YOUTUBE_AUTOMATION_URL", "http://127.0.0.1:3456") or "http://127.0.0.1:3456",
+            youtube_automation_api_key=_env("MATRIX_YOUTUBE_AUTOMATION_API_KEY"),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),

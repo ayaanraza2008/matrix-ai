@@ -24,6 +24,7 @@ from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
 from .integrations.registry import IntegrationRegistry
 from .integrations.addons import AddonManager
+from .integrations.youtube_automation import build_youtube_tools
 from .memory.service import MemoryService
 from .models.manager import ModelManager
 from .models.planner import PlannerService
@@ -67,6 +68,8 @@ class MatrixRuntime:
         db = Database(config.db_path)
         store = Store(db)
         registry = build_registry()
+        for youtube_tool in build_youtube_tools(config):
+            registry.register(youtube_tool)
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
