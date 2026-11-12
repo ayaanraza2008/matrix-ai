@@ -26,7 +26,8 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Model provider abstraction (Ollama / OpenAI-compatible / offline) | **Implemented** | `models/base.py`, `test_a02_model_offline.py` |
 | Hardware-aware model manager (8 GB RAM discipline) | **Implemented** | `models/manager.py`, `test_a24_resource_budget.py` |
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
-| Agency Agents auto-routing (full-corpus specialist selection, lead/support teams, task audit) | **Implemented** | `core/agents.py`, `test_agency_agents.py` |\n| JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
+| Agency Agents auto-routing (full-corpus specialist selection, lead/support teams, task audit) | **Implemented** | `core/agents.py`, `test_agency_agents.py` |
+| JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
 | Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
