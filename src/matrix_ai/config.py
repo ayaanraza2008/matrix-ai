@@ -149,6 +149,7 @@ class MatrixConfig:
 
     allowed_apps: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ALLOWED_APPS))
     allowed_commands: dict[str, dict] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_ALLOWED_COMMANDS)))
+    addon_mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
     log_level: str = "INFO"
 
     # Optional integrations - never required, never logged, never committed.
@@ -183,10 +184,42 @@ class MatrixConfig:
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
         self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
+        self.addon_mcp_servers = self._validate_addon_servers(self.addon_mcp_servers)
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
 
     # -- helpers -----------------------------------------------------------
+    @staticmethod
+    def _validate_addon_servers(raw: Any) -> dict[str, dict[str, Any]]:
+        from .integrations.addon_catalog import ADDON_BY_ID
+
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict) or len(raw) > 18:
+            raise ConfigError("MATRIX_ADDON_MCP_SERVERS must be a JSON object with at most 18 entries")
+        result: dict[str, dict[str, Any]] = {}
+        for addon_id, spec in raw.items():
+            addon = ADDON_BY_ID.get(addon_id) if isinstance(addon_id, str) else None
+            if addon is None or addon["protocol"] not in {"mcp_stdio", "mcp_candidate", "desktop_mcp"}:
+                raise ConfigError(f"MATRIX_ADDON_MCP_SERVERS has an unsupported add-on id: {addon_id}")
+            if not isinstance(spec, dict):
+                raise ConfigError(f"MCP server configuration for {addon_id} must be an object")
+            command = spec.get("command")
+            args = spec.get("args", [])
+            env = spec.get("env", {})
+            if not isinstance(command, str) or not command.strip() or len(command) > 300:
+                raise ConfigError(f"MCP server {addon_id} requires a bounded command string")
+            if not isinstance(args, list) or len(args) > 64 or any(not isinstance(arg, str) or len(arg) > 2000 for arg in args):
+                raise ConfigError(f"MCP server arguments for {addon_id} must be a list of strings")
+            if not isinstance(env, dict) or len(env) > 64 or any(
+                not isinstance(key, str) or not key.isidentifier() or len(key) > 80
+                or not isinstance(value, str) or len(value) > 8000
+                for key, value in env.items()
+            ):
+                raise ConfigError(f"MCP server environment for {addon_id} must be a bounded string map")
+            result[addon_id] = {"command": command, "args": list(args), "env": dict(env)}
+        return result
+
     def _load_or_create_owner_token(self) -> str:
         token_file = self.home / "owner_token.txt"
         if token_file.exists():
@@ -231,6 +264,7 @@ class MatrixConfig:
             "model_max_concurrent_requests": self.model_max_concurrent_requests,
             "agent_max_concurrent_workers": self.agent_max_concurrent_workers,
             "agent_worker_timeout_seconds": self.agent_worker_timeout_seconds,
+            "configured_addon_mcp_servers": sorted(self.addon_mcp_servers),
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -257,6 +291,12 @@ class MatrixConfig:
                 apps.update({str(k): str(v) for k, v in json.loads(raw_apps).items()})
             except (ValueError, AttributeError) as exc:
                 raise ConfigError("MATRIX_ALLOWED_APPS must be a JSON object") from exc
+
+        raw_addon_servers = _env("MATRIX_ADDON_MCP_SERVERS")
+        try:
+            addon_servers = json.loads(raw_addon_servers) if raw_addon_servers else {}
+        except ValueError as exc:
+            raise ConfigError("MATRIX_ADDON_MCP_SERVERS must be valid JSON") from exc
 
         roots: tuple[Path, ...] = ()
         raw_roots = _env("MATRIX_FILE_ROOTS")
@@ -285,6 +325,7 @@ class MatrixConfig:
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
             file_roots=roots,
             allowed_apps=apps,
+            addon_mcp_servers=addon_servers,
             log_level=_env("MATRIX_LOG_LEVEL", "INFO") or "INFO",
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),

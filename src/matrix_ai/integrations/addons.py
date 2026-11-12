@@ -35,8 +35,9 @@ def _tokens(text: str) -> set[str]:
 
 
 class AddonManager:
-    def __init__(self, config, *, mcp_servers: dict[str, Any] | None = None) -> None:
+    def __init__(self, config, *, store=None, mcp_servers: dict[str, Any] | None = None) -> None:
         self.config = config
+        self.store = store
         self.root = (Path(config.home) / "addons").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.mcp_servers = mcp_servers if mcp_servers is not None else config.addon_mcp_servers
@@ -327,8 +328,11 @@ class AddonManager:
             registry.register(tool)
         self._connections[addon_id] = {"client": client, "tools": [tool.name for tool in created]}
         self._connection_errors.pop(addon_id, None)
-        if hasattr(self, "store") and self.store is not None:
-            self.store.audit("addon.mcp_connected", actor="addon-manager", status="connected", detail={"addon_id": addon_id, "tools": len(created)})
+        if self.store is not None:
+            self.store.audit(
+                "addon.mcp_connected", actor="addon-manager", status="connected",
+                detail={"addon_id": addon_id, "tool_count": len(created)},
+            )
         return {"addon_id": addon_id, "status": "connected", "tool_count": len(created), "tools": [tool.name for tool in created]}
 
     async def disconnect(self, addon_id: str, registry) -> dict[str, Any]:
@@ -338,6 +342,11 @@ class AddonManager:
         for tool_name in connection["tools"]:
             registry.unregister(tool_name)
         await connection["client"].close()
+        if self.store is not None:
+            self.store.audit(
+                "addon.mcp_disconnected", actor="addon-manager", status="disconnected",
+                detail={"addon_id": addon_id},
+            )
         return {"addon_id": addon_id, "status": "disconnected"}
 
     async def disconnect_all(self, registry) -> None:
