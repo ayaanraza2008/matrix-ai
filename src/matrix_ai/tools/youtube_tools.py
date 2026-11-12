@@ -179,7 +179,7 @@ class YouTubeListCommentsTool(Tool):
             comments.append({
                 "comment_id": item.get("snippet", {}).get("topLevelComment", {}).get("id"),
                 "video_id": args.video_id,
-                "text": snippet.get("textOriginal") or snippet.get("textDisplay", "")[:5000],
+                "text": (snippet.get("textOriginal") or snippet.get("textDisplay", ""))[:5000],
                 "author": snippet.get("authorDisplayName"),
                 "published_at": snippet.get("publishedAt"),
                 "like_count": snippet.get("likeCount", 0),
