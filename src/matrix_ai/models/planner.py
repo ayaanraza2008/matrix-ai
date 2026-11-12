@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
 from ..core.agents import render_specialist_context, route_agency_agents
 from ..core.models import Plan, PlanStep, StepKind
 from ..core.worker_pool import AgentWorkerPool
@@ -172,7 +174,10 @@ class PlanParser:
                     depends_on=raw.get("depends_on", []),
                 )
             )
-        return Plan(goal=goal, steps=steps, source="model")
+        try:
+            return Plan(goal=goal, steps=steps, source="model")
+        except ValidationError as exc:
+            raise ValidationFailure(f"invalid plan: {exc}") from exc
 
 
 @dataclass
