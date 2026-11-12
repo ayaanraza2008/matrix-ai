@@ -96,7 +96,7 @@ class GitHubReadTool(Tool):
         return f"/repos/{owner}/{name}"
 
     def verify(self, args: StrictModel, output: dict[str, Any]) -> VerificationEvidence:
-        ok = bool(output.get("ok")) and bool(output.get("data") is not None)
+        ok = bool(output.get("ok")) and (output.get("data") is not None or isinstance(output.get("issues"), list))
         return VerificationEvidence(
             ok=ok,
             confidence=0.95 if ok else 0.0,
