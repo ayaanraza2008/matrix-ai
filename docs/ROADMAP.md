@@ -30,10 +30,12 @@ reproducible demonstration — not when code exists.
 - [ ] Run the benchmark on the target PC and choose the largest model that stays inside the measured memory budget.
 - Acceptance: ≥ 90 % valid JSON plans on the MATRIX prompt set; peak RSS within budget; `/api/models` reports `working`.
 
-### M2 — Voice engines (Phase 3 exit)
-- faster-whisper `tiny.en`/`base` + Piper voice; push-to-talk path first.
-- Wire `VoiceSessionManager.transcribe/speak` to real engines; keep mute check before engine use.
-- Acceptance: A11/A12 run against real audio; barge-in stops playback ≤ 300 ms; no raw audio persisted.
+### M2 — Voice production validation (Phase 3 exit)
+- [x] Wire optional faster-whisper STT and Piper TTS into `VoiceSessionManager` (PR #14).
+- [x] Offload CPU-bound STT inference from the FastAPI event loop; keep mute checks before capture/inference.
+- [ ] Validate real microphone and speaker devices on the target Windows PC with the optional voice extra installed.
+- [ ] Measure barge-in latency (target ≤ 300 ms); add device selection, VAD, echo cancellation and streaming partial transcripts.
+- Acceptance: A11/A12 run against real audio, barge-in stops playback ≤ 300 ms, and no raw audio persists.
 
 ### M3 — Windows UI + browser automation (Phase 5 exit)
 - pywinauto window/control inspection; Playwright for approved sites.
