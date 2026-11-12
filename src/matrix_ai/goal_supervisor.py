@@ -38,14 +38,20 @@ class GoalSupervisor:
 
     async def recover_after_restart(self) -> dict[str, int]:
         resumed = 0
+        cancelled = 0
+        for goal_id in self.store.cancelling_goal_ids():
+            for task_id in self.store.goal_node_task_ids(goal_id):
+                await self.orchestrator.cancel(task_id)
+            self.store.finish_cancel_goal_graph(goal_id)
+            cancelled += 1
         for goal in self.store.recover_goal_graphs():
             self._ensure_runner(goal["id"])
             resumed += 1
         self.store.audit(
             "goal.recovery_scheduled", actor="system", status="ok",
-            detail={"resumed": resumed},
+            detail={"resumed": resumed, "cancellations_finished": cancelled},
         )
-        return {"resumed": resumed}
+        return {"resumed": resumed, "cancellations_finished": cancelled}
 
     def _ensure_runner(self, goal_id: str) -> None:
         existing = self._runners.get(goal_id)
