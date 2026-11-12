@@ -161,6 +161,7 @@ released until the full chain is reviewed and merged in order:
 | [#16](https://github.com/ayaanraza2008/matrix-ai/pull/16) | Owner-bounded recurring jobs, Windows per-user logon task, private Tailscale Serve | Windows + Ubuntu Python 3.12 CI passed | Real Task Scheduler and tailnet ACL/Serve validation |
 | [#18](https://github.com/ayaanraza2008/matrix-ai/pull/18) | Persistent core-health state and optional Telegram health alerts | Windows + Ubuntu Python 3.12 CI passed | Live Telegram delivery/recovery and host-offline behaviour |
 | [#19](https://github.com/ayaanraza2008/matrix-ai/pull/19) | Private two-way Telegram chat bridge | Windows + Ubuntu Python 3.12 CI passed | Live bot delivery, reconnect, task-result and stop validation |
+| [#21](https://github.com/ayaanraza2008/matrix-ai/pull/21) | Telegram throttling/approval follow-up, configurable Tailscale port, Android release transport hardening, Python 3.11 matrix, Android debug/release build and CycloneDX SBOM | Latest verified run before artifact-upload/SBOM commit: Windows + Ubuntu Python 3.11/3.12 and Android debug/release assemble passed; current CI re-run is active | Latest CI rerun, APK/SBOM artifact publication, physical Android device test, signed release package |
 
 All four PRs are drafts and stacked in dependency order (#14 → #16 → #18 → #19).
 Their CI success proves the committed test suite on GitHub-hosted Windows/Ubuntu
