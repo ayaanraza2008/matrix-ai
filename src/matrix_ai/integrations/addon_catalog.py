@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 ADDONS: tuple[dict[str, Any], ...] = (
     {
         "id": "openwhispr",

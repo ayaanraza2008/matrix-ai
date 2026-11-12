@@ -7,15 +7,15 @@ from dataclasses import replace
 
 import pytest
 
+from fakes import FakePlanProvider
 from matrix_ai.core.models import Risk
 from matrix_ai.errors import ConfigError, ToolExecutionError, ToolUnavailable, ValidationFailure
 from matrix_ai.integrations.addon_catalog import ADDON_BY_ID, ADDONS
 from matrix_ai.integrations.addons import AddonError
 from matrix_ai.integrations.mcp_addons import MCPStdioClient
+from matrix_ai.integrations.youtube_automation import build_youtube_tools
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.external_mcp import build_mcp_tools
-from fakes import FakePlanProvider
-from matrix_ai.integrations.youtube_automation import build_youtube_tools
 
 
 class FakeMCPClient:

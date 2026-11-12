@@ -22,8 +22,8 @@ from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
-from .integrations.registry import IntegrationRegistry
 from .integrations.addons import AddonManager
+from .integrations.registry import IntegrationRegistry
 from .integrations.youtube_automation import build_youtube_tools
 from .memory.service import MemoryService
 from .models.manager import ModelManager

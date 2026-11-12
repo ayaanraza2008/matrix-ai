@@ -7,6 +7,7 @@ retrieved as bounded, explicitly untrusted reference context.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -14,7 +15,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .addon_catalog import ADDONS, ADDON_BY_ID, addon_public_view
+from ..tools.external_mcp import build_mcp_tools
+from .addon_catalog import ADDON_BY_ID, ADDONS, addon_public_view
+from .mcp_addons import MCPStdioClient
 
 log = logging.getLogger("matrix.addons")
 _TOKEN = re.compile(r"[a-z0-9][a-z0-9+_.-]{1,50}", re.I)
@@ -374,9 +377,6 @@ class AddonManager:
         spec = self.mcp_servers.get(addon_id)
         if not isinstance(spec, dict):
             raise AddonError(f"{addon_id} has no MATRIX_ADDON_MCP_SERVERS configuration")
-        from .mcp_addons import MCPStdioClient
-        from ..tools.external_mcp import build_mcp_tools
-
         existing = self._connections.get(addon_id)
         if existing:
             await self.disconnect(addon_id, registry)

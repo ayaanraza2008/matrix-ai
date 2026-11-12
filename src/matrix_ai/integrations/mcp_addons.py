@@ -11,10 +11,10 @@ import json
 import logging
 import os
 from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from typing import Any
 
 from ..errors import ToolExecutionError, ToolUnavailable
 
