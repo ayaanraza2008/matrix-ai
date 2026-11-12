@@ -4,8 +4,6 @@ import asyncio
 
 import pytest
 
-from conftest import wait_for_task
-
 
 async def _wait_for_goal(client, goal_id: str, timeout: float = 15.0) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout
