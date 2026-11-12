@@ -83,18 +83,6 @@ class PiperCliEngine:
         return bool(self.executable and self.model_path and self.model_path.is_file())
 
     async def speak(self, text: str) -> None:
-        try:
-            await asyncio.to_thread(self._speak_sync, text)
-        except asyncio.CancelledError:
-            # Cancelling the coroutine alone does not stop the worker thread's audio stream.
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except ImportError:
-                pass
-            raise
-
-    def _speak_sync(self, text: str) -> None:
         if not self.available:
             raise RuntimeError(
                 "Set MATRIX_PIPER_MODEL to a local Piper .onnx voice model and install piper-tts."
@@ -104,18 +92,52 @@ class PiperCliEngine:
             import soundfile as sf
         except ImportError as exc:
             raise RuntimeError("Install MATRIX with the [voice] extra for local audio playback.") from exc
+
         with tempfile.TemporaryDirectory(prefix="matrix-voice-") as directory:
             output = Path(directory) / "speech.wav"
-            completed = subprocess.run(
-                [str(self.executable), "--model", str(self.model_path), "--output_file", str(output)],
-                input=text, text=True, capture_output=True, timeout=120, check=False,
+            process = await asyncio.create_subprocess_exec(
+                str(self.executable),
+                "--model",
+                str(self.model_path),
+                "--output_file",
+                str(output),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if completed.returncode != 0 or not output.is_file():
-                detail = (completed.stderr or "Piper did not produce audio.")[-500:]
-                raise RuntimeError(detail)
-            audio, sample_rate = sf.read(str(output), dtype="float32")
-            sd.play(audio, sample_rate)
-            sd.wait()
+            try:
+                _, stderr = await asyncio.wait_for(
+                    process.communicate(text.encode("utf-8")), timeout=120
+                )
+                if process.returncode != 0 or not output.is_file():
+                    detail = (stderr.decode("utf-8", errors="replace") or "Piper did not produce audio.")[-500:]
+                    raise RuntimeError(detail)
+                audio, sample_rate = await asyncio.to_thread(
+                    sf.read, str(output), dtype="float32"
+                )
+                playback = asyncio.create_task(
+                    asyncio.to_thread(self._play_sync, sd, audio, sample_rate)
+                )
+                try:
+                    await playback
+                except asyncio.CancelledError:
+                    sd.stop()
+                    raise
+            except asyncio.CancelledError:
+                if process.returncode is None:
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2)
+                    except TimeoutError:
+                        process.kill()
+                        await process.wait()
+                sd.stop()
+                raise
+
+    @staticmethod
+    def _play_sync(sounddevice, audio, sample_rate: int) -> None:
+        sounddevice.play(audio, sample_rate)
+        sounddevice.wait()
 
 
 def build_stt_engine() -> SttEngine | None:
