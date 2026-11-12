@@ -24,6 +24,7 @@ from .base import (
     Integration,
     IntegrationResult,
 )
+from .social_api import linkedin_request, meta_request
 from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service
 
 TIMEOUT = httpx.Timeout(6.0, connect=4.0)
@@ -133,6 +134,55 @@ class YouTubeIntegration(Integration):
             return IntegrationResult(STATUS_DEGRADED, f"YouTube check failed ({type(exc).__name__}); reconnect or inspect scopes.")
 
 
+class InstagramIntegration(Integration):
+    name = "instagram"
+    description = "Read and manage the connected Instagram Business/Creator account through Meta Graph API."
+    category = "social"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.instagram_access_token and self.config.instagram_user_id)
+
+    def _check_sync(self) -> IntegrationResult:
+        payload, _ = meta_request(
+            self.config, "GET", self.config.instagram_user_id or "",
+            params={"fields": "id,username,account_type"},
+        )
+        username = payload.get("username")
+        if not payload.get("id") or not username:
+            return IntegrationResult(STATUS_DEGRADED, "Meta returned no Instagram Business/Creator profile.")
+        return IntegrationResult(STATUS_OK, f"Connected to Instagram account @{str(username)[:100]}.")
+
+    async def check(self) -> IntegrationResult:
+        try:
+            return await asyncio.to_thread(self._check_sync)
+        except Exception as exc:  # noqa: BLE001 - health checks must not crash the runtime
+            return IntegrationResult(STATUS_DEGRADED, f"Instagram check failed ({type(exc).__name__}); inspect token and app permissions.")
+
+
+class LinkedInIntegration(Integration):
+    name = "linkedin"
+    description = "Read and publish LinkedIn posts through the official LinkedIn REST API."
+    category = "social"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.linkedin_access_token and self.config.linkedin_api_version)
+
+    def _check_sync(self) -> IntegrationResult:
+        payload, _ = linkedin_request(self.config, "GET", "/rest/me")
+        member_id = payload.get("id")
+        if not member_id:
+            return IntegrationResult(STATUS_DEGRADED, "LinkedIn token did not return a member profile.")
+        return IntegrationResult(STATUS_OK, f"Connected to LinkedIn member urn:li:person:{str(member_id)[:80]}.")
+
+    async def check(self) -> IntegrationResult:
+        try:
+            return await asyncio.to_thread(self._check_sync)
+        except Exception as exc:  # noqa: BLE001 - health checks must not crash the runtime
+            return IntegrationResult(STATUS_DEGRADED, f"LinkedIn check failed ({type(exc).__name__}); inspect token, API version and product access.")
+
+
 class HomeAssistantIntegration(Integration):
     name = "home_assistant"
     description = "Read and control Home Assistant entities on the local network."
@@ -232,6 +282,8 @@ def build_integrations(config: MatrixConfig) -> list[Integration]:
         TelegramIntegration(config),
         GoogleWorkspaceIntegration(config),
         YouTubeIntegration(config),
+        InstagramIntegration(config),
+        LinkedInIntegration(config),
         HomeAssistantIntegration(config),
         WeatherIntegration(config),
         FirebasePushIntegration(config),
@@ -250,5 +302,7 @@ __all__ = [
     "TelephonyIntegration",
     "WeatherIntegration",
     "YouTubeIntegration",
+    "InstagramIntegration",
+    "LinkedInIntegration",
     "build_integrations",
 ]
