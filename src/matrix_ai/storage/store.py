@@ -451,18 +451,20 @@ class Store:
         return cursor.rowcount
 
     def finish_goal_graph(self, goal_id: str, *, state: str, summary: str) -> None:
-        if state not in {"awaiting_verification", "partial", "failed", "cancelled"}:
+        if state not in {"completed", "awaiting_verification", "partial", "failed", "cancelled"}:
             raise ValueError("invalid terminal goal state")
         nodes = self.get_goal_graph(goal_id)
         if not nodes:
             raise ValueError("goal has no execution nodes")
         all_completed = all(node["state"] == "completed" for node in nodes)
-        if state == "awaiting_verification" and not all_completed:
-            raise ValueError("goal cannot await verification until every node completes")
+        if state in {"completed", "awaiting_verification"} and not all_completed:
+            raise ValueError("goal cannot complete or await verification until every node completes")
         self.db.execute(
             "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
-            "criteria_status='not_evaluated', updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
-            (state, summary[:1000], "pending_independent_review" if all_completed else "not_verified",
+            "criteria_status=?, updated_at=?, finished_at=? WHERE id=? AND task_id IS NULL",
+            (state, summary[:1000],
+             "independently_verified" if state == "completed" else ("not_met" if state == "partial" and all_completed else "not_evaluated"),
+             "independent_model_verified" if state == "completed" else ("pending_independent_review" if all_completed else "not_verified"),
              iso(), iso(), goal_id),
         )
 
