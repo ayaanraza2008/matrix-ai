@@ -13,6 +13,9 @@ async def test_dashboard_is_served_with_security_headers(anon_client):
     assert "text/html" in response.headers["content-type"]
     body = response.text
     assert "MATRIX" in body
+    assert "voice-send-transcript" in body
+    assert "voice-speak-replies" in body
+    assert "Automatically speak final MATRIX replies" in body
     assert "/assets/app.js" in body
     assert "/assets/styles.css" in body
     # No inline scripts: the CSP allows only same-origin scripts.
@@ -28,6 +31,9 @@ async def test_dashboard_assets_are_served(anon_client):
     assert "javascript" in script.headers["content-type"]
     assert "function api(" in script.text
     assert "localStorage" in script.text
+    assert "SpeechSynthesisUtterance" in script.text
+    assert "matrix_speak_replies" in script.text
+    assert "Send transcript to chat" in script.text
 
     styles = await anon_client.get("/assets/styles.css")
     assert styles.status_code == 200
