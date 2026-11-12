@@ -350,7 +350,7 @@ async def create_goal_plan(
                 "title": next(item.title for item in body.nodes if item.node_id == node.node_id),
                 "depends_on": list(node.depends_on),
             }
-            for node in (nodes[graph.topological_order.index(item)] for item in graph.topological_order)
+            for node in nodes
         ],
     )
     runtime.store.audit(
