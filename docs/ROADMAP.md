@@ -76,7 +76,7 @@ reproducible demonstration — not when code exists.
 
 - [x] Persist bounded goal nodes and dependency edges in SQLite.
 - [x] Add authenticated plan, start, graph-status and cancellation APIs.
-- [x] Dispatch one dependency-ready node at a time through the normal task orchestrator.
+- [x] Dispatch up to four dependency-ready nodes per goal through the normal task orchestrator.
 - [x] Continue independent branches and block descendants of failed nodes.
 - [x] Recover orphaned dispatch claims and resume durable goal graphs after startup.
 - [x] Resume graph reconciliation after a node approval decision.
