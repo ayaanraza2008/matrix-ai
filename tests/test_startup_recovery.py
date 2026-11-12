@@ -63,7 +63,7 @@ async def test_interrupted_tool_call_is_failed_and_never_replayed(runtime):
 async def test_pending_approval_is_preserved_across_recovery(client, runtime):
     await create_workspace_file(client, "restart-pending.txt", "keep this file")
     task = await execute_tool(client, "files.delete", {"path": "restart-pending.txt"})
-    waiting = await wait_for_state(client, task["id"], {"WAITING_FOR_USER"})
+    await wait_for_state(client, task["id"], {"WAITING_FOR_USER"})
 
     recovered = await runtime.orchestrator.recover_after_restart()
     current = runtime.store.task_view(task["id"])
