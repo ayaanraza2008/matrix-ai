@@ -30,7 +30,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-voice = ["faster-whisper>=1.0.0"]
+voice = [
+  "faster-whisper>=1.0.0",
+  "piper-tts>=1.2.0",
+  "sounddevice>=0.4.6",
+  "soundfile>=0.12",
+]
 vision = ["opencv-python>=4.9", "pytesseract>=0.3.10", "Pillow>=10.0"]
 browser = ["playwright>=1.44"]
 dev = [
@@ -60,7 +65,7 @@ markers = [
   "acceptance: maps to the MATRIX acceptance suite (A01-A25)",
   "requires_network: needs outbound network access",
   "requires_windows: only runs on Windows",
-  "optional_deps: needs an optional third-party dependency",
+  "optional_deps: needs optional third-party dependencies",
 ]
 
 [tool.ruff]
