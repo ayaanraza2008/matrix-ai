@@ -38,7 +38,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check .
+        run: ruff check . --exclude agency-agents
 
       - name: Secret scan
         run: python -m matrix_ai.security.secret_scan .
