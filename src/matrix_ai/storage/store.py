@@ -463,7 +463,7 @@ class Store:
 
     def schedulable_goal_ids(self) -> list[str]:
         rows = self.db.query(
-            "SELECT id FROM goals WHERE state IN ('planned','running') "
+            "SELECT id FROM goals WHERE state='running' "
             "AND EXISTS (SELECT 1 FROM goal_nodes WHERE goal_nodes.goal_id=goals.id) "
             "ORDER BY created_at"
         )
