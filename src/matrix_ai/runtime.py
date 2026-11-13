@@ -22,8 +22,6 @@ from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .goal_supervisor import GoalSupervisor
-from .core.policy import PolicyEngine
-from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
 from .integrations.registry import IntegrationRegistry
 from .memory.service import MemoryService
