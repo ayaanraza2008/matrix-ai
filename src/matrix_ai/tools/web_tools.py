@@ -119,15 +119,9 @@ def _fetch_from_pinned_address(
             context = ssl.create_default_context()
             sock = context.wrap_socket(raw_sock, server_hostname=host)
             connected_sock = sock
-        path = quote(parsed.path or "/", safe="/%:@!            sock = context.wrap_socket(raw_sock, server_hostname=host)
-        path = parsed.path or "/"
+        path = quote(parsed.path or "/", safe="/%:@-._~!()*+,;=")
         if parsed.query:
-            path += "?" + parsed.query'()*+,;=-._~")
-        if parsed.query:
-            path += "?" + quote(parsed.query, safe="/?%:@!            sock = context.wrap_socket(raw_sock, server_hostname=host)
-        path = parsed.path or "/"
-        if parsed.query:
-            path += "?" + parsed.query'()*+,;=-._~")
+            path += "?" + quote(parsed.query, safe="/%:@-._~!()*+,;=?&")
         try:
             host_header = host.encode("idna").decode("ascii")
         except UnicodeError as exc:
