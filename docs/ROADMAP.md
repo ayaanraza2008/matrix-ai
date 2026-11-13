@@ -59,7 +59,9 @@ reproducible demonstration — not when code exists.
 - [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
 - [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
-- [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+- [x] Persist task-step evidence separately from owner success-criteria verdicts; run a read-only criteria verifier after all task steps are verified, and keep low-confidence/missing evidence in awaiting_verification.
+- [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
+- [ ] Add quiet hours and richer notification routing before broader proactive behavior.
 
 ### M7 — Dependency-aware task plans
 
