@@ -90,19 +90,6 @@ class TelegramChatBridge:
                 "disable_web_page_preview": True,
             })
 
-    async def _discard_pending_updates(self) -> None:
-        """Advance Telegram's offset while draining every pre-startup update batch."""
-        while True:
-            payload: dict[str, Any] = {"timeout": 0, "limit": 100}
-            if self._offset is not None:
-                payload["offset"] = self._offset
-            initial = await self._api("getUpdates", payload)
-            updates = initial.get("result", [])
-            if updates:
-                self._offset = max(item["update_id"] for item in updates) + 1
-            if len(updates) < 100:
-                return
-
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
