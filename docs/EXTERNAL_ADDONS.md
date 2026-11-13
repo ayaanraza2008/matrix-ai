@@ -169,10 +169,17 @@ parsing boundary. The dashboard includes an owner-authenticated Engineering
 Coach view at **Engineering Coach**; enter one file path and select Analyze.
 The API endpoint is `POST /api/engineering-coach/analyze`.
 
-There is deliberately no directory watcher, background log collector, or
+There is deliberately no directory watcher, log discovery, or
 silent ingestion. Analysis is on-demand against the one explicit file path
-inside an approved filesystem root. Repeated workflows are suggestions only:
-MATRIX does not automatically create or execute new skills. An owner can
-review a candidate and separately author a skill through the normal governed
-workflow. This avoids turning noisy or malicious session data into executable
-instructions.
+inside an approved filesystem root. The dashboard also offers an owner-opt-in
+recurring job for that same exact file (hourly, every six hours, or daily);
+the path is validated before the job is created, each run still uses the
+read-only `files.read` tool and current filesystem-root policy, and the job
+can be paused through the dashboard or `PATCH /api/jobs/{job_id}`. This is
+periodic re-analysis of one known file, not automatic discovery or ingestion
+of new files.
+
+Repeated workflows are suggestions only: MATRIX does not automatically create
+or execute new skills. An owner can review a candidate and separately author
+a skill through the normal governed workflow. This avoids turning noisy or
+malicious session data into executable instructions.
