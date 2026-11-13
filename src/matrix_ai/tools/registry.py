@@ -8,6 +8,14 @@ from ..core.models import Risk, ToolSpec
 from ..errors import ToolNotFound
 from .app_tools import CloseAppTool, OpenAppTool
 from .base import Tool, ToolContext
+from .file_tools import (
+    DeleteFileTool,
+    ListFilesTool,
+    MovePathTool,
+    ReadTextTool,
+    StatPathTool,
+    WriteTextTool,
+)
 from .github_tools import (
     GitHubCommentIssueTool,
     GitHubCreateIssueTool,
@@ -17,14 +25,7 @@ from .github_tools import (
     GitHubWhoAmITool,
 )
 from .memory_tools import MemorySaveTool, MemorySearchTool
-from .file_tools import (
-    DeleteFileTool,
-    ListFilesTool,
-    MovePathTool,
-    ReadTextTool,
-    StatPathTool,
-    WriteTextTool,
-)
+from .shell_tools import RunAllowedCommandTool
 from .social_tools import (
     InstagramListCommentsTool,
     InstagramPublishImageTool,
@@ -33,7 +34,6 @@ from .social_tools import (
     WhatsAppSendTemplateTool,
     WhatsAppSendTextTool,
 )
-from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
 from .weather_tools import OpenMeteoForecastTool
