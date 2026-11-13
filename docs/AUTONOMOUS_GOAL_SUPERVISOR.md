@@ -144,3 +144,12 @@ Owner cancellation of a started DAG first changes the goal to a non-dispatchable
 The DAG API now exposes owner-scoped POST /api/goals/{goal_id}/pause and POST /api/goals/{goal_id}/resume operations. Pausing is a durable dispatch gate: no additional goal nodes can be claimed or dispatched while the goal is paused. Tasks already in flight are **not** forcibly interrupted; they may finish their current bounded work, but completion cannot launch the next dependency wave until the owner resumes the goal. This avoids pretending that an external side effect can be safely suspended mid-request.
 
 Resume is accepted only from the persisted paused state and immediately attempts to dispatch dependency-ready nodes through the ordinary orchestrator. Existing task approvals, scopes, cancellation, deadlines and evidence checks remain unchanged. A process restart preserves the paused state; startup recovery schedules only running goals, so paused plans remain paused until an owner explicitly resumes them.
+
+
+### Independent goal-criteria assessment
+
+The DAG scheduler now runs a separate, read-only criteria assessment after every node reaches task-level verified completion. The configured model receives the owner's success criteria and bounded summaries/evidence for every node; it cannot execute tools, approve actions, or override task-level evidence. A model result of `verified` is accepted only when every persisted node is explicitly covered and the assessment reports no missing evidence.
+
+If no model is configured, the model call fails, the response is malformed, or evidence coverage is incomplete, the goal remains `awaiting_verification` with `criteria_status=insufficient_evidence` and `verification_status=pending_owner_review`. A successful second pass records `criteria_status=verified_by_model`; a valid negative assessment records `not_verified` or `insufficient_evidence` rather than claiming completion. Startup recovery revisits DAG goals whose final node completed just before a process crash and whose criteria assessment is still pending.
+
+The assessment is a semantic second opinion over execution evidence, not an external auditor. High-impact actions still require their existing exact owner approvals. CI tests cover the no-model path, complete node coverage, and rejection of an assessment that omits a node.
