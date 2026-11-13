@@ -56,4 +56,5 @@ reproducible demonstration — not when code exists.
 - [x] Expose authenticated automation and private-access status.
 - [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
-- [ ] Add quiet hours, notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+- [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
+- [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
