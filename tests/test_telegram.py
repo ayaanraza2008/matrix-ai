@@ -245,6 +245,7 @@ async def test_telegram_failed_update_does_not_advance_durable_offset(tmp_path):
     assert bridge._offset == 101
     assert store.flags["telegram_update_offset"] == "100"
 
+
 def test_database_v3_migrates_telegram_source_update_key(tmp_path):
     path = tmp_path / "legacy.db"
     legacy = Database(path)
