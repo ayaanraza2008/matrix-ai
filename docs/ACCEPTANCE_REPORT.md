@@ -64,8 +64,7 @@ This is strong repository/CI evidence. It is not a substitute for a fresh instal
 
 ## Security follow-up: public web fetch
 
-A DNS-rebinding/TOCTOU gap remains in `web.fetch_public`: the hostname is validated before the request, but the HTTP client resolves it again when opening the connection. To fail closed by default, `MATRIX_ALLOW_WEB_FETCH` is now **false** unless explicitly enabled. Do not enable it in a production deployment until connection-level IP pinning is implemented and tested. Regression tests for the default and explicit opt-in were committed after PR #72's green run; that earlier run does not validate this follow-up. Confirm the push-triggered main CI run before treating the new default as CI-verified. Track the implementation in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
-
+The DNS-rebinding/TOCTOU gap was identified in `web.fetch_public`: the hostname was validated before the request, but the HTTP client resolved it again when opening the connection. `MATRIX_ALLOW_WEB_FETCH` is **false by default**. [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) now proposes connection-level IP pinning (numeric IPv4/IPv6 connect, original hostname for TLS SNI/certificate verification and HTTP Host, connected-peer verification) with deterministic tests. The first CI attempt exposed an import-order lint issue in an existing test module; that has been corrected. The latest full CI run is still in progress, so this fix is not yet certified or merged. Keep web fetch disabled until CI passes and the implementation receives security review. Track the gate in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
 See [`docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`](PRODUCTION_ACCEPTANCE_RUNBOOK.md) for the exact owner-device validation sequence and evidence requirements.
 
 ## Release decision
