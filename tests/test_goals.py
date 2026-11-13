@@ -620,3 +620,31 @@ def test_schema_v5_adds_retry_count_and_attempt_history(tmp_path):
     assert "goal_graph_node_attempts" in tables
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_goal_graph_stops_running_nodes_and_closes_queued_nodes(client, runtime, monkeypatch):
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    response = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Cancel graph",
+            "nodes": [
+                {"node_id": "running", "title": "Running", "success_criteria": "Done"},
+                {"node_id": "queued", "title": "Queued", "success_criteria": "Done", "depends_on": ["running"]},
+            ],
+        },
+    )
+    graph_id = response.json()["id"]
+    cancelled = await client.post(f"/api/goal-graphs/{graph_id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["state"] == "cancelled"
+    assert {node["goal"]["state"] for node in cancelled.json()["nodes"]} == {"cancelled"}
+    retry = await client.post(
+        f"/api/goal-graphs/{graph_id}/nodes/running/retry",
+        json={"reason": "I want to resume the cancelled graph."},
+    )
+    assert retry.status_code == 409
