@@ -298,3 +298,51 @@ async def test_restart_finishes_goal_cancellation_before_requeueing_orphan_node_
     assert runtime.store.get_task_row(task_id)["state"] == "CANCELLED"
     assert runtime.store.get_goal(goal_id)["state"] == "cancelled"
     assert result["failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_can_pause_and_resume_goal_dispatch(client, runtime, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    enqueue = AsyncMock()
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", enqueue)
+    created = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Pauseable plan",
+            "nodes": [
+                {"node_id": f"node-{index}", "title": f"Node {index}"}
+                for index in range(5)
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    started = await client.post(f"/api/goals/{goal_id}/start")
+    assert started.status_code == 202, started.text
+    assert len(started.json()["dispatched_task_ids"]) == 4
+
+    paused = await client.post(f"/api/goals/{goal_id}/pause")
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["state"] == "paused"
+    assert await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id) == []
+    assert enqueue.await_count == 4
+
+    resumed = await client.post(f"/api/goals/{goal_id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    assert resumed.json()["state"] == "running"
+    assert len(resumed.json()["dispatched_task_ids"]) == 1
+    assert enqueue.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_pause_resume_goal_endpoints_are_owner_scoped(client, runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="different-owner", title="Private plan", success_criteria="Done"
+    )
+    runtime.store.save_goal_graph(
+        goal_id, [{"node_id": "private", "title": "Private", "depends_on": []}]
+    )
+    assert (await client.post(f"/api/goals/{goal_id}/pause")).status_code == 404
+    assert (await client.post(f"/api/goals/{goal_id}/resume")).status_code == 404
