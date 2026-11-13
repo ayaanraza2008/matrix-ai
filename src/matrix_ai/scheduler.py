@@ -103,6 +103,18 @@ class Scheduler:
             "model": model_status,
             "emergency_stop": "active" if emergency_stop else "off",
         }
+        previous_components_raw = self.store.get_flag("health_monitor_components", "{}")
+        try:
+            previous_components = json.loads(previous_components_raw or "{}")
+        except (TypeError, ValueError):
+            previous_components = {}
+        self.store.set_flag(
+            "health_monitor_components",
+            json.dumps(components, separators=(",", ":")),
+        )
+        emergency_stop_activated = (
+            emergency_stop and previous_components.get("emergency_stop") != "active"
+        )
 
         if current != previous:
             self.store.set_flag("health_monitor_state", current)
@@ -117,6 +129,16 @@ class Scheduler:
                 )
             if current == "degraded" or previous == "degraded":
                 self._queue_health_notification(current, components)
+
+        # A newly activated emergency stop is an urgent event even if another
+        # degraded component had already put the overall system in that state.
+        if emergency_stop_activated and current == previous:
+            self.store.audit(
+                "notification.emergency_stop_alert",
+                actor="health-monitor",
+                status="active",
+            )
+            self._queue_health_notification("degraded", components)
 
         # Retry failed delivery on later health ticks. Routine recovery messages
         # remain queued until the configured local quiet-hours window ends.
