@@ -27,8 +27,11 @@ android/
 ## Security design (intended)
 
 - Pairing uses a single-use 6-digit code (`matrix pair-code`), exchanged for a device token.
-- The scaffold keeps the paired token in transient UI memory only; it is not written to saved instance state.
-  EncryptedSharedPreferences/Android Keystore integration is still required before shipping.
+- The paired token is encrypted with AES-256-GCM. The encryption key is generated in Android Keystore and is non-exportable; only the IV+ciphertext is stored in app-private preferences.
+- The app restores the session by decrypting the stored token and exposes a Clear local session action that removes the ciphertext and attempts to delete the Keystore key. If Keystore cleanup is temporarily unavailable, the local ciphertext is still removed.
+- Clearing the local session does not revoke the server-side device record; revoke it from the PC dashboard to invalidate that device token immediately.
+- Android Auto Backup is disabled because ciphertext is bound to the original device's Keystore key. A restored or corrupted payload fails closed and is cleared.
+- Physical-device acceptance is still required to verify hardware-backed key behavior, process death/restart, app data restore, logout, and server-side device revocation.
 - Each request sends `Authorization: Bearer <device token>`.
 - Device revocation on the PC invalidates the token immediately (`auth.verify_token`).
 - No secrets are embedded in the APK.
