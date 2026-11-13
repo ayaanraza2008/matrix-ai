@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 from ..config import MatrixConfig
+from ..core.goal_verifier import review_goal_criteria
 from ..core.models import (
     CallStatus,
     Plan,
