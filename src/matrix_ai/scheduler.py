@@ -9,7 +9,10 @@ so optional Telegram alerts are sent once per transition, not on every poll.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import datetime, time as datetime_time
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -113,15 +116,62 @@ class Scheduler:
                     detail={"previous": previous, "components": components},
                 )
             if current == "degraded" or previous == "degraded":
-                await self._send_health_notification(current, components)
+                self._queue_health_notification(current, components)
 
+        # Retry failed delivery on later health ticks. Routine recovery messages
+        # remain queued until the configured local quiet-hours window ends.
+        await self._flush_pending_health_notification()
         return {"status": current, **components}
 
-    async def _send_health_notification(self, state: str, components: dict[str, str]) -> None:
+    def _quiet_hours_active(self) -> bool:
+        start = self.config.notification_quiet_hours_start
+        end = self.config.notification_quiet_hours_end
+        if not start or not end:
+            return False
+        local_now = datetime.now(ZoneInfo(self.config.notification_timezone)).time()
+        quiet_start = datetime_time.fromisoformat(start)
+        quiet_end = datetime_time.fromisoformat(end)
+        if quiet_start < quiet_end:
+            return quiet_start <= local_now < quiet_end
+        return local_now >= quiet_start or local_now < quiet_end
+
+    def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
+        if not self.config.telegram_bot_token or not self.config.telegram_chat_id:
+            return
+        self.store.set_flag(
+            "pending_health_notification",
+            json.dumps({"state": state, "components": components}, separators=(",", ":")),
+        )
+
+    async def _flush_pending_health_notification(self) -> None:
+        raw = self.store.get_flag("pending_health_notification")
+        if not raw:
+            return
+        try:
+            pending = json.loads(raw)
+            state = pending["state"]
+            components = pending["components"]
+            if state not in {"healthy", "degraded"} or not isinstance(components, dict):
+                raise ValueError("invalid pending health notification")
+        except (TypeError, ValueError, KeyError):
+            self.store.set_flag("pending_health_notification", "")
+            self.store.audit(
+                "notification.health_queue_invalid",
+                actor="health-monitor",
+                status="discarded",
+            )
+            return
+        # Degradation alerts (including emergency-stop state) always bypass quiet hours.
+        if state == "healthy" and self._quiet_hours_active():
+            return
+        if await self._send_health_notification(state, components):
+            self.store.set_flag("pending_health_notification", "")
+
+    async def _send_health_notification(self, state: str, components: dict[str, str]) -> bool:
         token = self.config.telegram_bot_token
         chat_id = self.config.telegram_chat_id
         if not token or not chat_id:
-            return
+            return True
 
         headline = "MATRIX needs attention" if state == "degraded" else "MATRIX has recovered"
         lines = [
@@ -140,6 +190,7 @@ class Scheduler:
                 payload = response.json()
                 if not payload.get("ok"):
                     raise RuntimeError("Telegram did not confirm the message.")
+            return True
         except Exception as exc:  # noqa: BLE001 - notification failure must not stop MATRIX
             self.store.audit(
                 "notification.health_failed",
@@ -148,6 +199,7 @@ class Scheduler:
                 detail={"error": type(exc).__name__},
             )
             log.warning("health notification failed: %s", type(exc).__name__)
+            return False
 
     async def background_loop(self, interval_seconds: float = 60.0) -> None:
         while True:
