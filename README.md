@@ -28,14 +28,14 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
 | 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
-| Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
+| Offline voice engines | **Implemented, optional** | faster-whisper + Piper adapters; real microphone/speaker acceptance still pending |
 | Offline speech-to-text / text-to-speech | **Implemented, optional** | faster-whisper + Piper adapters; see `docs/VOICE_AND_TELEPHONY.md`; target hardware E2E pending |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
-| Scheduled owner goals | **Implemented** | Bounded recurring jobs, global autonomy ceiling and policy/approval enforcement |
+| Scheduled owner goals | **Implemented** | Bounded recurring jobs, owner pause/resume/edit/delete, timezone-aware quiet hours and global autonomy ceiling |
 | Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
-| External integrations | **Partial** | Credential/connectivity probes exist; Telegram chat bridge is in the stacked PR chain. Full Gmail/Calendar, GitHub, Home Assistant, FCM and telephony action workflows are not complete |
+| External integrations | **Partial** | Owner-paired Telegram chat + health notifications; GitHub/YouTube/WhatsApp/Instagram/LinkedIn remain provider- and account-dependent |
 | Android companion | **Scaffolded** | Builds debug and unsigned release APKs in CI; physical-device tests and signed APK pending |
 | Signed release / installer | **Planned** | Phase 9 |
 
