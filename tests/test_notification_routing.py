@@ -272,15 +272,14 @@ async def test_daily_digest_is_created_once_after_local_nine_am(tmp_path, monkey
 
 
 def test_daily_digest_respects_owner_preference(tmp_path, monkeypatch):
-    import matrix_ai.scheduler as scheduler_module
-    from datetime import datetime as RealDateTime
-
     scheduler, store, _ = make_scheduler(tmp_path)
     store.flags["notification_preferences"] = {"health_recovered": True, "daily_digest": False}
+
     class FixedDateTime(RealDateTime):
         @classmethod
         def now(cls, tz=None):
             return RealDateTime(2026, 11, 13, 10, 0, tzinfo=tz)
+
     monkeypatch.setattr(scheduler_module, "datetime", FixedDateTime)
 
     assert scheduler.maybe_create_daily_digest() is False
