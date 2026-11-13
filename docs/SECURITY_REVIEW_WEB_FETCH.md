@@ -63,35 +63,25 @@ The DNS-pinning implementation mitigates this by:
 
 | # | Test | Corresponding Check |
 |---|------|--------------------|
-| 1 | `test_rejects_non_public_addresses` | Mixed public/private answer rejection (2) |
+| 1 | `test_rejects_non_public_addresses` | Mixed public/private answer rejection |
 | 2 | `test_rejects_literal_loopback` | Loopback address rejection |
-| 3 | `test_rejects_non_http_schemes` | Scheme validation (1) |
+| 3 | `test_rejects_non_http_schemes` | Scheme validation |
 | 4 | `test_rejects_unusual_ports` | Port validation |
 | 5 | `test_rejects_embedded_credentials` | Embedded credentials rejection |
-| 6 | `test_accepts_public_address` | Valid public URL resolution (1) |
+| 6 | `test_accepts_public_address` | Valid public URL resolution |
 | 7 | `test_unresolvable_host_is_a_tool_error` | Unresolvable host handling |
 | 8 | `test_html_to_text_strips_markup_and_scripts` | Script/tag stripping (bounded reads) |
 | 9 | `test_local_endpoint_detection` | `is_local_endpoint` utility |
 | 10 | `test_cloud_endpoint_requires_explicit_opt_in` | Cloud opt-in enforcement |
 | 11 | `test_local_provider_is_not_blocked_by_cloud_guard` | Local provider access when opt-in enabled |
-| 12 | `test_rejects_non_public_addresses` (IPv6) | IPv6 behavior (8) |
-| 13 | `test_rejects_non_public_addresses` (169.254) | Link-local/zone-ID handling (10) |
-| 14 | `test_rejects_unusual_ports` | Port-based access control (11) |
-| 15 | Implicit via `allow_web_fetch=false` default | Fail-closed default configuration (15) |
-
-**Additional coverage not captured in the table but verified:**
-
-- **Timeout and socket cleanup** — The httpx Client uses `timeout=httpx.Timeout(15.0, connect=8.0)` and context manager cleanup ensures sockets are released on both success and failure paths. ✅
-- **IPv4-mapped IPv6 normalization** — The `resolve_and_validate` function normalizes IPv4-mapped IPv6 addresses (`::ffff:w.x.y.z`) via `ipaddress.ip_address()`, which converts them to standard IPv6 form. The public‑address check then treats them the same as any other IPv6 address. ✅
-- **Control-character hostname rejection** — Hostnames containing control characters fail `urlparse()` or `ipaddress.ip_address()` validation, raising `ValidationFailure` or `PermissionDenied`. ✅
-- **Redirect restrictions** — `follow_redirects=False` means redirects are inspected (status + `location` header returned) but not followed. The implementation returns the redirect metadata without executing a second fetch. ✅
-- **Bounded response reads** — The `for chunk in response.iter_bytes()` loop breaks when `total >= limit` (where `limit = ctx.config.web_fetch_max_bytes`), preventing unbounded body reads. ✅
+| 12 | `test_rejects_non_public_addresses` (IPv6) | IPv6 behavior |
+| 13 | `test_rejects_non_public_addresses` (169.254) | Link-local/zone-ID handling |
+| 14 | `test_rejects_unusual_ports` | Port-based access control |
+| 15 | Implicit via `allow_web_fetch=false` default | Fail-closed default configuration |
 
 ---
 
 ## 4. Checklist for Independent Reviewer
-
-Please complete the following and record your findings below:
 
 ### DNS and Resolution
 
@@ -113,7 +103,7 @@ Please complete the following and record your findings below:
 
 - [ ] **Connected-peer verification** — The connection is pinned to the resolved IP addresses. No additional peer verification beyond TLS hostname checking is performed.
 - [ ] **Timeout and socket cleanup** — The httpx Client uses proper timeouts (`connect=8.0s`, `total=15.0s`) and context manager (`with`) ensures socket cleanup on both success and failure paths.
-- [ ] **Fail-closed default configuration** — `MATRIX_ALLOW_WEB_FETCH defaults to `false`. The tool is unavailable unless the owner explicitly sets `MATRIX_ALLOW_WEB_FETCH=true`. This is a fail-closed design.
+- [ ] **Fail-closed default configuration** — `MATRIX_ALLOW_WEB_FETCH` defaults to `false`. The tool is unavailable unless the owner explicitly sets `MATRIX_ALLOW_WEB_FETCH=true`. This is a fail-closed design.
 
 ### Bounding and Limits
 

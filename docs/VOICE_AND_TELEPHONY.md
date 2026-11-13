@@ -3,9 +3,10 @@
 MATRIX's voice session API now has real optional offline speech adapters:
 
 - **STT:** faster-whisper, CPU + INT8 by default; `tiny` is the low-memory multilingual default.
-- **TTS:** Piper CLI with a user-downloaded local ONNX voice; playback uses the host's default audio device via sounddevice.
+- **TTS:** Piper CLI with a user-downloaded local ONNX voice; playback uses the host's default audio device via sounddevice. On Windows, `MATRIX_TTS_PROVIDER=windows-sapi` opts in to the locally installed SAPI voice instead (no extra model download); `MATRIX_TTS_PROVIDER=none` disables speech output entirely.
 - Audio is decoded in memory, written only to a short-lived temporary file for Whisper, and removed after inference. No raw audio is stored in SQLite.
-- Mute is checked before decoding/inference. Stop and mute cancel active speech playback; barge-in remains available.
+- Mute is checked before decoding/inference. Stop, mute and barge-in cancel active speech playback and call the engine's native `stop()` where available (Windows SAPI terminates the synthesis process immediately).
+- Text is screened before speaking: `POST /api/voice/check-speech` runs the backend credential detector so callers can preflight text before local or browser playback.
 
 ## Install (Windows PowerShell)
 
@@ -20,6 +21,17 @@ matrix serve
 ```
 
 The first faster-whisper model load may download model weights into the Hugging Face cache. For a fully offline deployment, pre-cache the selected model before disconnecting from the network. Piper voices are not downloaded by MATRIX; choose and install one yourself, then point `MATRIX_PIPER_MODEL` at it.
+
+## Windows SAPI speech output (opt-in)
+
+On Windows 10/11 with an installed speech voice, MATRIX can speak through the built-in Windows SAPI engine without downloading anything:
+
+```powershell
+$env:MATRIX_TTS_PROVIDER = "windows-sapi"
+matrix serve
+```
+
+Text is passed to a fixed PowerShell script over stdin as JSON; it is never interpolated into a command string or written to disk. Speech runs as a hidden, non-interactive process with a 180-second timeout; barge-in terminates the synthesis process immediately. If no local speech voice is installed, the engine reports it instead of failing silently. This provider is strictly opt-in and only active on `win32`.
 
 ## HTTP flow
 

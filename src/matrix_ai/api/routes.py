@@ -772,9 +772,29 @@ async def voice_stop(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, 
 async def voice_transcribe(
     body: VoiceTranscribeBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> dict[str, Any]:
-    return await asyncio.to_thread(
-        runtime.voice.transcribe, body.audio_base64, session_id=body.session_id
+    result = await runtime.voice.transcribe_async(
+        body.audio_base64, session_id=body.session_id
     )
+    # Audit only metadata; the audio and transcript are never persisted.
+    runtime.store.audit(
+        "voice.transcribed",
+        actor=principal.user_id,
+        status="ok",
+        detail={
+            "provider": result.get("provider"),
+            "language": result.get("language"),
+            "duration_seconds": result.get("duration_seconds"),
+        },
+    )
+    return result
+
+
+@router.post("/voice/check-speech", tags=["voice"])
+async def voice_check_speech(
+    body: VoiceSpeakBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, bool]:
+    """Validate text before either local or browser speech playback."""
+    return runtime.voice.validate_speech(body.text)
 
 
 @router.post("/voice/speak", tags=["voice"])

@@ -35,6 +35,16 @@ def _parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="print a health/diagnostics report (no secrets)")
 
+    preflight = sub.add_parser(
+        "telegram-preflight",
+        help="verify Telegram bot connectivity and configuration without starting the bridge",
+    )
+    preflight.add_argument(
+        "--send-test",
+        action="store_true",
+        help="also send one harmless test message to the configured owner chat",
+    )
+
     benchmark = sub.add_parser(
         "benchmark-model", help="benchmark a configured local model (plans are never executed)"
     )
@@ -154,6 +164,11 @@ def _backup(out: str | None) -> int:
         check = sqlite3.connect(str(path))
         try:
             integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+        except sqlite3.DatabaseError as exc:
+            # A truncated or corrupted backup (e.g. interrupted process) must be
+            # reported as failed, never offered for restore.
+            print(f"Backup: {path}\nIntegrity: FAILED ({type(exc).__name__})")
+            return 1
         finally:
             check.close()
         print(f"Backup: {path}\nIntegrity: {integrity}")
@@ -172,6 +187,16 @@ def main(argv: list[str] | None = None) -> int:
             return _serve(args)
         if args.command == "doctor":
             return asyncio.run(_doctor())
+        if args.command == "telegram-preflight":
+            from .telegram import telegram_preflight
+
+            try:
+                report = asyncio.run(telegram_preflight(config, send_test=args.send_test))
+            except (ValidationFailure, MatrixError) as exc:
+                print(json.dumps({"preflight": "failed", "error": str(exc)}, indent=2))
+                return 1
+            print(json.dumps(report, indent=2))
+            return 0
         if args.command == "benchmark-model":
             return asyncio.run(_benchmark_model(args.max_cases))
         if args.command == "backup":

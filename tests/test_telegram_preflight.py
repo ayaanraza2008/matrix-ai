@@ -1,0 +1,122 @@
+"""Telegram live-acceptance preflight tests (hermetic, no real API calls)."""
+
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from matrix_ai.cli import main as cli_main
+from matrix_ai.errors import ToolUnavailable, ValidationFailure
+from matrix_ai.telegram import telegram_preflight
+
+TOKEN = "123456:test-preflight-token"
+CHAT_ID = "111222333"
+
+
+def _config() -> SimpleNamespace:
+    return SimpleNamespace(telegram_bot_token=TOKEN, telegram_chat_id=CHAT_ID)
+
+
+def _router(request: httpx.Request) -> httpx.Response:
+    url = str(request.url)
+    if "getMe" in url:
+        return httpx.Response(200, json={"ok": True, "result": {"id": 42, "username": "matrix_owner_bot"}})
+    if "getWebhookInfo" in url:
+        return httpx.Response(200, json={"ok": True, "result": {"url": "", "pending_update_count": 2}})
+    if "sendMessage" in url:
+        assert json.loads(request.content)["chat_id"] == CHAT_ID
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+    return httpx.Response(400, json={"ok": False, "description": "unknown method"})
+
+
+@pytest.mark.asyncio
+async def test_preflight_reports_connectivity_without_exposing_the_token():
+    transport = httpx.MockTransport(_router)
+    report = await telegram_preflight(_config(), transport=transport)
+
+    assert report["preflight"] == "ok"
+    assert report["bot_username"] == "matrix_owner_bot"
+    assert report["pending_updates"] == 2
+    assert report["webhook_url"] == ""
+    assert "test_message_sent" not in report
+    # The token must never appear anywhere in the report.
+    assert TOKEN not in json.dumps(report)
+
+
+@pytest.mark.asyncio
+async def test_preflight_refuses_to_run_without_configuration():
+    empty = SimpleNamespace(telegram_bot_token=None, telegram_chat_id="")
+    with pytest.raises(ValidationFailure):
+        await telegram_preflight(empty, transport=httpx.MockTransport(_router))
+
+
+@pytest.mark.asyncio
+async def test_preflight_fails_closed_when_a_webhook_is_configured():
+    def webhook_router(request: httpx.Request) -> httpx.Response:
+        if "getWebhookInfo" in str(request.url):
+            return httpx.Response(
+                200, json={"ok": True, "result": {"url": "https://example.com/hook"}}
+            )
+        return _router(request)
+
+    with pytest.raises(ToolUnavailable, match="webhook"):
+        await telegram_preflight(_config(), transport=httpx.MockTransport(webhook_router))
+
+
+@pytest.mark.asyncio
+async def test_preflight_reports_rejected_token_without_echoing_details():
+    def bad_token_router(request: httpx.Request) -> httpx.Response:
+        if "getMe" in str(request.url):
+            return httpx.Response(200, json={"ok": False, "description": "Unauthorized secret detail"})
+        return _router(request)
+
+    with pytest.raises(ToolUnavailable, match="bot token"):
+        await telegram_preflight(_config(), transport=httpx.MockTransport(bad_token_router))
+
+
+@pytest.mark.asyncio
+async def test_preflight_can_send_one_test_message_to_the_owner_chat():
+    transport = httpx.MockTransport(_router)
+    report = await telegram_preflight(_config(), send_test=True, transport=transport)
+    assert report["test_message_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_preflight_survives_network_timeout_fail_closed(monkeypatch):
+    def timeout_router(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("blocked")
+
+    with pytest.raises(ToolUnavailable, match="timeout"):
+        await telegram_preflight(_config(), transport=httpx.MockTransport(timeout_router))
+
+
+def test_cli_telegram_preflight_uses_configured_env(monkeypatch, capsys):
+    monkeypatch.setenv("MATRIX_TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("MATRIX_TELEGRAM_CHAT_ID", CHAT_ID)
+    monkeypatch.setenv("MATRIX_HOME", "unused-for-this-test")
+    monkeypatch.setattr(
+        "matrix_ai.telegram.telegram_preflight",
+        _fake_preflight,
+    )
+    exit_code = cli_main(["telegram-preflight"])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert json.loads(out)["preflight"] == "ok"
+    assert TOKEN not in out
+
+
+async def _fake_preflight(config, *, send_test=False, transport=None):
+    return {"preflight": "ok", "send_test": send_test}
+
+
+def test_cli_telegram_preflight_fails_without_configuration(monkeypatch, capsys):
+    monkeypatch.delenv("MATRIX_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("MATRIX_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setenv("MATRIX_HOME", "unused-for-this-test")
+    exit_code = cli_main(["telegram-preflight"])
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert json.loads(out)["preflight"] == "failed"
