@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime as RealDateTime
 from types import SimpleNamespace
 
 import pytest
 
+import matrix_ai.scheduler as scheduler_module
 from matrix_ai.config import MatrixConfig
 from matrix_ai.errors import ConfigError
 from matrix_ai.scheduler import Scheduler
@@ -251,9 +253,6 @@ async def test_emergency_stop_inbox_event_is_critical(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_daily_digest_is_created_once_after_local_nine_am(tmp_path, monkeypatch):
-    import matrix_ai.scheduler as scheduler_module
-    from datetime import datetime as RealDateTime
-
     scheduler, store, _ = make_scheduler(tmp_path)
     store.task_rows = [
         {"state": "COMPLETE"}, {"state": "FAILED"}, {"state": "EXECUTE"},
