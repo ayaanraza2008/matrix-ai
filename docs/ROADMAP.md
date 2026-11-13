@@ -60,3 +60,27 @@ reproducible demonstration — not when code exists.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
 - [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
 - [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+
+### M7 — Dependency-aware task plans
+
+- [x] Validate planner step dependency indexes, unknown references, duplicates and cycles.
+- [x] Preserve zero-based `depends_on` relationships through the planner parser.
+- [x] Execute only dependency-ready steps, including prerequisites that appear later in the plan.
+- [x] Block transitive descendants after a failed or unverified prerequisite.
+- [x] Continue independent branches after a step failure; final task outcome remains PARTIAL/FAILED when any required branch did not complete.
+- [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
+- [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
+- Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.
+
+### M8 — Persistent executable goal DAGs
+
+- [x] Persist bounded goal nodes and dependency edges in SQLite.
+- [x] Add authenticated plan, start, graph-status and cancellation APIs.
+- [x] Dispatch up to four dependency-ready nodes per goal through the normal task orchestrator.
+- [x] Continue independent branches and block descendants of failed nodes.
+- [x] Recover orphaned dispatch claims and resume durable goal graphs after startup.
+- [x] Resume graph reconciliation after a node approval decision.
+- [x] Add a separate read-only model criteria-assessment pass; keep goals awaiting owner review when no model/evidence is available.
+- [ ] Add explicit owner-triggered replan with a no-side-effect replay gate and bounded replan count.
+- [ ] Test restart recovery, pending-approval resume and cancellation during a live node on Windows and Linux.
+- [ ] Run the full CI matrix on the final PR head and complete end-to-end acceptance.
