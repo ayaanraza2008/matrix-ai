@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     device_id TEXT,
     kind TEXT NOT NULL DEFAULT 'chat',
     goal_id TEXT,
+    source_update_id TEXT,
     state TEXT NOT NULL,
     original_request TEXT NOT NULL,
     normalized_goal TEXT,
@@ -249,6 +250,12 @@ class Database:
                 columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
                 if "goal_id" not in columns:
                     self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_id TEXT")
+                if "source_update_id" not in columns:
+                    self._conn.execute("ALTER TABLE tasks ADD COLUMN source_update_id TEXT")
+                self._conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_source_update "
+                    "ON tasks(source_update_id) WHERE source_update_id IS NOT NULL"
+                )
                 goal_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()}
                 for name, declaration in (
                     ("deadline", "TEXT"),
