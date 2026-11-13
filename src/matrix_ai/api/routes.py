@@ -38,7 +38,8 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, ModelUnavailable, NotFoundError\nfrom ..core.goal_verifier import review_goal_criteria
+from ..core.goal_verifier import review_goal_criteria
+from ..errors import AuthenticationError, ModelUnavailable, NotFoundError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
