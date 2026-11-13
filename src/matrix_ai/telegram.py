@@ -373,7 +373,7 @@ class TelegramChatBridge:
                 )
             else:
                 transcript_result = await asyncio.to_thread(
-                    manager.stt_engine.transcribe, bytes(audio)
+                    manager.stt_engine.transcribe, bytes(audio), suffix=suffix
                 )
         except Exception as exc:  # noqa: BLE001 - optional codec/model errors vary
             raise ToolUnavailable(
