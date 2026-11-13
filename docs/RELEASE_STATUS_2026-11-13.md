@@ -88,3 +88,25 @@ The preferred PR #65 branch now also contains the durable Telegram update handli
 - Add regression tests for cursor restoration, success-only offset persistence, failed-update retry, and duplicate replay while emergency stop is active.
 
 This is an automated implementation on PR #65's branch, not yet release evidence. Fresh CI on the updated PR #65 head and real bot restart/replay acceptance remain required.
+
+
+## Integration refresh — 2026-11-13 (PR #65)
+
+The preferred consolidated candidate is PR #65: https://github.com/ayaanraza2008/matrix-ai/pull/65
+
+- Candidate branch: `feat/private-telegram-android-rebased-main`.
+- Candidate head reviewed: `69a88c76d118d0c9dd72640440f81d7bd052a8fc`.
+- Current `main` at review: `936029e46b4603429490c8883f5e3ab5c959941d`.
+- GitHub comparison reports the candidate as diverged and three commits behind current `main`; PR #65 is draft and non-mergeable.
+- No GitHub Actions workflow run was returned for the reviewed candidate head. Earlier CI runs on other commits/stacked PRs do not validate this candidate.
+- The current PR includes additional Telegram replay reliability work (persisted update cursor and task idempotency), but that change also has no exact-head CI evidence yet.
+
+### Immediate integration gates
+
+1. Reconcile the three newer `main` commits with the candidate on a clean integration branch, preserving both sides' changes. Do not force-push or overlay files wholesale.
+2. Run the complete Windows and Ubuntu Python matrix, lint, secret/dependency security checks, SBOM generation, and Android debug/release assemble on the final integration commit.
+3. Fix every failure and rerun checks on the resulting exact commit.
+4. Keep PR #65 draft until the merge base is current and required checks pass.
+5. Complete live acceptance separately: Telegram owner pairing, duplicate/restart behavior, Windows startup/restart/audio, Tailscale ACL, Android physical-device pairing and signed distribution build, and configured provider OAuth smoke tests.
+
+**Release decision remains NOT READY FOR PRODUCTION.** Repository CI cannot substitute for owner-device and third-party-account acceptance. Android release artifacts are unsigned; social-provider functionality remains dependent on external account permissions and credentials. Do not claim full autonomy or a fully free operating cost: provider quotas, hosting, public HTTPS callbacks and hardware/model requirements may introduce costs.
