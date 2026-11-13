@@ -52,3 +52,39 @@ async def test_invalid_backup_path_is_reported(runtime, tmp_path):
     path = runtime.store.backup(target)
     assert path.parent.exists()
     json.dumps({"backup": str(path)})
+
+
+async def test_interrupted_backup_file_is_detected_not_silently_restorable(runtime, tmp_path):
+    """A truncated/interrupted backup must fail the integrity gate, never pass silently."""
+    path = runtime.store.backup(tmp_path / "victim.db")
+    raw = path.read_bytes()
+    truncated = tmp_path / "interrupted.db"
+    truncated.write_bytes(raw[: len(raw) // 2])
+
+    check = sqlite3.connect(truncated)
+    try:
+        with pytest.raises(sqlite3.DatabaseError):
+            check.execute("PRAGMA integrity_check").fetchone()
+    finally:
+        check.close()
+
+
+async def test_memory_refuses_credential_content_and_backups_stay_clean(client, runtime, tmp_path):
+    """Credential-shaped text is refused at the memory boundary (403), and a full
+    backup of the resulting database must not contain the raw secret either."""
+    secret = "Bearer abcdefghijklmnopqrstuvwxyz"
+    refused = await client.post(
+        "/api/memory",
+        json={
+            "kind": "project",
+            "title": "Deployment note",
+            "content": f"The leaked credential was {secret}",
+            "source": "owner-note",
+            "confidence": 0.9,
+        },
+    )
+    assert refused.status_code == 403
+
+    destination = runtime.store.backup(tmp_path / "redaction.db")
+    blob = destination.read_bytes()
+    assert secret.encode() not in blob

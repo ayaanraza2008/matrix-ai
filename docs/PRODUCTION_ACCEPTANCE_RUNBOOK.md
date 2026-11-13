@@ -134,7 +134,7 @@ For each provider the owner actually wants to enable:
 - Verify backup/restore and rollback from a clean backup.
 - Define audit-log retention, local database protection/encryption, incident contact and recovery steps.
 - Review Tailscale ACLs, Android signing custody, OAuth scopes and secret rotation.
-- Keep `MATRIX_ALLOW_WEB_FETCH=false` until PR #75's connection-pinned transport has current-candidate CI confirmation, independent security review and merge. The implementation is present in PR #75; do not describe the original DNS-rebinding gap as still unimplemented. Track the gate in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
+- Keep `MATRIX_ALLOW_WEB_FETCH=false` until the connection-pinned transport has an independent security sign-off. The fix is **merged** (PR #75, closes #74) and main-branch CI is green; what remains is the reviewer sign-off recorded per `docs/SECURITY_REVIEW_WEB_FETCH.md`. The feature stays off by default regardless.
 - Keep public Funnel/port forwarding disabled.
 - Verify HIGH/CRITICAL exact-owner approval and emergency stop with harmless test actions.
 - Record all remaining limitations and assign an owner before production rollout.
