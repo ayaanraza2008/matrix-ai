@@ -92,13 +92,14 @@ class TelegramChatBridge:
     def _restore_offset(self) -> None:
         """Resume after the last successfully handled and persisted update."""
         saved = self.store.get_system_flag("telegram_update_offset")
-        if saved is None:
+        next_offset = saved is None
+        if next_offset:
             saved = self.store.get_system_flag("telegram.update_offset")
         if saved is None:
             self._offset = None
             return
         try:
-            self._offset = int(saved) + 1
+            self._offset = int(saved) if next_offset else int(saved) + 1
         except (TypeError, ValueError):
             self.store.audit(
                 "telegram.offset_invalid",
@@ -116,7 +117,7 @@ class TelegramChatBridge:
         await self._handle_update(update)
         self._offset = update_id + 1
         self.store.set_system_flag("telegram_update_offset", str(update_id))
-        self.store.set_system_flag("telegram.update_offset", str(update_id))
+        self.store.set_system_flag("telegram.update_offset", str(update_id + 1))
 
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
