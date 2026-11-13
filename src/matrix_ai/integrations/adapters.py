@@ -24,7 +24,7 @@ from .base import (
     Integration,
     IntegrationResult,
 )
-from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service
+from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service, has_youtube_credentials
 
 TIMEOUT = httpx.Timeout(6.0, connect=4.0)
 
@@ -110,12 +110,11 @@ class YouTubeIntegration(Integration):
     name = "youtube"
     description = "Manage the connected YouTube channel through the official YouTube Data API."
     category = "creator"
-    required_settings = ("MATRIX_YOUTUBE_TOKEN_FILE",)
+    required_settings = ("MATRIX_YOUTUBE_CLIENT_SECRETS", "OS credential manager")
 
     @property
     def configured(self) -> bool:
-        path = Path(str(self.config.youtube_token_path or "")).expanduser()
-        return path.is_file()
+        return has_youtube_credentials(self.config)
 
     def _check_sync(self) -> IntegrationResult:
         service = build_youtube_service(self.config, YOUTUBE_READ_SCOPE)
