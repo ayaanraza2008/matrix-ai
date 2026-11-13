@@ -14,7 +14,7 @@ from .config import MatrixConfig
 from .core.goal_graph import GoalGraph, GoalGraphError
 from .core.models import parse_dt, utcnow
 from .core.orchestrator import Orchestrator
-from .storage.store import Store
+from .storage.store import Store\nfrom .telegram import TelegramChatBridge
 
 log = logging.getLogger("matrix.goal_supervisor")
 FAILED_STATES = {"partial", "failed", "cancelled", "blocked", "needs_attention"}
@@ -28,12 +28,14 @@ class GoalSupervisor:
         store: Store,
         orchestrator: Orchestrator,
         config: MatrixConfig,
+        telegram: TelegramChatBridge | None = None,
         poll_seconds: float = 5.0,
         max_concurrent_nodes: int = 2,
     ) -> None:
         self.store = store
         self.orchestrator = orchestrator
         self.config = config
+        self.telegram = telegram
         self.poll_seconds = max(1.0, poll_seconds)
         self.max_concurrent_nodes = max(1, min(max_concurrent_nodes, 4))
         self._task: asyncio.Task | None = None
@@ -72,6 +74,38 @@ class GoalSupervisor:
                 )
             await asyncio.sleep(self.poll_seconds)
 
+    async def notify_graph(self, graph_id: str) -> None:
+        """Attempt one deduplicated state notification for an owner graph."""
+        record = self.store.get_goal_graph(graph_id)
+        await self._notify_graph_state(record, record["nodes"], record["state"])
+
+    async def _notify_graph_state(
+        self, record: dict, nodes: list[dict], state: str
+    ) -> None:
+        if self.telegram is None or not self.telegram.enabled:
+            return
+        if state not in {
+            "running", "awaiting_owner_confirmation", "completed",
+            "partial", "failed", "cancelled",
+        }:
+            return
+        graph_id = record["id"]
+        if not self.store.claim_goal_graph_notification(graph_id, state):
+            return
+        total = len(nodes)
+        verified = sum(node["goal"]["state"] == "verified" for node in nodes)
+        waiting = sum(node["goal"]["state"] == "awaiting_verification" for node in nodes)
+        active = sum(node["goal"]["state"] == "running" for node in nodes)
+        blocked = sum(node["goal"]["state"] in FAILED_STATES for node in nodes)
+        message = (
+            f"MATRIX goal graph update: {record['title']}\n"
+            f"Status: {state.replace('_', ' ').upper()}\n"
+            f"Owner-confirmed: {verified}/{total} | Running: {active} | "
+            f"Awaiting confirmation: {waiting} | Failed/blocked: {blocked}"
+        )
+        if await self.telegram.notify_owner(message):
+            self.store.mark_goal_graph_notified(graph_id, state)
+
     async def tick(self) -> list[dict]:
         """Dispatch only dependency-ready nodes; safe to call from API or loop."""
         results: list[dict] = []
@@ -89,6 +123,7 @@ class GoalSupervisor:
             )
         except GoalGraphError as exc:
             self.store.update_goal_graph_state(graph_id, "failed")
+            await self._notify_graph_state(record, nodes, "failed")
             self.store.audit(
                 "goal_graph.invalid",
                 actor="goal-supervisor",
@@ -115,6 +150,7 @@ class GoalSupervisor:
             else:
                 terminal_state = "failed"
             self.store.update_goal_graph_state(graph_id, terminal_state)
+            await self._notify_graph_state(record, self.store.goal_graph_nodes(graph_id), terminal_state)
             self.store.audit(
                 "goal_graph.deadline_expired",
                 actor="goal-supervisor",
@@ -224,6 +260,7 @@ class GoalSupervisor:
                 status=next_state,
                 detail={"graph_id": graph_id},
             )
+        await self._notify_graph_state(record, refreshed, next_state)
         return results
 
 
