@@ -238,8 +238,14 @@
               <label class="sr-only" for="engineering-coach-path">Session file path</label>
               <input id="engineering-coach-path" maxlength="1024" placeholder="workspace/session.jsonl" required>
               <button type="submit">Analyze session</button>
+              <select id="engineering-coach-interval" aria-label="Recurring analysis interval">
+                <option value="3600">Every hour</option>
+                <option value="21600">Every 6 hours</option>
+                <option value="86400" selected>Daily</option>
+              </select>
+              <button type="button" class="ghost" id="engineering-coach-schedule">Schedule recurring analysis</button>
             </form>
-            <p class="hint">No directory watching or background collection. Only the file you explicitly submit is read. Raw prompts and tool arguments are not returned or stored.</p>
+            <p class="hint">Scheduling is opt-in and applies only to this exact file path. MATRIX does not watch directories or discover other logs. Raw prompts and tool arguments are not returned or stored.</p>
             <div id="engineering-coach-result" class="result"><div class="empty">Choose a session export to view reliability metrics and reusable workflow candidates.</div></div>
           </div>
         </section>
