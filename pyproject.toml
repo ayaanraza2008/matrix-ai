@@ -79,3 +79,7 @@ ignore = ["E501", "UP042"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+"src/matrix_ai/tools/github_tools.py" = ["E701", "E702", "I001"]
+"src/matrix_ai/tools/social_tools.py" = ["E701", "E702", "I001"]
+"src/matrix_ai/tools/youtube_tools.py" = ["E701", "E702", "I001"]
+"src/matrix_ai/tools/registry.py" = ["I001"]
