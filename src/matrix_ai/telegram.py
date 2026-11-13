@@ -112,11 +112,13 @@ class TelegramChatBridge:
         self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
         rate_limiter: RateLimiter | None = None,
         voice_manager: Any | None = None,
+        goal_supervisor: Any | None = None,
     ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
         self.voice_manager = voice_manager
+        self.goal_supervisor = goal_supervisor
         # Share the runtime limiter so Telegram cannot bypass API task throttling.
         self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
         self._task: asyncio.Task | None = None
@@ -370,6 +372,11 @@ class TelegramChatBridge:
                 "/tasks — recent Telegram tasks\n"
                 "/task <task-id> — inspect one of your Telegram tasks\n"
                 "/cancel <task-id> — cancel one of your Telegram tasks\n"
+                "/goal <title> | <success criteria> — start a bounded autonomous goal\n"
+                "/goals — list your recent goals\n"
+                "/goal-status <goal-id> — inspect a goal\n"
+                "/goal-pause <goal-id> / /goal-resume <goal-id> — pause or resume a goal plan\n"
+                "/goal-cancel <goal-id> — cancel a goal\n"
                 "/stop — activate emergency stop\n"
                 "/resume — clear emergency stop\n"
                 "HIGH/CRITICAL approvals must still be confirmed in the MATRIX dashboard."
@@ -378,6 +385,13 @@ class TelegramChatBridge:
         if command == "/status":
             health = await self.orchestrator.models.status()
             active = self.store.nonterminal_tasks()
+            goals = self.store.list_goals(owner_id="owner", limit=200)
+            active_goals = sum(
+                1 for goal in goals
+                if goal.get("state") in {
+                    "queued", "planned", "running", "paused", "cancelling", "awaiting_verification"
+                }
+            )
             waiting = sum(
                 1 for task in active
                 if task["state"] in {
@@ -389,8 +403,145 @@ class TelegramChatBridge:
                 f"MATRIX Telegram: {'running' if self.running else 'starting'}\n"
                 f"Model: {health.status} ({health.provider}/{health.model})\n"
                 f"Active tasks: {len(active)}\n"
+                f"Active goals: {active_goals}\n"
                 f"Waiting for owner approval: {waiting}\n"
                 f"Emergency stop: {'ACTIVE' if self.store.emergency_stop else 'off'}"
+            )
+            return
+        if command == "/goal":
+            if self.goal_supervisor is None:
+                await self._send("Autonomous goal control is unavailable in this runtime.")
+                return
+            if not command_args:
+                await self._send("Usage: /goal <title> | <success criteria>")
+                return
+            parts = command_args.split("|", 1)
+            title = parts[0].strip()
+            criteria = parts[1].strip() if len(parts) > 1 else "Complete the goal and verify the outcome."
+            if not title or len(title) > 2000 or not criteria or len(criteria) > 2000:
+                await self._send("Goal title and success criteria must each contain 1–2000 characters.")
+                return
+            deadline_seconds = max(1.0, min(float(self.config.task_deadline_seconds), 86400.0))
+            goal_id = self.store.create_goal(
+                owner_id="owner",
+                title=title,
+                success_criteria=criteria,
+                deadline_seconds=deadline_seconds,
+            )
+            task_id = None
+            try:
+                task_id = self.orchestrator.create_task(
+                    request=f"Goal: {title}\nSuccess criteria: {criteria}",
+                    user_id="owner",
+                    autonomy_level=self.config.autonomy_level,
+                    kind="goal",
+                    goal_id=goal_id,
+                    deadline_seconds=deadline_seconds,
+                )
+                self.store.attach_goal_task(goal_id, task_id)
+                await self.orchestrator.enqueue(task_id)
+            except Exception as exc:  # noqa: BLE001 - keep partially created goals visible and audited
+                self.store.fail_goal_start(
+                    goal_id, "MATRIX could not start this goal; inspect system health and retry."
+                )
+                self.store.audit(
+                    "telegram.goal_start_failed", actor="telegram",
+                    task_id=task_id, status="failed",
+                    detail={"goal_id": goal_id, "error": type(exc).__name__},
+                )
+                await self._send(
+                    f"Goal could not be started. Goal ID: {goal_id}. Check MATRIX health before retrying."
+                )
+                return
+            self.store.audit(
+                "telegram.goal_created", actor="telegram", task_id=task_id,
+                status="running", detail={"goal_id": goal_id},
+            )
+            await self._send(
+                f"Autonomous goal started.\nGoal ID: {goal_id}\nTask ID: {task_id}\n"
+                f"Deadline: {int(deadline_seconds)} seconds\nUse /goal-status {goal_id} to track it."
+            )
+            return
+        if command == "/goals":
+            goals = self.store.list_goals(owner_id="owner", limit=5)
+            if not goals:
+                await self._send("No MATRIX goals have been recorded yet. Start one with /goal <title> | <success criteria>.")
+                return
+            lines = ["Recent MATRIX goals:"]
+            for goal in goals:
+                lines.append(
+                    f"{goal['state']} · {goal['id']} · {str(goal['title'])[:100]}"
+                )
+            await self._send("\n".join(lines))
+            return
+        if command in {"/goal-status", "/goal-pause", "/goal-resume", "/goal-cancel"}:
+            if self.goal_supervisor is None:
+                await self._send("Autonomous goal control is unavailable in this runtime.")
+                return
+            if not command_args or len(command_args) > 128 or any(ch.isspace() for ch in command_args):
+                await self._send(f"Usage: {command} <goal-id>")
+                return
+            try:
+                goal = self.store.get_goal(command_args)
+            except Exception:  # noqa: BLE001 - avoid revealing whether another owner's goal exists
+                await self._send("That goal was not found for this owner.")
+                return
+            if goal.get("owner_id") != "owner":
+                await self._send("That goal was not found for this owner.")
+                return
+            nodes = self.store.get_goal_graph(command_args)
+            if command == "/goal-pause":
+                if not nodes:
+                    await self._send("Pause is available for multi-step goal plans. This goal is not a goal graph.")
+                    return
+                try:
+                    status = await self.goal_supervisor.pause(command_args)
+                except ValueError as exc:
+                    await self._send(f"Goal could not be paused: {exc}")
+                    return
+                await self._send(f"Goal paused: {command_args}\nState: {status['state']}")
+                return
+            if command == "/goal-resume":
+                if not nodes:
+                    await self._send("Resume is available for multi-step goal plans. This goal is not a goal graph.")
+                    return
+                try:
+                    status = await self.goal_supervisor.resume(command_args)
+                except ValueError as exc:
+                    await self._send(f"Goal could not be resumed: {exc}")
+                    return
+                await self._send(f"Goal resumed: {command_args}\nState: {status['state']}")
+                return
+            if command == "/goal-cancel":
+                if nodes:
+                    status = await self.goal_supervisor.cancel(command_args)
+                    await self._send(f"Goal cancellation processed: {command_args}\nState: {status['state']}")
+                    return
+                task = goal.get("task")
+                task_id = task.get("id") if isinstance(task, dict) else None
+                if not task_id:
+                    await self._send("This goal has no active task to cancel.")
+                    return
+                task_view = self.store.task_view(task_id)
+                if task_view.state in TERMINAL_TASK_STATES:
+                    await self._send(f"Goal task is already terminal ({task_view.state.value}).")
+                    return
+                result = await self.orchestrator.cancel(task_id)
+                refreshed = self.store.get_goal(command_args)
+                await self._send(
+                    f"Goal cancellation processed: {command_args}\nTask state: {result.state.value}\n"
+                    f"Goal state: {refreshed['state']}"
+                )
+                return
+            task = goal.get("task") or {}
+            task_state = task.get("state") if isinstance(task, dict) else None
+            nodes_done = sum(1 for node in nodes if node.get("state") in {"completed", "failed", "cancelled"})
+            await self._send(
+                f"Goal: {goal['title']}\nID: {goal['id']}\nState: {goal['state']}\n"
+                f"Success criteria: {str(goal['success_criteria'])[:700]}\n"
+                f"Task state: {task_state or 'not started'}\n"
+                f"Plan nodes: {nodes_done}/{len(nodes)} terminal\n"
+                f"Result: {str(goal.get('result_summary') or 'No final result yet.')[:1000]}"
             )
             return
         if command == "/tasks":
