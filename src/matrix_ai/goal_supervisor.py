@@ -170,8 +170,7 @@ class GoalSupervisor:
                         goal_id=goal["id"],
                         deadline_seconds=remaining,
                     )
-                    self.store.attach_goal_task(goal["id"], task_id)
-                    attempt = self.store.record_goal_graph_node_attempt(
+                    attempt = self.store.attach_goal_graph_task(
                         graph_id, node_id, goal["id"], task_id
                     )
                     await self.orchestrator.enqueue(task_id)
