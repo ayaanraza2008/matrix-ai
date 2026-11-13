@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 from matrix_ai.config import MatrixConfig
@@ -14,6 +15,13 @@ class FakeStore:
     def __init__(self):
         self.audits = []
         self.stopped = False
+        self.flags = {}
+
+    def get_system_flag(self, name, default=None):
+        return self.flags.get(name, default)
+
+    def set_system_flag(self, name, value):
+        self.flags[name] = value
 
     def audit(self, *args, **kwargs):
         self.audits.append((args, kwargs))
@@ -287,3 +295,47 @@ async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
         pass
     else:
         raise AssertionError("oversized Telegram voice note should be rejected")
+
+
+async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updates(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.flags["telegram.update_offset"] = "55"
+    observed_offsets = []
+    second_poll = asyncio.Event()
+
+    class FakeClient:
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr("matrix_ai.telegram.httpx.AsyncClient", lambda **_kwargs: FakeClient())
+
+    async def fake_api(method, payload):
+        if method == "sendMessage":
+            return {"ok": True}
+        assert method == "getUpdates"
+        observed_offsets.append(payload.get("offset"))
+        if len(observed_offsets) == 1:
+            return {"result": [{"update_id": 55, "message": {
+                "chat": {"id": 123456789, "type": "private"},
+                "from": {"id": 123456789},
+                "text": "/help",
+            }}]}
+        second_poll.set()
+        await asyncio.Future()
+
+    bridge._api = fake_api
+
+    async def must_not_drain():
+        raise AssertionError("startup must not discard pending owner updates")
+
+    bridge._discard_pending_updates = must_not_drain
+    runner = asyncio.create_task(bridge._run())
+    await asyncio.wait_for(second_poll.wait(), timeout=2)
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert observed_offsets[0] == 55
+    assert store.flags["telegram.update_offset"] == "56"
