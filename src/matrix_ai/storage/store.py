@@ -545,6 +545,53 @@ class Store:
             approvals=self.approvals_for(task_id),
         )
 
+    # -- in-app notification inbox ---------------------------------------
+    def create_notification(
+        self, *, title: str, message: str, severity: str = "info", event_type: str = "system"
+    ) -> str:
+        if severity not in {"info", "success", "warning", "critical"}:
+            raise ValueError("invalid notification severity")
+        notification_id = uuid.uuid4().hex
+        raw = self.get_flag("notification_inbox", "[]")
+        items = _json_load(raw, [])
+        if not isinstance(items, list):
+            items = []
+        items.append({
+            "id": notification_id,
+            "created_at": iso(),
+            "title": redact_text(title, max_length=160),
+            "message": redact_text(message, max_length=1000),
+            "severity": severity,
+            "event_type": redact_text(event_type, max_length=80),
+            "read": False,
+        })
+        # Bounded storage prevents the inbox flag from growing without limit.
+        self.set_flag("notification_inbox", json.dumps(items[-100:], separators=(",", ":")))
+        return notification_id
+
+    def list_notifications(self, *, limit: int = 50, unread_only: bool = False) -> list[dict[str, Any]]:
+        items = _json_load(self.get_flag("notification_inbox", "[]"), [])
+        if not isinstance(items, list):
+            return []
+        if unread_only:
+            items = [item for item in items if isinstance(item, dict) and not item.get("read", False)]
+        return list(reversed(items[-max(1, min(limit, 100)):]))
+
+    def mark_notification_read(self, notification_id: str) -> bool:
+        items = _json_load(self.get_flag("notification_inbox", "[]"), [])
+        if not isinstance(items, list):
+            items = []
+        found = False
+        for item in items:
+            if isinstance(item, dict) and item.get("id") == notification_id:
+                item["read"] = True
+                found = True
+                break
+        if not found:
+            raise NotFoundError(f"notification {notification_id} not found")
+        self.set_flag("notification_inbox", json.dumps(items[-100:], separators=(",", ":")))
+        return True
+
     # -- flags ------------------------------------------------------------
     def set_flag(self, name: str, value: str) -> None:
         self.db.execute(
