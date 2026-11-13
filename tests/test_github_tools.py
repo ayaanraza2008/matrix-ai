@@ -18,6 +18,7 @@ from matrix_ai.tools.github_tools import (
 )
 from matrix_ai.tools.registry import build_registry
 
+
 def make_context(tmp_path, token="test-token"):
     return ToolContext(
         task_id="github-test",
