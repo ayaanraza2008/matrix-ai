@@ -205,7 +205,12 @@ class Scheduler:
         )
 
     def _configured_notification_channels(self, state: str | None = None) -> set[str]:
-        if state == "healthy" and not self.store.notification_preferences().get("health_recovered", True):
+        preferences = (
+            self.store.notification_preferences()
+            if hasattr(self.store, "notification_preferences")
+            else {"health_recovered": True}
+        )
+        if state == "healthy" and not preferences.get("health_recovered", True):
             return set()
         channels: set[str] = set()
         if self.config.telegram_bot_token and self.config.telegram_chat_id:
