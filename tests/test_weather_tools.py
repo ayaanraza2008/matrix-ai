@@ -10,6 +10,7 @@ from matrix_ai.errors import ToolExecutionError
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 
+
 def context(tmp_path):
     return ToolContext(task_id="weather-test", config=MatrixConfig(home=tmp_path))
 
