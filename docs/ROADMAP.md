@@ -61,4 +61,5 @@ reproducible demonstration — not when code exists.
 - [x] Add timezone-aware quiet hours for routine recovery alerts, urgent degradation/emergency-stop bypass and retryable delivery.
 - [x] Add an authenticated, bounded in-app notification inbox for health transitions, with read acknowledgements and audit records.
 - [x] Add owner-configurable recovery/digest preferences and a timezone-aware once-daily aggregate digest.
-- [ ] Add multi-channel push routing and broader owner-configurable event preferences before broader proactive behavior.
+- [x] Add a signed, HTTPS allowlisted webhook adapter with independent retry tracking alongside Telegram.
+- [ ] Add further push providers and broader owner-configurable event preferences before broader proactive behavior.
