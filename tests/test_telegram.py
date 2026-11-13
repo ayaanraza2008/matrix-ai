@@ -18,9 +18,20 @@ class FakeStore:
         self.flags = {}
         self.idempotent_tasks = {}
         self.task_views = {}
+        self.telegram_task_ids = []
+        self.nonterminal = []
 
     def get_idempotent_task_id(self, scope, key):
         return self.idempotent_tasks.get((scope, key))
+
+    def is_idempotent_task(self, scope, task_id):
+        return scope == "telegram.update" and task_id in self.telegram_task_ids
+
+    def list_idempotent_task_ids(self, scope, limit=20):
+        return self.telegram_task_ids[:limit] if scope == "telegram.update" else []
+
+    def nonterminal_tasks(self):
+        return list(self.nonterminal)
 
     def get_system_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -37,7 +48,10 @@ class FakeStore:
     def task_view(self, task_id):
         if task_id in self.task_views:
             return self.task_views[task_id]
-        return SimpleNamespace(state=TaskState.RECEIVED, summary=None, error=None)
+        return SimpleNamespace(
+            state=TaskState.RECEIVED, summary=None, error=None,
+            original_request="",
+        )
 
 
 class FakeOrchestrator:
@@ -51,6 +65,11 @@ class FakeOrchestrator:
 
     async def enqueue(self, task_id):
         self.enqueued.append(task_id)
+
+    async def cancel(self, task_id):
+        self.cancelled = getattr(self, "cancelled", [])
+        self.cancelled.append(task_id)
+        return SimpleNamespace(state=TaskState.CANCELLED)
 
     async def cancel_all(self):
         return 2
@@ -374,3 +393,74 @@ async def test_telegram_replay_recovers_existing_task_before_rate_limit(tmp_path
     assert orchestrator.enqueued == ["existing-task"]
     assert store.flags["telegram_update_offset"] == "702"
     assert any("Recovered previously accepted" in message for message in sent)
+
+
+
+async def test_telegram_restores_result_watchers_for_pending_tasks(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.telegram_task_ids = ["pending-task", "completed-task"]
+    store.task_views["pending-task"] = SimpleNamespace(state=TaskState.EXECUTE)
+    store.task_views["completed-task"] = SimpleNamespace(state=TaskState.COMPLETE)
+    attached = []
+    monkeypatch.setattr(bridge, "_ensure_report_task", attached.append)
+
+    restored = bridge._restore_pending_reports()
+
+    assert restored == 1
+    assert attached == ["pending-task"]
+    assert any(args[0] == "telegram.report_watchers_restored" for args, _ in store.audits)
+
+
+async def test_telegram_task_commands_list_inspect_and_cancel_only_telegram_tasks(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.telegram_task_ids = ["task-abcdef123456"]
+    store.task_views["task-abcdef123456"] = SimpleNamespace(
+        state=TaskState.WAITING_FOR_USER,
+        summary="Needs owner approval",
+        error=None,
+        original_request="Create a test file",
+    )
+
+    await bridge._handle_update(update(text="/tasks"))
+    await bridge._handle_update(update(text="/task task-abcdef123456"))
+    await bridge._handle_update(update(text="/cancel task-abcdef123456"))
+    await bridge._handle_update(update(text="/task not-a-telegram-task"))
+
+    assert "Recent MATRIX Telegram tasks:" in sent[0]
+    assert "Needs owner approval" in sent[1]
+    assert "cannot auto-approve" in sent[1]
+    assert "cancellation processed" in sent[2].lower()
+    assert orchestrator.cancelled == ["task-abcdef123456"]
+    assert "does not belong" in sent[3]
+
+
+async def test_telegram_resume_command_clears_only_existing_emergency_stop(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.stopped = True
+    store.emergency_stop = True
+
+    await bridge._handle_update(update(text="/resume"))
+
+    assert store.stopped is False
+    assert sent == [
+        "Emergency stop cleared. New tasks may be accepted under the configured policy."
+    ]
+
+
+async def test_telegram_status_reports_task_counts_and_approval_queue(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def model_status():
+        return SimpleNamespace(status="working", provider="ollama", model="qwen-test")
+
+    orchestrator.models = SimpleNamespace(status=model_status)
+    store.nonterminal = [
+        {"state": TaskState.EXECUTE.value},
+        {"state": TaskState.WAITING_FOR_USER.value},
+    ]
+
+    await bridge._handle_update(update(text="/status"))
+
+    assert "Model: working (ollama/qwen-test)" in sent[0]
+    assert "Active tasks: 2" in sent[0]
+    assert "Waiting for owner approval: 1" in sent[0]
