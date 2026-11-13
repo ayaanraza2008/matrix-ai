@@ -269,3 +269,23 @@ async def test_goal_confirmation_is_owner_scoped_and_requires_review(runtime):
         )
 
 
+
+
+def test_external_task_submission_is_atomically_idempotent(runtime):
+    first = runtime.orchestrator.create_task(
+        request="First Telegram delivery",
+        user_id="owner",
+        idempotency_scope="telegram",
+        idempotency_key="update-123",
+    )
+    duplicate = runtime.orchestrator.create_task(
+        request="Duplicate Telegram delivery",
+        user_id="owner",
+        idempotency_scope="telegram",
+        idempotency_key="update-123",
+    )
+    assert duplicate == first
+    rows = runtime.store.db.query("SELECT id FROM tasks WHERE id=?", (first,))
+    assert len(rows) == 1
+
+
