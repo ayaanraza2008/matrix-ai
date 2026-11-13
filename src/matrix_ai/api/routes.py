@@ -139,6 +139,9 @@ class GoalGraphCreateBody(BaseModel):
     nodes: list[GoalGraphNodeBody] = Field(min_length=1, max_length=64)
     deadline_seconds: float = Field(default=3600.0, ge=1.0, le=86400.0)
 
+class GoalGraphRetryBody(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+
 
 # ---------------------------------------------------------------------------
 # health & identity
@@ -474,6 +477,29 @@ async def get_goal_graph(
     if graph["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal graph {graph_id} not found")
     return graph
+
+
+@router.post("/goal-graphs/{graph_id}/nodes/{node_id}/retry", status_code=202, tags=["goals"])
+async def retry_goal_graph_node(
+    graph_id: str, node_id: str, body: GoalGraphRetryBody,
+    principal: PrincipalDep, runtime: RuntimeDep,
+) -> dict[str, Any]:
+    try:
+        runtime.store.retry_goal_graph_node(
+            graph_id, node_id, owner_id=principal.user_id, max_attempts=3
+        )
+    except NotFoundError:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runtime.store.audit(
+        "goal_graph.node_retry_requested",
+        actor=principal.user_id,
+        status="queued",
+        detail={"graph_id": graph_id, "node_id": node_id, "reason": body.reason[:500]},
+    )
+    await runtime.goal_supervisor.tick()
+    return runtime.store.get_goal_graph(graph_id)
 
 
 @router.post("/goal-graphs/{graph_id}/cancel", tags=["goals"])
