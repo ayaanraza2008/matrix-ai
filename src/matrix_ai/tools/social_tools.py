@@ -278,7 +278,7 @@ class WhatsAppSendTextInput(StrictModel):
 
 
 class WhatsAppSendTemplateInput(StrictModel):
-    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\\+?[1-9][0-9]{7,14}$")
+    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\+?[1-9][0-9]{7,14}$")
     template_name: str = Field(min_length=1, max_length=512, pattern=r"^[a-zA-Z0-9_]+$")
     language_code: str = Field(default="en_US", pattern=r"^[a-z]{2}_[A-Z]{2}$")
     body_parameters: list[str] = Field(default_factory=list, max_length=20)
