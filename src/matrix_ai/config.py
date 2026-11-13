@@ -15,7 +15,9 @@ import os
 import secrets
 import sys
 from dataclasses import dataclass, field
+from datetime import time as datetime_time
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 
 from .errors import ConfigError
@@ -170,6 +172,11 @@ class MatrixConfig:
     hexstrike_allowed_targets: tuple[str, ...] = ()
     log_level: str = "INFO"
 
+    # Routine recovery notices can be deferred; urgent degradation alerts bypass quiet hours.
+    notification_quiet_hours_start: str | None = None
+    notification_quiet_hours_end: str | None = None
+    notification_timezone: str = "UTC"
+
     # Optional integrations - never required, never logged, never committed.
     github_token: str | None = None
     telegram_bot_token: str | None = None
@@ -215,6 +222,23 @@ class MatrixConfig:
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        if bool(self.notification_quiet_hours_start) != bool(self.notification_quiet_hours_end):
+            raise ConfigError("notification quiet hours require both start and end times")
+        for label, value in (
+            ("MATRIX_NOTIFICATION_QUIET_HOURS_START", self.notification_quiet_hours_start),
+            ("MATRIX_NOTIFICATION_QUIET_HOURS_END", self.notification_quiet_hours_end),
+        ):
+            if value is not None:
+                try:
+                    parsed = datetime_time.fromisoformat(value)
+                except ValueError as exc:
+                    raise ConfigError(f"{label} must use HH:MM format") from exc
+                if parsed.second or parsed.microsecond or len(value) != 5:
+                    raise ConfigError(f"{label} must use HH:MM format")
+        try:
+            ZoneInfo(self.notification_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ConfigError("MATRIX_NOTIFICATION_TIMEZONE must be a valid IANA timezone") from exc
 
     # -- helpers -----------------------------------------------------------
     @staticmethod
@@ -356,6 +380,13 @@ class MatrixConfig:
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "notification_routing": {
+                "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
+                "quiet_hours_start": self.notification_quiet_hours_start,
+                "quiet_hours_end": self.notification_quiet_hours_end,
+                "timezone": self.notification_timezone,
+                "urgent_degradation_bypasses_quiet_hours": True,
+            },
             "allow_web_fetch": self.allow_web_fetch,
             "allowed_app_ids": sorted(self.allowed_apps),
             "allowed_command_ids": sorted(self.allowed_commands),
@@ -422,6 +453,9 @@ class MatrixConfig:
             addon_mcp_servers=addon_servers,
             addon_auto_install_sources=_env_bool("MATRIX_ADDON_AUTO_INSTALL_SOURCES", True),
             log_level=_env("MATRIX_LOG_LEVEL", "INFO") or "INFO",
+            notification_quiet_hours_start=_env("MATRIX_NOTIFICATION_QUIET_HOURS_START"),
+            notification_quiet_hours_end=_env("MATRIX_NOTIFICATION_QUIET_HOURS_END"),
+            notification_timezone=_env("MATRIX_NOTIFICATION_TIMEZONE", "UTC") or "UTC",
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_env("MATRIX_TELEGRAM_CHAT_ID"),
