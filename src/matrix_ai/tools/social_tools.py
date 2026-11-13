@@ -57,6 +57,7 @@ class LinkedInCreatePostTool(Tool):
     input_model = LinkedInCreatePostInput
 
     def run_sync(self, args: LinkedInCreatePostInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
         token = ctx.config.linkedin_access_token
         author = ctx.config.linkedin_author_urn
         version = ctx.config.linkedin_api_version
@@ -122,6 +123,7 @@ class InstagramListCommentsTool(Tool):
     input_model = InstagramListCommentsInput
 
     def run_sync(self, args: InstagramListCommentsInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
         token, version = ctx.config.instagram_access_token, ctx.config.meta_graph_version
         if not token or not version:
             raise ToolUnavailable("Instagram is not configured. Set MATRIX_INSTAGRAM_ACCESS_TOKEN and MATRIX_META_GRAPH_VERSION.")
@@ -172,6 +174,7 @@ class InstagramReplyCommentTool(Tool):
     input_model = InstagramReplyCommentInput
 
     def run_sync(self, args: InstagramReplyCommentInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
         token, version = ctx.config.instagram_access_token, ctx.config.meta_graph_version
         if not token or not version:
             raise ToolUnavailable("Instagram is not configured. Set MATRIX_INSTAGRAM_ACCESS_TOKEN and MATRIX_META_GRAPH_VERSION.")
@@ -198,7 +201,7 @@ class InstagramReplyCommentTool(Tool):
 
 
 class WhatsAppSendTextInput(StrictModel):
-    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\\+?[1-9][0-9]{7,14}$")
+    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\+?[1-9][0-9]{7,14}$")
     text: str = Field(min_length=1, max_length=4096)
 
 
@@ -212,6 +215,7 @@ class WhatsAppSendTextTool(Tool):
     input_model = WhatsAppSendTextInput
 
     def run_sync(self, args: WhatsAppSendTextInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
         token = ctx.config.whatsapp_access_token
         phone_id = ctx.config.whatsapp_phone_number_id
         version = ctx.config.meta_graph_version
