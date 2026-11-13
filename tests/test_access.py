@@ -156,3 +156,24 @@ async def test_paired_device_cannot_list_or_revoke_devices(client, runtime):
 
     assert listing.status_code == 403
     assert revocation.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_auth_bootstrap_demotes_legacy_device_owner_sessions(runtime):
+    owner = runtime.auth.verify_token(runtime.config.owner_token)
+    pairing = runtime.auth.issue_pairing_code(owner)
+    paired = runtime.auth.pair(
+        code=pairing.code,
+        device_name="legacy-android",
+        platform="android",
+    )
+    runtime.db.execute(
+        "UPDATE sessions SET scope='owner' WHERE device_id=?",
+        (paired.device_id,),
+    )
+
+    runtime.auth.bootstrap()
+
+    principal = runtime.auth.verify_token(paired.token)
+    assert principal.scope == "device"
+    assert principal.is_owner is False
