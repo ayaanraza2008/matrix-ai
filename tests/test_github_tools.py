@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import DEFAULT_SCOPES, Risk
