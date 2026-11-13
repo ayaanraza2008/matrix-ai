@@ -176,3 +176,10 @@ Health transitions are also written to a bounded local inbox, even when Telegram
 - `POST /api/notifications/{id}/read` — mark one notification as read; the action is audited.
 
 The inbox includes the core health component summary only. It does not include task prompts, file contents, tokens or integration credentials. Critical emergency-stop events are labelled critical. The inbox is local persistence, not a substitute for an external alert: it cannot notify a device while MATRIX is offline, and push delivery remains optional.
+
+
+### Dashboard inbox, preferences and daily digest
+
+The dashboard renders the authenticated local notification inbox, unread count, severity, event type and read acknowledgement. Owner preferences are available through `GET/PUT /api/notifications/preferences`; they control routine recovery notices and the daily digest. Degraded-state and emergency-stop alerts are not suppressible. Preferences apply to the in-app inbox and do not silently change external push delivery.
+
+The scheduler creates at most one daily digest per local calendar day, on its first tick at or after 09:00 in `MATRIX_NOTIFICATION_TIMEZONE`. The digest contains aggregate counts for recent tasks and the emergency-stop state, not task prompts or private task content. It is persisted in the same bounded inbox. The scheduler must be running for the digest to be generated; it is not an external push guarantee.
