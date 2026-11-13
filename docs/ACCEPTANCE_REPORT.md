@@ -1,75 +1,50 @@
 # MATRIX acceptance report — current main
 
 **Snapshot:** 2026-11-13  
-**Integrated source:** PR #72, merged to `main` as `f472e0e9f164c0f15bfc2a72b3288f073109f704`  
-**Latest main CI follow-up:** run [#43437775032](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43437775032), commit `54e36d64c19276c3e1d00d0e594d4f3ebc171af8`, reported 7/7 jobs successful after the Ruff import-order correction.  
-**Exact candidate tree validated:** `7b822ccb14c6c1b1a122b9476847d0a49629ce87`
+**Latest reported production-gate merge:** PR #79, commit `51191bf`; main CI reported **7/7 jobs green**.  
+**Certification verdict: NOT CERTIFIED.** No acceptance failures are currently reported, but six mandatory real-world gates remain blocked or unverified. Repository CI and implementation status are not substitutes for live acceptance.
 
-## Automated CI evidence
+## Current merged implementation evidence
 
-GitHub Actions run [#43424775584](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43424775584) completed with **7/7 jobs successful** on the exact PR #72 candidate tree:
+The following work is reported merged to `main`:
 
-| Job | Result |
-|---|---|
-| Windows Python 3.11 full test/lint/secret scan/byte-compile/CLI | PASS |
-| Windows Python 3.12 full test/lint/secret scan/byte-compile/CLI | PASS |
-| Ubuntu Python 3.11 full test/lint/secret scan/byte-compile/CLI | PASS |
-| Ubuntu Python 3.12 full test/lint/secret scan/byte-compile/CLI | PASS |
-| Android debug + unsigned release assemble | PASS |
-| Astryx frontend build | PASS |
-| Blocking pip-audit + CycloneDX SBOM | PASS |
+- PR #72 — integrated release candidate.
+- PR #75 — DNS-pinned public web-fetch transport; `MATRIX_ALLOW_WEB_FETCH` remains disabled pending independent review.
+- PR #76 — opt-in Windows SAPI, speech preflight, push-to-talk, mute/stop and barge-in behavior.
+- PR #77 — reproducible release packaging, SBOM and Android APK build workflow; release APK remains unsigned.
+- PR #78 — Telegram preflight, backup integrity hardening and independent security review package.
+- PR #79 — failed-upgrade recovery regression test proving database integrity/task data preservation and idempotent migration retry after simulated interruption.
 
-Artifacts published by that run:
-- `matrix-python-sbom` (retention through 2026-12-13)
-- `matrix-android-apks` (retention through 2026-11-20; release APK is unsigned)
+The latest session report states main CI is 7/7 green on `51191bf`. Earlier CI run IDs and PR #72-era reports below are historical evidence for those exact trees only; they must not be presented as the latest-main run.
 
-This is strong repository/CI evidence. It is not a substitute for a fresh installation or physical-device testing.
+## Mandatory acceptance gates
 
-## Integrated implementation coverage
-
-- Orchestrator state machine, typed tools, policy engine, exact-action approvals, cancellation, emergency stop and audit trail.
-- Persistent SQLite task/goal state, dependency-aware goal DAGs, bounded scheduler, pause/resume/cancel, criteria assessment and owner confirmation.
-- Private Telegram chat with sender/chat pairing, restart-safe update watermark, task idempotency, rate limiting and emergency stop.
-- Private Tailscale Serve and current-user Windows logon startup, both opt-in.
-- Local optional faster-whisper/Piper STT/TTS; voice-note transcription remains bounded and follows the normal task policy.
-- Android companion scaffold with encrypted Android Keystore token storage, local session clearing and release HTTPS-only networking.
-- Optional GitHub, YouTube, LinkedIn, Instagram and WhatsApp integrations with approval/webhook boundaries.
-- Notification inbox, owner preferences, daily digest, quiet hours and optional signed HTTPS health webhook.
-- Engineering Coach, Vercel Skills and optional add-on catalogue.
-
-## Acceptance gates not proven by hosted CI
-
-| Gate | What must be demonstrated | State |
+| Gate | Current state | Evidence required to close |
 |---|---|---|
-| Fresh Windows installation | Install from clean environment, run doctor/tests, first-run token, service start/stop | Target PC required |
-| Windows startup/recovery | Current-user logon task, reboot, restart, DB recovery, upgrade and rollback | Target PC required |
-| Tailscale privacy | Serve is tailnet-only; restrictive ACLs; unauthorized device denied; revoke access | Owner tailnet required |
-| Telegram | New owner-controlled bot token; private pairing; receive/reply; /status; /stop; restart/replay; unauthorized sender denied | Live bot required |
-| Voice | Install optional extra and model assets; real microphone/speaker; mute/stop/barge-in; verify no raw audio persists | Target audio hardware required |
-| Android | Install debug APK; pair; reconnect; clear session; revoke device server-side; test HTTPS/network policy | Physical handset required |
-| Android release signing | Owner-controlled keystore, signed APK, signature verification, secure backup of signing key | Owner signing key required |
-| Provider OAuth | Least-privilege consent and live read/write tests for each provider actually enabled | Owner accounts and credentials required |
-| WhatsApp inbound | Public HTTPS callback, Meta verification, HMAC, sender allowlist and replay test | Public endpoint and Meta app required |
-| Operations | Backup/restore, audit retention, monitoring, incident response and rollback rehearsal | Deployment environment required |
-| Security | Close or explicitly accept documented DNS-rebinding/TOCTOU ([tracked in issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74)) risk; review local DB encryption, token storage and supply-chain posture | Security sign-off required |
+| 1. Independent security review | **BLOCKED** | Qualified reviewer who did not author the DNS-pinning change records identity (or explicit anonymity), date, decision and findings using [the review package](SECURITY_REVIEW_WEB_FETCH.md). Owner's COMMENTED review and agent review are not independent approval. Keep `MATRIX_ALLOW_WEB_FETCH=false`. |
+| 2. Telegram live acceptance | **BLOCKED** | Owner configures `MATRIX_TELEGRAM_BOT_TOKEN` and `MATRIX_TELEGRAM_CHAT_ID` in the local secret store/environment, runs `matrix telegram-preflight --send-test`, then completes runbook §4 on the live bot. Never commit or post credentials. |
+| 3. Windows host acceptance | **BLOCKED** | Clean install, doctor/tests, startup at current-user logon, restart/sleep/wake/network recovery, backup restore, upgrade/rollback, local-model benchmark if model-driven autonomy is in scope, and microphone/speaker/STT/TTS/push-to-talk/barge-in tests on the intended PC. |
+| 4. Tailscale remote access | **BLOCKED** | Owner enrolls only approved devices, configures restrictive ACLs, validates private Serve + MATRIX authentication, verifies unauthorized-device denial and revocation, and confirms no Funnel/public port-forwarding. |
+| 5. Android acceptance and signing | **BLOCKED** | Install debug APK on a physical handset; validate HTTPS pairing, harmless task flow, reconnect/restart, local session clearing and server-side revocation. Owner signs release APK with a protected key, verifies signature and tests the signed build. |
+| 6. Provider connections | **BLOCKED** | For each provider actually intended for deployment, owner grants least-privilege OAuth/credentials and completes authenticated read-only smoke tests, expiry/revocation and rate-limit checks. WhatsApp inbound additionally requires HTTPS callback verification, HMAC, sender allowlist and replay protection. |
 
-## Important limitations
+## Recovery, packaging and CI
 
-- Local model inference is optional and not configured by this repository CI. Install a compatible local runtime/model on the target PC and benchmark against its memory budget.
-- OCR requires Tesseract and the vision extra.
-- Wake word, VAD, echo cancellation, streaming partial transcripts and full WebRTC/SIP/PSTN calling are not claimed complete.
-- Android CI assembles the app but does not sign it or validate a physical handset.
-- Provider adapters do not imply that accounts are connected or that live publishing/messaging works.
-- No public Tailscale Funnel or API port forwarding is configured or recommended.
-- Telegram task creation is idempotent by update ID, but Telegram replies and external side effects remain at-least-once.
+- Backup corruption/truncation and secret-boundary protections have in-repository regression coverage (PR #78).
+- Failed-upgrade migration recovery is now regression-tested (PR #79). This proves the simulated code path in CI, not a live restore/rollback rehearsal on the deployment PC.
+- Release packaging and Android APK assembly are cloud-validated; the Android release APK is intentionally unsigned until owner-controlled signing.
+- The latest reported main CI result is 7/7 green on `51191bf`. Consult the repository Actions page for the authoritative run and job details: https://github.com/ayaanraza2008/matrix-ai/actions
 
-## Security follow-up: public web fetch
+## Operational rules
 
-The DNS-rebinding/TOCTOU gap was identified in `web.fetch_public`: the original implementation validated the hostname before the request, but the HTTP client then resolved it again when opening the connection. PR #75 implements connection-level IP pinning and deterministic regression tests. `MATRIX_ALLOW_WEB_FETCH` remains **false by default**. [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) implements connection-level pinning to validated numeric IPv4/IPv6 addresses, preserves the original hostname for TLS SNI/certificate verification and HTTP Host, verifies the connected peer, and adds deterministic tests. Exact PR-head CI run [#43432576244](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43432576244) passed **7/7 jobs**. PR #75 remains open for independent security review and merge. Keep public web fetch disabled until review accepts the implementation and it is merged. Track the gate in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
-See [`docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`](PRODUCTION_ACCEPTANCE_RUNBOOK.md) for the exact owner-device validation sequence and evidence requirements.
+- Keep public web fetch disabled until independent security sign-off is recorded. The implementation is merged; the remaining blocker is independent review, not another merge.
+- Do not treat an adapter as connected merely because its code exists. Track each provider as **IMPLEMENTED**, **CONNECTED**, **TESTED**, **PRODUCTION READY**, or **BLOCKED**.
+- Do not send public posts/messages, perform destructive actions, or approve HIGH/CRITICAL actions through Telegram without the required explicit owner approval.
+- Never place bot tokens, OAuth secrets/refresh tokens, signing keys, private messages or personal data in GitHub issues, commits, logs or ChatGPT.
+- Record each live test with timestamp, environment/app versions, sanitized evidence and exact result.
 
 ## Release decision
 
-**Repository integration and exact-head CI: PASS. Production certification: BLOCKED pending owner-environment evidence and security sign-off.**
+**Repository implementation and reported CI: PASS. Production certification: NOT CERTIFIED.**
 
-This report deliberately separates automated repository checks from evidence that can only be collected on the owner's Windows PC, tailnet, Telegram bot, provider accounts and Android handset.
+Certification remains blocked until every mandatory gate required by the intended deployment has real evidence. Optional providers may remain disabled and explicitly deferred; they must not be described as production-ready. See [the owner-environment acceptance runbook](PRODUCTION_ACCEPTANCE_RUNBOOK.md) and [tracking issue #73](https://github.com/ayaanraza2008/matrix-ai/issues/73).
