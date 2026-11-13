@@ -232,6 +232,7 @@ async def test_telegram_persists_offset_only_after_update_is_handled(tmp_path):
 async def test_telegram_failed_update_does_not_advance_durable_offset(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
     store.flags["telegram_update_offset"] = "100"
+    bridge._restore_offset()
 
     async def fail(_update):
         raise RuntimeError("temporary failure")
@@ -240,5 +241,5 @@ async def test_telegram_failed_update_does_not_advance_durable_offset(tmp_path):
     with pytest.raises(RuntimeError):
         await bridge._process_update(update(update_id=101, text="retry me"))
 
-    assert bridge._offset is None
+    assert bridge._offset == 101
     assert store.flags["telegram_update_offset"] == "100"
