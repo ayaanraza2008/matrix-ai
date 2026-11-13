@@ -40,6 +40,7 @@ const STATE = {
   integrations: [],
   devices: [],
   emergency: false,
+  engineeringCoachJobId: null,
   coreState: 'IDLE',
   booted: false,
 };
@@ -1226,6 +1227,54 @@ $('#engineering-coach-form').addEventListener('submit', async (event) => {
   } finally {
     button.disabled = false;
     button.textContent = 'Analyze session';
+  }
+});
+
+$('#engineering-coach-schedule').addEventListener('click', async () => {
+  const path = $('#engineering-coach-path').value.trim();
+  if (!path) {
+    toast('Enter a session file path first', 'error');
+    return;
+  }
+  const button = $('#engineering-coach-schedule');
+  button.disabled = true;
+  button.textContent = 'Scheduling…';
+  try {
+    const result = await api('/engineering-coach/schedule', {
+      method: 'POST',
+      body: {
+        path,
+        interval_seconds: Number($('#engineering-coach-interval').value),
+      },
+    });
+    STATE.engineeringCoachJobId = result.job_id;
+    const output = $('#engineering-coach-result');
+    const schedule = el('div', 'item');
+    const main = el('div', 'item-main');
+    main.appendChild(el('div', 'item-title', 'Recurring analysis enabled'));
+    main.appendChild(el('div', 'item-sub', 'Job ' + result.job_id + ' · every ' + result.interval_seconds + ' seconds'));
+    schedule.appendChild(main);
+    const pause = el('button', 'ghost', 'Pause schedule');
+    pause.addEventListener('click', async () => {
+      pause.disabled = true;
+      try {
+        await api('/jobs/' + result.job_id, { method: 'PATCH', body: { enabled: false } });
+        schedule.remove();
+        STATE.engineeringCoachJobId = null;
+        toast('Recurring engineering analysis paused', 'ok');
+      } catch (error) {
+        pause.disabled = false;
+        toast(error.message, 'error');
+      }
+    });
+    schedule.appendChild(pause);
+    output.prepend(schedule);
+    toast('Recurring analysis scheduled for the selected file', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Schedule recurring analysis';
   }
 });
 
