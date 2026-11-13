@@ -22,6 +22,7 @@ Configure:
 Tools:
 - `instagram_list_comments` — bounded read of comments for a media ID; requires `instagram.read`.
 - `instagram_reply_comment` — comment reply; requires `instagram.write` and exact owner approval.
+- `instagram_publish_image` — two-stage image-container creation and publication; requires `instagram.publish` and critical-action approval. Set `MATRIX_INSTAGRAM_USER_ID`; the image URL must be publicly fetchable over HTTPS.
 
 Instagram Graph API access requires a Professional (Business or Creator) account and a linked Facebook Page for the Facebook Login flow. Consumer/personal accounts are not supported by this connector. The Meta app must have the required permissions (such as `instagram_manage_comments`) and access level.
 
