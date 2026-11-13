@@ -421,7 +421,7 @@ class JobUpdate(BaseModel):
     autonomy_level: int | None = Field(default=None, ge=0, le=2)
     enabled: bool | None = None
 
-    @field_validator("name", "prompt")
+    @field_validator("name", "prompt", mode="before")
     @classmethod
     def _strip_job_text(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
