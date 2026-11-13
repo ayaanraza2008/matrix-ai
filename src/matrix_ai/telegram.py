@@ -107,8 +107,8 @@ class TelegramChatBridge:
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
-        self._restore_offset()
         try:
+            self._restore_offset()
             while True:
                 try:
                     if not announced:
