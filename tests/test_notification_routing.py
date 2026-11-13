@@ -122,6 +122,27 @@ async def test_failed_notification_is_retried_on_later_health_tick(tmp_path, mon
     assert store.get_flag("pending_health_notification") == ""
 
 
+@pytest.mark.asyncio
+async def test_new_emergency_stop_alert_is_sent_even_if_already_degraded(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="degraded")
+    sent = []
+
+    async def send(state, components):
+        sent.append((state, components["emergency_stop"]))
+        return True
+
+    monkeypatch.setattr(scheduler, "_send_health_notification", send)
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: True)
+
+    await scheduler.monitor_health()
+    assert sent == [("degraded", "off")]
+
+    store.emergency_stop = True
+    await scheduler.monitor_health()
+    assert sent == [("degraded", "off"), ("degraded", "active")]
+    assert any(event[0][0] == "notification.emergency_stop_alert" for event in store.audits)
+
+
 def test_quiet_hours_configuration_requires_valid_pair_and_timezone(tmp_path):
     with pytest.raises(ConfigError):
         MatrixConfig(home=tmp_path / "one", notification_quiet_hours_start="22:00")
