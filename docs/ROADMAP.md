@@ -73,3 +73,12 @@ reproducible demonstration — not when code exists.
 - [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
 - [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
 - Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.
+
+### M8 — YouTube Data API connector
+
+- [x] Add official Google OAuth refresh-token client; keep access tokens in memory only and never log/return credentials.
+- [x] Add channel, recent-video and comment read tools.
+- [x] Add public comment replies and resumable video uploads as HIGH-risk, owner-approved actions.
+- [x] Default uploads to private and enforce approved file roots plus a 512 MiB upload cap.
+- [x] Keep write permission opt-in via `MATRIX_EXTRA_SCOPES=youtube.write`.
+- [ ] Complete owner OAuth consent, real channel smoke tests, quota checks and upload processing acceptance.
