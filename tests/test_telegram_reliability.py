@@ -147,7 +147,7 @@ async def test_replayed_update_does_not_reenqueue_terminal_task():
 async def test_replayed_running_task_restarts_telegram_result_reporting():
     bridge, store = make_bridge()
     store.existing_task_id = "existing-task"
-    store.task_view = lambda task_id: SimpleNamespace(state=TaskState.RUNNING)
+    store.task_view = lambda task_id: SimpleNamespace(state=TaskState.EXECUTE)
     reports = []
 
     async def report(task_id):
