@@ -66,6 +66,8 @@ The public web research fetch is now disabled by default in both `MatrixConfig` 
 
 [PR #10](https://github.com/ayaanraza2008/matrix-ai/pull/10) adds a separate Windows SAPI speech-output option and browser voice refinements. The integrated main branch already has optional local Whisper/Piper voice and browser push-to-talk/transcription. PR #10 is based on an older snapshot and has merge conflicts; do not merge it as-is. Rebase and review it only if Windows SAPI is specifically required.
 
+See [`docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`](PRODUCTION_ACCEPTANCE_RUNBOOK.md) for the exact owner-device validation sequence and evidence requirements.
+
 ## Release decision
 
 **Repository integration: complete. Exact-head CI: passed. Production certification: not complete.**
