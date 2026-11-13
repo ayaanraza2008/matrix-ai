@@ -226,9 +226,10 @@ class MatrixConfig:
             host = (parsed.hostname or "").lower().rstrip(".")
             allowed_hosts = {item.lower().rstrip(".") for item in self.notification_webhook_allowed_hosts}
             if (
-                parsed.scheme != "https" or not host or parsed.username or parsed.password
-                or parsed.query or parsed.fragment or port not in (None, 443)
-                or host not in allowed_hosts
+                parsed.scheme != "https" or not host or "." not in host
+                or host == "localhost" or host.endswith((".localhost", ".local", ".localdomain"))
+                or parsed.username or parsed.password or parsed.query or parsed.fragment
+                or port not in (None, 443) or host not in allowed_hosts
             ):
                 raise ConfigError("notification webhook must be HTTPS on an explicitly allowed host and use the default port")
             try:
