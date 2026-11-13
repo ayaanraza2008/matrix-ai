@@ -218,3 +218,116 @@ def test_goal_cannot_attach_another_users_task(runtime):
     with pytest.raises(ValueError, match="owner does not match"):
         runtime.store.attach_goal_task(goal_id, task_id)
     assert runtime.store.get_goal(goal_id)["task_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_model_criteria_review_is_only_a_candidate_until_owner_confirms(client, runtime, monkeypatch):
+    from matrix_ai.models.base import ModelResponse
+
+    goal_id = runtime.store.create_goal(
+        owner_id="owner",
+        title="Check service health",
+        success_criteria="The database integrity check must be ok.",
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="Check service health", user_id="owner", kind="goal", goal_id=goal_id
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+    runtime.store.update_task(
+        task_id,
+        state="COMPLETE",
+        summary="Database integrity check: ok",
+        evidence_json='{"verified":true,"steps":[{"tool":"system.get_status","verified":true}]}',
+    )
+    runtime.store.sync_goal_for_task(task_id)
+
+    async def fake_complete(messages, **kwargs):
+        assert kwargs["json_mode"] is True
+        assert "success criteria" in messages[1].content.lower()
+        return ModelResponse(
+            text='{"outcome":"met","confidence":0.93,"rationale":"The supplied evidence says the database integrity check is ok.","evidence":["Database integrity check: ok"],"missing_evidence":[]}',
+            provider="test",
+            model="test-model",
+            latency_ms=1.0,
+        )
+
+    monkeypatch.setattr(runtime.models, "complete", fake_complete)
+    evaluated = await client.post(f"/api/goals/{goal_id}/evaluate")
+    assert evaluated.status_code == 200, evaluated.text
+    candidate = evaluated.json()
+    assert candidate["state"] == "awaiting_verification"
+    assert candidate["criteria_status"] == "candidate_met"
+    assert candidate["criteria_review"]["outcome"] == "met"
+    assert candidate["criteria_confirmed_at"] is None
+
+    confirmed = await client.post(
+        f"/api/goals/{goal_id}/confirm",
+        json={"outcome": "met", "reason": "I checked the reported evidence and confirm it."},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    final = confirmed.json()
+    assert final["state"] == "verified"
+    assert final["criteria_status"] == "owner_confirmed_met"
+    assert final["criteria_confirmed_by"] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_confirmation_requires_review_and_is_owner_scoped(client, runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Private goal", success_criteria="Complete the task"
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="Private goal", user_id="owner", kind="goal", goal_id=goal_id
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+    runtime.store.update_task(task_id, state="COMPLETE", evidence_json='{"verified":true}')
+    runtime.store.sync_goal_for_task(task_id)
+
+    premature = await client.post(
+        f"/api/goals/{goal_id}/confirm",
+        json={"outcome": "met", "reason": "I checked it carefully."},
+    )
+    assert premature.status_code == 409
+
+    runtime.store.save_goal_criteria_review(
+        goal_id,
+        {"outcome": "unclear", "confidence": 0.4, "rationale": "Insufficient detail", "evidence": [], "missing_evidence": ["specific output"]},
+    )
+    runtime.store.confirm_goal_criteria(
+        goal_id, owner_id="owner", outcome="not_met", reason="The required output is missing."
+    )
+    assert runtime.store.get_goal(goal_id)["state"] == "needs_attention"
+
+    with pytest.raises(Exception):
+        runtime.store.confirm_goal_criteria(
+            goal_id, owner_id="another-user", outcome="met", reason="Not the owner."
+        )
+
+
+def test_schema_v3_goals_migrate_criteria_review_metadata(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "schema-v3.sqlite"
+    initial = Database(path)
+    for column in (
+        "criteria_review_json",
+        "criteria_reviewed_at",
+        "criteria_confirmed_at",
+        "criteria_confirmed_by",
+        "criteria_confirmation_reason",
+    ):
+        initial.execute(f"ALTER TABLE goals DROP COLUMN {column}")
+    initial.execute("PRAGMA user_version=3")
+    initial.close()
+
+    upgraded = Database(path)
+    columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goals)")}
+    assert {
+        "criteria_review_json",
+        "criteria_reviewed_at",
+        "criteria_confirmed_at",
+        "criteria_confirmed_by",
+        "criteria_confirmation_reason",
+    } <= columns
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
