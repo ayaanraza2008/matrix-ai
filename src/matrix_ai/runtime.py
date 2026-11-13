@@ -25,6 +25,7 @@ from .errors import PermissionDenied
 from .integrations.addons import AddonManager
 from .integrations.engineering_coach import EngineeringCoachAnalyzeTool
 from .integrations.registry import IntegrationRegistry
+from .integrations.skills import SkillsManager
 from .integrations.youtube_automation import build_youtube_tools
 from .memory.service import MemoryService
 from .models.manager import ModelManager
@@ -61,6 +62,7 @@ class MatrixRuntime:
     addon_manager: AddonManager
     scheduler: Scheduler
     telegram: TelegramChatBridge
+    skills_manager: SkillsManager
     started_at: float = field(default_factory=time.time)
     version: str = __version__
 
@@ -78,6 +80,7 @@ class MatrixRuntime:
         models = ModelManager(config, store)
         memory = MemoryService(db)
         addon_manager = AddonManager(config, store=store)
+        skills_manager = SkillsManager(config, store=store)
         worker_pool = AgentWorkerPool(
             models,
             registry,
@@ -85,7 +88,8 @@ class MatrixRuntime:
             timeout_seconds=config.agent_worker_timeout_seconds,
         )
         planner = PlannerService(
-            registry, models, store, worker_pool=worker_pool, addon_manager=addon_manager
+            registry, models, store, worker_pool=worker_pool, addon_manager=addon_manager,
+            skills_manager=skills_manager,
         )
         orchestrator = Orchestrator(
             config=config,
@@ -123,6 +127,7 @@ class MatrixRuntime:
                 config=config, orchestrator=orchestrator, store=store,
                 rate_limiter=limiter,
             ),
+            skills_manager=skills_manager,
         )
         store.audit(
             "system.started",
@@ -179,6 +184,7 @@ class MatrixRuntime:
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
             "addons": "available",
+            "skills": f"{self.skills_manager.status()['installed_count']} installed",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}
