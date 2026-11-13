@@ -176,7 +176,7 @@ class Scheduler:
                 severity="critical" if components.get("emergency_stop") == "active" else ("warning" if urgent else "success"),
                 event_type="health.degraded" if urgent else "health.recovered",
             )
-        if not self._configured_notification_channels():
+        if not self._configured_notification_channels(state):
             return
         raw = self.store.get_flag("pending_health_notifications", "[]")
         try:
@@ -204,7 +204,9 @@ class Scheduler:
             json.dumps(pending, separators=(",", ":")),
         )
 
-    def _configured_notification_channels(self) -> set[str]:
+    def _configured_notification_channels(self, state: str | None = None) -> set[str]:
+        if state == "healthy" and not self.store.notification_preferences().get("health_recovered", True):
+            return set()
         channels: set[str] = set()
         if self.config.telegram_bot_token and self.config.telegram_chat_id:
             channels.add("telegram")
@@ -227,7 +229,7 @@ class Scheduler:
             )
             return
 
-        required_channels = self._configured_notification_channels()
+        required_channels = self._configured_notification_channels(state)
         while pending:
             item = pending[0]
             try:
@@ -288,10 +290,11 @@ class Scheduler:
         self, state: str, components: dict[str, str], event_id: str, delivered_channels: set[str]
     ) -> set[str]:
         delivered = set(delivered_channels)
-        if "telegram" in self._configured_notification_channels() and "telegram" not in delivered:
+        configured_channels = self._configured_notification_channels(state)
+        if "telegram" in configured_channels and "telegram" not in delivered:
             if await self._send_telegram_health_notification(state, components):
                 delivered.add("telegram")
-        if "webhook" in self._configured_notification_channels() and "webhook" not in delivered:
+        if "webhook" in configured_channels and "webhook" not in delivered:
             if await self._send_webhook_health_notification(state, components, event_id):
                 delivered.add("webhook")
         return delivered
