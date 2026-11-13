@@ -118,6 +118,10 @@ class AddonInstallBody(BaseModel):
     allow_large: bool = False
 
 
+class EngineeringCoachAnalyzeBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+
+
 # ---------------------------------------------------------------------------
 # health & identity
 # ---------------------------------------------------------------------------
@@ -568,6 +572,19 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
 def _require_owner(principal: Principal) -> None:
     if not principal.is_owner or principal.scope != "owner":
         raise PermissionDenied("Only the MATRIX owner can manage external add-ons.")
+
+
+@router.post("/engineering-coach/analyze", tags=["engineering-coach"])
+async def engineering_coach_analyze(
+    body: EngineeringCoachAnalyzeBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Analyze one explicitly selected session file; never scan or persist logs."""
+    _require_owner(principal)
+    return await runtime.readonly_tool_call(
+        "engineering_coach.analyze_session", {"path": body.path}, principal=principal
+    )
 
 
 @router.get("/addons", tags=["add-ons"])
