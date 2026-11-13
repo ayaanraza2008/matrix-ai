@@ -43,7 +43,8 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError
+from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure
+from ..integrations.addons import AddonError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
@@ -113,6 +114,19 @@ class EmergencyStopBody(BaseModel):
 
 class JobToggleBody(BaseModel):
     enabled: bool
+
+
+class AddonInstallBody(BaseModel):
+    allow_large: bool = False
+
+
+class EngineeringCoachAnalyzeBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+
+
+class EngineeringCoachScheduleBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+    interval_seconds: int = Field(default=86_400, ge=3_600, le=86_400)
 
 
 class GoalCreateBody(BaseModel):
@@ -362,6 +376,12 @@ async def task_agents(
         (event for event in events if event.event_type == "task.specialists_selected"),
         None,
     )
+    addon_selection = next(
+        (event for event in events if event.event_type == "task.addons_selected"), None
+    )
+    skill_selection = next(
+        (event for event in events if event.event_type == "task.skills_selected"), None
+    )
     worker_runs = [
         {**event.detail, "status": event.status}
         for event in events if event.event_type == "task.agent_worker_run"
@@ -369,6 +389,10 @@ async def task_agents(
     return {
         "task_id": task_id,
         "selected_agents": selection.detail.get("agents", []) if selection else [],
+        "selected_addons": addon_selection.detail.get("addons", []) if addon_selection else [],
+        "addon_context_used": bool(addon_selection and addon_selection.detail.get("context_injected")),
+        "selected_skills": skill_selection.detail.get("skills", []) if skill_selection else [],
+        "skill_context_used": bool(skill_selection and skill_selection.detail.get("context_injected")),
         "context_injected": bool(selection and selection.detail.get("context_injected")),
         "routing_strategy": selection.detail.get("routing_strategy") if selection else None,
         "worker_runs": worker_runs,
@@ -1052,6 +1076,242 @@ async def toggle_job(
         status="enabled" if body.enabled else "paused",
         detail={"job_id": job_id},
     )
+    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
+    if not jobs:
+        raise NotFoundError(f"job {job_id} not found")
+    return jobs[0]
+
+
+@router.get("/debug/tools/{tool_name}/schema", tags=["tools"])
+async def tool_schema(tool_name: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    spec = runtime.registry.get(tool_name).spec()
+    return {"spec": spec.model_dump(mode="json"), "schema": json.loads(spec.model_dump_json())["input_schema"]}
+
+
+def _require_owner(principal: Principal) -> None:
+    if not principal.is_owner or principal.scope != "owner":
+        raise PermissionDenied("Only the MATRIX owner can manage external add-ons.")
+
+
+@router.post("/engineering-coach/analyze", tags=["engineering-coach"])
+async def engineering_coach_analyze(
+    body: EngineeringCoachAnalyzeBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Analyze one explicitly selected session file; never scan or persist logs."""
+    _require_owner(principal)
+    return await runtime.readonly_tool_call(
+        "engineering_coach.analyze_session", {"path": body.path}, principal=principal
+    )
+
+
+@router.post("/engineering-coach/schedule", status_code=201, tags=["engineering-coach"])
+async def engineering_coach_schedule(
+    body: EngineeringCoachScheduleBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Opt in to recurring analysis of one explicitly selected file."""
+    _require_owner(principal)
+    # Validate the path and permission now, before persisting a recurring job.
+    initial_report = await runtime.readonly_tool_call(
+        "engineering_coach.analyze_session", {"path": body.path}, principal=principal
+    )
+    job_id = runtime.store.create_job(
+        name="Engineering Coach session analysis",
+        prompt=(
+            f"Analyze the explicitly approved session export at {json.dumps(body.path)} using "
+            "engineering_coach.analyze_session. Report only aggregate metrics, "
+            "repeated failures, and skill candidates. Never include raw prompts, "
+            "tool arguments, or session content."
+        ),
+        interval_seconds=body.interval_seconds,
+        autonomy_level=1,
+        enabled=True,
+    )
+    runtime.store.audit(
+        "engineering_coach.schedule_created",
+        actor=principal.user_id,
+        status="enabled",
+        detail={"job_id": job_id, "interval_seconds": body.interval_seconds},
+    )
+    return {"job_id": job_id, "interval_seconds": body.interval_seconds, "initial_report": initial_report}
+
+
+@router.get("/addons", tags=["add-ons"])
+async def list_addons(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    return runtime.addon_manager.status()
+
+
+@router.get("/addons/route", tags=["add-ons"])
+async def route_addons(
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+    q: str = Query(min_length=1, max_length=8000),
+) -> dict[str, Any]:
+    matches = runtime.addon_manager.route(q, limit=6)
+    return {"query": q, "count": len(matches), "addons": matches}
+
+
+@router.get("/addons/tools", tags=["add-ons"])
+async def addon_tools(principal: PrincipalDep, runtime: RuntimeDep) -> list[dict[str, Any]]:
+    return [
+        spec.model_dump(mode="json")
+        for spec in runtime.registry.catalog()
+        if spec.name.startswith("addon.")
+    ]
+
+
+@router.post("/addons/{addon_id}/install", status_code=200, tags=["add-ons"])
+async def install_addon(
+    addon_id: str,
+    body: AddonInstallBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    _require_owner(principal)
+    try:
+        result = await asyncio.to_thread(
+            runtime.addon_manager.install, addon_id, allow_large=body.allow_large
+        )
+    except AddonError as exc:
+        raise ValidationFailure(exc.args[0]) from exc
+    runtime.store.audit(
+        "addon.source_installed", actor=principal.user_id, status="installed",
+        detail={"addon_id": addon_id, "commit": result.get("commit"), "source_only": True},
+    )
+    return result
+
+
+@router.post("/addons/{addon_id}/connect", status_code=200, tags=["add-ons"])
+async def connect_addon(
+    addon_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    _require_owner(principal)
+    try:
+        return await runtime.addon_manager.connect(addon_id, runtime.registry)
+    except AddonError as exc:
+        raise ValidationFailure(exc.args[0]) from exc
+
+
+@router.delete("/addons/{addon_id}/connect", tags=["add-ons"])
+async def disconnect_addon(
+    addon_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    _require_owner(principal)
+    return await runtime.addon_manager.disconnect(addon_id, runtime.registry)
+
+
+@router.get("/workers", tags=["agents"])
+async def list_workers(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    return {**runtime.worker_pool.status(), "workers": runtime.worker_pool.list_workers()}
+
+
+@router.get("/workers/{slug}", tags=["agents"])
+async def worker_detail(slug: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    worker = runtime.worker_pool.get_worker(slug)
+    if worker is None:
+        raise NotFoundError(f"worker {slug} not found")
+    return worker
+
+
+@router.get("/agents", tags=["system"])
+async def agents(principal: PrincipalDep) -> list[dict[str, Any]]:
+    return agent_catalog()
+
+
+@router.get("/agents/search", tags=["system"])
+async def search_agents(
+    principal: PrincipalDep,
+    q: str = Query(min_length=1, max_length=500),
+    limit: int = Query(default=5, ge=1, le=10),
+) -> dict[str, Any]:
+    matches = search_agency_agents(q, limit=limit)
+    return {"query": q, "count": len(matches), "agents": matches}
+
+
+@router.get("/agents/route", tags=["system"])
+async def route_agents(
+    principal: PrincipalDep,
+    q: str = Query(min_length=1, max_length=8000),
+) -> dict[str, Any]:
+    selected = route_agency_agents(q)
+    return {
+        "query": q,
+        "strategy": "automatic_hybrid_full_profile_search_v1",
+        "agent_count": len(selected),
+        "agents": [
+            {key: value for key, value in agent.items() if key != "content"}
+            for agent in selected
+        ],
+    }
+
+
+@router.get("/agents/{slug}", tags=["system"])
+async def agency_agent_detail(slug: str, principal: PrincipalDep) -> dict[str, Any]:
+    agent = get_agency_agent(slug)
+    if agent is None:
+        raise NotFoundError(f"specialist agent '{slug}' not found")
+    return agent
+
+
+@router.get("/settings", tags=["system"])
+async def settings(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    return runtime.config.public_dict()
+
+
+# ---------------------------------------------------------------------------
+# scheduler
+# ---------------------------------------------------------------------------
+@router.get("/jobs", response_model=list[JobView], tags=["automation"])
+async def list_jobs(principal: PrincipalDep, runtime: RuntimeDep) -> list[JobView]:
+    return runtime.store.list_jobs()
+
+
+@router.post("/jobs", status_code=201, response_model=JobView, tags=["automation"])
+async def create_job(body: JobCreate, principal: PrincipalDep, runtime: RuntimeDep) -> JobView:
+    job_id = runtime.store.create_job(
+        name=body.name,
+        prompt=body.prompt,
+        interval_seconds=body.interval_seconds,
+        autonomy_level=body.autonomy_level,
+        enabled=body.enabled,
+    )
+    runtime.store.audit(
+        "scheduler.job_created",
+        actor=principal.user_id,
+        status="ok",
+        detail={"job_id": job_id, "interval_seconds": body.interval_seconds},
+    )
+    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
+    if not jobs:
+        raise NotFoundError("job was not persisted")
+    return jobs[0]
+
+
+@router.post("/jobs/{job_id}/run", status_code=202, tags=["automation"])
+async def run_job(job_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
+    if not jobs:
+        raise NotFoundError(f"job {job_id} not found")
+    job = jobs[0]
+    task_id = runtime.orchestrator.create_task(
+        request=job.prompt,
+        user_id=principal.user_id,
+        autonomy_level=min(int(job.autonomy_level), 1),
+        kind="job",
+    )
+    await runtime.orchestrator.enqueue(task_id)
+    runtime.store.mark_job_run(job.id, status="queued", interval_seconds=job.interval_seconds)
+    return {"job_id": job.id, "task": runtime.store.task_view(task_id)}
+
+
+@router.patch("/jobs/{job_id}", response_model=JobView, tags=["automation"])
+async def toggle_job(
+    job_id: str, body: JobToggleBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> JobView:
+    runtime.store.set_job_enabled(job_id, body.enabled)
     jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
     if not jobs:
         raise NotFoundError(f"job {job_id} not found")
