@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from datetime import datetime as RealDateTime
 from types import SimpleNamespace
 
@@ -333,3 +336,51 @@ def test_webhook_configuration_requires_https_secret_and_exact_host_allowlist(tm
             home=tmp_path / "private-ip", notification_webhook_url="https://127.0.0.1/x",
             notification_webhook_secret="secret", notification_webhook_allowed_hosts=("127.0.0.1",),
         )
+    with pytest.raises(ConfigError):
+        MatrixConfig(
+            home=tmp_path / "localhost", notification_webhook_url="https://localhost/x",
+            notification_webhook_secret="secret", notification_webhook_allowed_hosts=("localhost",),
+        )
+
+
+@pytest.mark.asyncio
+async def test_webhook_request_is_hmac_signed_and_redirects_are_disabled(tmp_path, monkeypatch):
+    scheduler, _, _ = make_scheduler(tmp_path)
+    scheduler.config.notification_webhook_url = "https://hooks.example.test/matrix"
+    scheduler.config.notification_webhook_secret = "webhook-signing-secret"
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+    class Client:
+        def __init__(self, **kwargs):
+            captured["client_options"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, content, headers):
+            captured.update({"url": url, "content": content, "headers": headers})
+            return Response()
+
+    monkeypatch.setattr(scheduler_module.httpx, "AsyncClient", Client)
+    sent = await scheduler._send_webhook_health_notification(
+        "degraded", {"database": "ok", "model": "unavailable", "emergency_stop": "off"}, "event-123"
+    )
+
+    assert sent is True
+    assert captured["client_options"]["follow_redirects"] is False
+    assert captured["headers"]["X-MATRIX-Event-ID"] == "event-123"
+    expected = hmac.new(
+        b"webhook-signing-secret", captured["content"], hashlib.sha256
+    ).hexdigest()
+    assert captured["headers"]["X-MATRIX-Signature"] == "sha256=" + expected
+    payload = json.loads(captured["content"])
+    assert payload["event_id"] == "event-123"
+    assert payload["event_type"] == "health.degraded"
+    assert payload["components"]["model"] == "unavailable"
