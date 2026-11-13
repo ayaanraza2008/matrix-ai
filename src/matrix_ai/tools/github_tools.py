@@ -40,7 +40,9 @@ class _GitHubTool(Tool):
         return {"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"MATRIX-AI"}
     def _request(self,method,path,ctx,*,params=None,payload=None,expected=(200,)):
         try:
-            response=getattr(httpx,method)(f"https://api.github.com{path}",headers=self._headers(ctx),params=params,json=payload,timeout=httpx.Timeout(10.0,connect=4.0))
+            kwargs={"headers":self._headers(ctx),"params":params,"timeout":httpx.Timeout(10.0,connect=4.0)}
+            if payload is not None: kwargs["json"]=payload
+            response=getattr(httpx,method)(f"https://api.github.com{path}",**kwargs)
         except httpx.HTTPError as exc: raise ToolExecutionError("GitHub request failed; request credentials were not logged.") from exc
         if response.status_code not in expected:
             if response.status_code in (401,403,404,429) or response.status_code>=500:
