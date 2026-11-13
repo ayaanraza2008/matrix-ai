@@ -304,11 +304,13 @@ async def issue_pairing_code(principal: PrincipalDep, runtime: RuntimeDep) -> Pa
 
 @router.get("/devices", response_model=list[DeviceView], tags=["auth"])
 async def list_devices(principal: PrincipalDep, runtime: RuntimeDep) -> list[DeviceView]:
+    _require_owner(principal)
     return runtime.auth.list_devices()
 
 
 @router.post("/devices/{device_id}/revoke", tags=["auth"])
 async def revoke_device(device_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
+    _require_owner(principal)
     runtime.auth.revoke_device(device_id, actor=principal.user_id)
     return {"revoked": device_id}
 
