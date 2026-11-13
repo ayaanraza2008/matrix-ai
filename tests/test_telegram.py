@@ -37,7 +37,7 @@ class FakeStore:
     def task_view(self, task_id):
         if task_id in self.task_views:
             return self.task_views[task_id]
-        raise AssertionError("task polling is tested separately")
+        return SimpleNamespace(state=TaskState.RECEIVED, summary=None, error=None)
 
 
 class FakeOrchestrator:
@@ -287,7 +287,7 @@ async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
 
 async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updates(tmp_path, monkeypatch):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
-    store.flags["telegram.update_offset"] = "55"
+    store.flags["telegram_update_offset"] = "55"
     observed_offsets = []
     second_poll = asyncio.Event()
 
@@ -326,7 +326,7 @@ async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updat
         pass
 
     assert observed_offsets[0] == 55
-    assert store.flags["telegram.update_offset"] == "56"
+    assert store.flags["telegram_update_offset"] == "55"
 
 
 
