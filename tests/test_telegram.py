@@ -315,6 +315,10 @@ async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
 async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updates(tmp_path, monkeypatch):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
     store.flags["telegram_update_offset"] = "54"
+    store.telegram_task_ids = ["pending-task"]
+    store.task_views["pending-task"] = SimpleNamespace(state=TaskState.EXECUTE)
+    restored_watchers = []
+    monkeypatch.setattr(bridge, "_ensure_report_task", restored_watchers.append)
     observed_offsets = []
     second_poll = asyncio.Event()
 
@@ -328,6 +332,8 @@ async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updat
         if method in {"sendMessage", "setMyCommands"}:
             return {"ok": True}
         assert method == "getUpdates"
+        if not observed_offsets:
+            assert restored_watchers == ["pending-task"]
         observed_offsets.append(payload.get("offset"))
         if len(observed_offsets) == 1:
             return {"result": [{"update_id": 55, "message": {
