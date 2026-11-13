@@ -162,7 +162,7 @@ class MatrixConfig:
 
     rate_limit_per_minute: int = 240
     additional_scopes: tuple[str, ...] = ()
-    allow_web_fetch: bool = True
+    allow_web_fetch: bool = False
     web_fetch_max_bytes: int = 400_000
     cors_origins: tuple[str, ...] = ()
 
