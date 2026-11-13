@@ -81,4 +81,5 @@ reproducible demonstration — not when code exists.
 - [x] Add public comment replies and resumable video uploads as HIGH-risk, owner-approved actions.
 - [x] Default uploads to private and enforce approved file roots plus a 512 MiB upload cap.
 - [x] Keep write permission opt-in via `MATRIX_EXTRA_SCOPES=youtube.write`.
+- [x] Add an integration health check that confirms OAuth can read the authenticated channel.
 - [ ] Complete owner OAuth consent, real channel smoke tests, quota checks and upload processing acceptance.
