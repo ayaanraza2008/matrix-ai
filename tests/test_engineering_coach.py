@@ -155,7 +155,7 @@ def test_analyzer_correlates_codex_results_without_double_counting_calls(tmp_pat
                 "is_error": index == 2, "output": "PRIVATE OUTPUT",
             },
         })
-    source.write_text("\\n".join(json.dumps(item) for item in records), encoding="utf-8")
+    source.write_text("\n".join(json.dumps(item) for item in records), encoding="utf-8")
     result = analyze_jsonl(source)
     assert result["source"]["format"] == ["codex"]
     assert result["metrics"]["tool_calls"] == 3
