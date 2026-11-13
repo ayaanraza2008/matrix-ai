@@ -168,3 +168,23 @@ Their CI success proves the committed test suite on GitHub-hosted Windows/Ubuntu
 runners; it does not prove physical-device, real audio, configured external-service,
 Android, installer or production-uptime behaviour. See the PRs for the exact
 head commits and latest workflow results.
+
+
+## 9. Integrated release candidate — exact-head evidence (2026-11-13)
+
+The integrated release candidate was squash-merged through [PR #72](https://github.com/ayaanraza2008/matrix-ai/pull/72) as `f472e0e9f164c0f15bfc2a72b3288f073109f704`. Exact-head GitHub Actions run [#43424775584](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43424775584) completed with all seven jobs successful:
+
+- Windows Python 3.11 and 3.12 full CI.
+- Ubuntu Python 3.11 and 3.12 full CI.
+- Android debug and unsigned release APK assembly.
+- Astryx frontend build.
+- Blocking dependency audit.
+- CycloneDX SBOM generation and artifact upload.
+
+The merged candidate includes the consolidated Telegram/autonomy/integration/notification stack and dependency refresh. This supersedes historical statements in earlier sections that the integration candidates #68/#69 were still drafts and unmerged.
+
+### Production acceptance remains outstanding
+
+CI does not establish live acceptance on the owner's environment. Still required: Windows install/startup/restart/upgrade/rollback; Tailscale ACL and remote-device verification; real Telegram owner pairing, send/receive, restart/replay and emergency-stop tests; actual microphone/speaker and local model validation; physical Android pairing/revocation/network testing and owner-signed release APK; least-privilege OAuth and harmless live smoke tests for configured providers; backup/restore and incident/rollback rehearsal; independent security review. See [RELEASE_STATUS_2026-11-13.md](RELEASE_STATUS_2026-11-13.md) for the current gate checklist.
+
+Known residual risks must remain visible: public-fetch DNS-rebinding/TOCTOU, at-least-once Telegram replies/provider side effects, unsigned Android release output, and the need for owner-controlled credentials and devices. Production status remains **NOT CERTIFIED**.
