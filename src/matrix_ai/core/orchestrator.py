@@ -421,6 +421,18 @@ class Orchestrator:
                 detail={"error": str(exc)[:300]},
             )
         except Exception as exc:  # noqa: BLE001 - verifier is advisory, never task-critical
+            try:
+                task = self.store.get_task_row(task_id)
+                if task["goal_id"]:
+                    goal = self.store.get_goal(str(task["goal_id"]))
+                    if goal["state"] == "awaiting_verification":
+                        self.store.finish_goal_criteria(
+                            str(goal["id"]),
+                            decision="uncertain",
+                            evidence={"summary": "Criteria verification failed; manual review required."},
+                        )
+            except Exception:  # noqa: BLE001 - never let verification change task state
+                pass
             self.store.audit(
                 "goal.criteria_verifier_error",
                 actor="goal-verifier",
