@@ -43,7 +43,7 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure, PermissionDenied, ValidationFailure
+from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure
 from ..integrations.addons import AddonError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
@@ -989,7 +989,6 @@ async def automation_status(principal: PrincipalDep, runtime: RuntimeDep) -> dic
         "emergency_stop": runtime.store.emergency_stop,
         "configured_autonomy_level": runtime.config.autonomy_level,
         "maximum_scheduled_job_autonomy": min(runtime.config.autonomy_level, 2),
-        "notification_routing": runtime.config.public_dict()["notification_routing"],
         "notification_routing": runtime.config.public_dict()["notification_routing"],
         "notification_routing": runtime.config.public_dict()["notification_routing"],
         "jobs_total": len(jobs),
