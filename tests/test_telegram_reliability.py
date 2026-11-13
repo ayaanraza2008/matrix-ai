@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from matrix_ai.core.models import TaskState
 from matrix_ai.telegram import TelegramChatBridge
 
 
@@ -103,7 +104,7 @@ async def test_replayed_update_does_not_reenqueue_terminal_task():
     sent = []
 
     class ExistingTask:
-        state = __import__("matrix_ai.core.models", fromlist=["TaskState"]).TaskState.COMPLETE
+        state = TaskState.COMPLETE
         summary = "Already completed"
         error = None
 
