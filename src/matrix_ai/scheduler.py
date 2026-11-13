@@ -162,8 +162,14 @@ class Scheduler:
         return local_now >= quiet_start or local_now < quiet_end
 
     def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
-        # Keep a local, authenticated inbox even when no push channel is configured.
-        if hasattr(self.store, "create_notification"):
+        # The owner recovery preference applies to the local inbox as well as push.
+        preferences = (
+            self.store.notification_preferences()
+            if hasattr(self.store, "notification_preferences")
+            else {"health_recovered": True}
+        )
+        show_inbox_event = state == "degraded" or preferences.get("health_recovered", True)
+        if show_inbox_event and hasattr(self.store, "create_notification"):
             urgent = state == "degraded"
             title = "MATRIX needs attention" if urgent else "MATRIX recovered"
             message = (
