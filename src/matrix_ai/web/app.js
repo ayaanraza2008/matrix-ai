@@ -40,6 +40,7 @@ const STATE = {
   integrations: [],
   devices: [],
   emergency: false,
+  engineeringCoachJobId: null,
   coreState: 'IDLE',
   booted: false,
 };
@@ -53,6 +54,7 @@ const VIEW_META = {
   vision: ['Vision', 'Permission-gated capture sessions and OCR'],
   agents: ['Agents', 'Logical roles sharing one model runtime'],
   tools: ['Tools', 'Typed registry with risk, scope and verification'],
+  'engineering-coach': ['Engineering Coach', 'Local session reliability analytics and reusable workflow discovery'],
   devices: ['Devices', 'Paired companions and revocation'],
   integrations: ['Integrations', 'Optional adapters with honest health states'],
   security: ['Security', 'Policy, emergency stop and audit trail'],
@@ -256,6 +258,7 @@ function loadView(view) {
     vision: loadVision,
     agents: loadAgents,
     tools: loadTools,
+    'engineering-coach': () => Promise.resolve(),
     devices: loadDevices,
     integrations: loadIntegrations,
     security: loadSecurity,
@@ -1164,6 +1167,114 @@ $('#stop-btn').addEventListener('click', async () => {
     await loadDashboard();
   } catch (error) {
     toast(error.message, 'error');
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* engineering coach                                                   */
+/* ------------------------------------------------------------------ */
+$('#engineering-coach-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const path = $('#engineering-coach-path').value.trim();
+  if (!path) return;
+  const button = $('button[type="submit"]', event.currentTarget);
+  const result = $('#engineering-coach-result');
+  button.disabled = true;
+  button.textContent = 'Analyzing…';
+  clearNode(result);
+  result.appendChild(el('div', 'empty', 'Reading the explicitly selected session file…'));
+  try {
+    const report = await api('/engineering-coach/analyze', {
+      method: 'POST',
+      body: { path },
+    });
+    clearNode(result);
+    const metrics = report.metrics || {};
+    const summary = el('div', 'cards');
+    [
+      ['Events', metrics.events_analyzed || 0],
+      ['Tool calls', metrics.tool_calls || 0],
+      ['Tool errors', metrics.tool_errors || 0],
+      ['Failure rate', Math.round((metrics.tool_failure_rate || 0) * 100) + '%'],
+    ].forEach(([label, value]) => {
+      const card = el('div', 'card');
+      card.appendChild(el('div', 'label', label));
+      card.appendChild(el('div', 'value', String(value)));
+      summary.appendChild(card);
+    });
+    result.appendChild(summary);
+    result.appendChild(el('h4', '', 'Detected format'));
+    result.appendChild(el('p', 'hint', (report.source?.format || []).join(', ') || 'No events detected'));
+    result.appendChild(el('h4', '', 'Reusable workflow candidates'));
+    const candidates = report.skill_candidates || [];
+    if (!candidates.length) result.appendChild(el('div', 'empty', 'No repeated successful workflows met the discovery threshold.'));
+    candidates.forEach((candidate) => {
+      result.appendChild(el('div', 'item', candidate.steps.join(' → ') + ' · ' + candidate.repetitions + ' repetitions'));
+    });
+    result.appendChild(el('h4', '', 'Recommendations and anti-patterns'));
+    result.appendChild(el('pre', 'code', pretty({
+      anti_patterns: report.anti_patterns || [],
+      recommendations: report.recommendations || [],
+      privacy: report.privacy || {},
+    })));
+    result.appendChild(el('h4', '', 'Tool reliability'));
+    result.appendChild(el('pre', 'code', pretty(metrics.top_tools || [])));
+    toast('Session analysis completed locally', 'ok');
+  } catch (error) {
+    clearNode(result);
+    result.appendChild(el('div', 'empty', 'Analysis failed: ' + error.message));
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Analyze session';
+  }
+});
+
+$('#engineering-coach-schedule').addEventListener('click', async () => {
+  const path = $('#engineering-coach-path').value.trim();
+  if (!path) {
+    toast('Enter a session file path first', 'error');
+    return;
+  }
+  const button = $('#engineering-coach-schedule');
+  button.disabled = true;
+  button.textContent = 'Scheduling…';
+  try {
+    const result = await api('/engineering-coach/schedule', {
+      method: 'POST',
+      body: {
+        path,
+        interval_seconds: Number($('#engineering-coach-interval').value),
+      },
+    });
+    STATE.engineeringCoachJobId = result.job_id;
+    const output = $('#engineering-coach-result');
+    const schedule = el('div', 'item');
+    const main = el('div', 'item-main');
+    main.appendChild(el('div', 'item-title', 'Recurring analysis enabled'));
+    main.appendChild(el('div', 'item-sub', 'Job ' + result.job_id + ' · every ' + result.interval_seconds + ' seconds'));
+    schedule.appendChild(main);
+    const pause = el('button', 'ghost', 'Pause schedule');
+    pause.addEventListener('click', async () => {
+      pause.disabled = true;
+      try {
+        await api('/jobs/' + result.job_id, { method: 'PATCH', body: { enabled: false } });
+        schedule.remove();
+        STATE.engineeringCoachJobId = null;
+        toast('Recurring engineering analysis paused', 'ok');
+      } catch (error) {
+        pause.disabled = false;
+        toast(error.message, 'error');
+      }
+    });
+    schedule.appendChild(pause);
+    output.prepend(schedule);
+    toast('Recurring analysis scheduled for the selected file', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Schedule recurring analysis';
   }
 });
 

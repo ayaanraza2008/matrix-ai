@@ -118,6 +118,15 @@ class AddonInstallBody(BaseModel):
     allow_large: bool = False
 
 
+class EngineeringCoachAnalyzeBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+
+
+class EngineeringCoachScheduleBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+    interval_seconds: int = Field(default=86_400, ge=3_600, le=86_400)
+
+
 # ---------------------------------------------------------------------------
 # health & identity
 # ---------------------------------------------------------------------------
@@ -568,6 +577,52 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
 def _require_owner(principal: Principal) -> None:
     if not principal.is_owner or principal.scope != "owner":
         raise PermissionDenied("Only the MATRIX owner can manage external add-ons.")
+
+
+@router.post("/engineering-coach/analyze", tags=["engineering-coach"])
+async def engineering_coach_analyze(
+    body: EngineeringCoachAnalyzeBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Analyze one explicitly selected session file; never scan or persist logs."""
+    _require_owner(principal)
+    return await runtime.readonly_tool_call(
+        "engineering_coach.analyze_session", {"path": body.path}, principal=principal
+    )
+
+
+@router.post("/engineering-coach/schedule", status_code=201, tags=["engineering-coach"])
+async def engineering_coach_schedule(
+    body: EngineeringCoachScheduleBody,
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Opt in to recurring analysis of one explicitly selected file."""
+    _require_owner(principal)
+    # Validate the path and permission now, before persisting a recurring job.
+    initial_report = await runtime.readonly_tool_call(
+        "engineering_coach.analyze_session", {"path": body.path}, principal=principal
+    )
+    job_id = runtime.store.create_job(
+        name="Engineering Coach session analysis",
+        prompt=(
+            f"Analyze the explicitly approved session export at {json.dumps(body.path)} using "
+            "engineering_coach.analyze_session. Report only aggregate metrics, "
+            "repeated failures, and skill candidates. Never include raw prompts, "
+            "tool arguments, or session content."
+        ),
+        interval_seconds=body.interval_seconds,
+        autonomy_level=1,
+        enabled=True,
+    )
+    runtime.store.audit(
+        "engineering_coach.schedule_created",
+        actor=principal.user_id,
+        status="enabled",
+        detail={"job_id": job_id, "interval_seconds": body.interval_seconds},
+    )
+    return {"job_id": job_id, "interval_seconds": body.interval_seconds, "initial_report": initial_report}
 
 
 @router.get("/addons", tags=["add-ons"])

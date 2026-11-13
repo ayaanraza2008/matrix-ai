@@ -148,13 +148,38 @@ must be explicitly configured by the owner.
 Example task: "Analyze workspace/session.jsonl and summarize recurring tool
 failures and reusable workflows."
 
-The analyzer has a 10 MiB and 50,000-event limit. It returns aggregate tool
+The analyzer has a 10 MiB and 50,000-line limit. It returns aggregate tool
 counts, failure rates, repeated failure patterns, and repeated successful
 two-step workflows as skill candidates. It never returns or persists prompt
-text, tool arguments, or raw records and performs no network requests. It does
-not watch directories, silently ingest sessions, or assume that VS Code,
-Copilot, Claude Code, Codex, or any other agent stores logs in a common format.
-Exports must be normalized JSONL with one event object per line; recognizable
-tool events use `type: "tool_call"` or `type: "tool_result"` and a
-`tool_name` field. MATRIX only analyzes the file path explicitly supplied
-for that task.
+text, tool arguments, or raw records and performs no network requests.
+
+Supported inputs:
+- MATRIX-normalized JSONL: tool events use `type: "tool_call"` or
+  `type: "tool_result"` and a `tool_name` field.
+- Claude Code transcript JSONL: assistant `tool_use` blocks and user
+  `tool_result` blocks are reduced to tool names and error flags.
+- Codex CLI rollout JSONL: `response_item` function-call records are reduced
+  to tool names and error flags. Function-call output records are counted as
+  failures only when the export provides an explicit error flag/status.
+
+GitHub Copilot / VS Code session exports do not yet have a supported stable
+adapter in MATRIX; convert them to the normalized schema before analysis.
+Format adapters discard prompt text, tool arguments and tool output at the
+parsing boundary. The dashboard includes an owner-authenticated Engineering
+Coach view at **Engineering Coach**; enter one file path and select Analyze.
+The API endpoint is `POST /api/engineering-coach/analyze`.
+
+There is deliberately no directory watcher, log discovery, or
+silent ingestion. Analysis is on-demand against the one explicit file path
+inside an approved filesystem root. The dashboard also offers an owner-opt-in
+recurring job for that same exact file (hourly, every six hours, or daily);
+the path is validated before the job is created, each run still uses the
+read-only `files.read` tool and current filesystem-root policy, and the job
+can be paused through the dashboard or `PATCH /api/jobs/{job_id}`. This is
+periodic re-analysis of one known file, not automatic discovery or ingestion
+of new files.
+
+Repeated workflows are suggestions only: MATRIX does not automatically create
+or execute new skills. An owner can review a candidate and separately author
+a skill through the normal governed workflow. This avoids turning noisy or
+malicious session data into executable instructions.
