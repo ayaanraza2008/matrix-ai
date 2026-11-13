@@ -166,6 +166,10 @@ class MatrixConfig:
     web_fetch_max_bytes: int = 400_000
     cors_origins: tuple[str, ...] = ()
 
+    # Speech output provider: empty/"" keeps the Piper default, "windows-sapi"
+    # opts in to the locally installed Windows voice, "none" disables output.
+    tts_provider: str = ""
+
     allowed_apps: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ALLOWED_APPS))
     allowed_commands: dict[str, dict] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_ALLOWED_COMMANDS)))
     addon_mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -520,6 +524,7 @@ class MatrixConfig:
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
             additional_scopes=tuple(part.strip() for part in (_env("MATRIX_EXTRA_SCOPES", "") or "").split(";") if part.strip()),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", False),
+            tts_provider=(_env("MATRIX_TTS_PROVIDER", "") or "").strip().lower(),
             file_roots=roots,
             allowed_apps=apps,
             addon_mcp_servers=addon_servers,

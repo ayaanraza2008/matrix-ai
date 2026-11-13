@@ -42,7 +42,7 @@ class VoiceSessionManager:
         stt_engine: SttEngine | None = None,
     ) -> None:
         self.config = config
-        self.tts_engine = tts_engine if tts_engine is not None else build_tts_engine()
+        self.tts_engine = tts_engine if tts_engine is not None else build_tts_engine(config)
         self.stt_engine = stt_engine if stt_engine is not None else build_stt_engine()
         self._sessions: dict[str, VoiceSession] = {}
         self._active_id: str | None = None
@@ -89,9 +89,7 @@ class VoiceSessionManager:
         session = self._require_session(session_id)
         session.muted = True
         session.state = "muted"
-        if self._speak_task is not None and not self._speak_task.done():
-            self._speak_task.cancel()
-            self._speak_task = None
+        self._cancel_speech()
         return session
 
     def unmute(self, session_id: str | None = None) -> VoiceSession:
@@ -105,11 +103,9 @@ class VoiceSessionManager:
         session = self._require_session(session_id)
         session.state = "idle"
         session.muted = False
+        self._cancel_speech()
         if self._active_id == session.id:
             self._active_id = None
-        if self._speak_task is not None and not self._speak_task.done():
-            self._speak_task.cancel()
-            self._speak_task = None
         return session
 
     def _require_session(self, session_id: str | None) -> VoiceSession:
@@ -122,15 +118,37 @@ class VoiceSessionManager:
 
     def transcribe(self, audio_base64: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
-        if session.muted:
-            raise VoiceMuted("microphone is muted; audio capture is refused")
-        if session.state != "listening":
-            raise ConflictError(f"session state '{session.state}' does not accept audio")
         if self.stt_engine is None:
             raise ToolUnavailable(
                 "No local speech-to-text engine is installed. Install matrix-ai[voice] "
                 "and allow the first Whisper model download, or use text chat."
             )
+        payload = self._decode_audio(session, audio_base64)
+        result = self._transcribe_payload(payload)
+        transcript = str(result.get("text", "")).strip()
+        session.last_utterance = transcript[:500] or None
+        return {**result, "text": transcript, "session_id": session.id}
+
+    async def transcribe_async(self, audio_base64: str, *, session_id: str | None = None) -> dict:
+        """Decode on the event loop, but keep model inference off it."""
+        session = self._require_session(session_id)
+        if self.stt_engine is None:
+            raise ToolUnavailable(
+                "No local speech-to-text engine is installed. Install matrix-ai[voice] "
+                "and allow the first Whisper model download, or use text chat."
+            )
+        payload = self._decode_audio(session, audio_base64)
+        # Whisper inference is CPU-bound; running it directly would block the API.
+        result = await asyncio.to_thread(self._transcribe_payload, payload)
+        transcript = str(result.get("text", "")).strip()
+        session.last_utterance = transcript[:500] or None
+        return {**result, "text": transcript, "session_id": session.id}
+
+    def _decode_audio(self, session: VoiceSession, audio_base64: str) -> bytes:
+        if session.muted:
+            raise VoiceMuted("microphone is muted; audio capture is refused")
+        if session.state != "listening":
+            raise ConflictError(f"session state '{session.state}' does not accept audio")
         try:
             payload = base64.b64decode(audio_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
@@ -139,23 +157,29 @@ class VoiceSessionManager:
             raise ValidationFailure("audio payload is empty")
         if len(payload) > MAX_AUDIO_BYTES:
             raise ValidationFailure("audio exceeds the 8 MB limit")
+        return payload
+
+    def _transcribe_payload(self, payload: bytes) -> dict:
+        assert self.stt_engine is not None  # noqa: S101
         try:
-            result = self.stt_engine.transcribe(payload)
+            return self.stt_engine.transcribe(payload)
         except Exception as exc:  # noqa: BLE001 - codec/model errors vary by optional backend
             raise ToolUnavailable(
                 f"Local speech-to-text failed ({type(exc).__name__})."
             ) from exc
-        transcript = str(result.get("text", "")).strip()
-        session.last_utterance = transcript[:500] or None
-        return {**result, "text": transcript, "session_id": session.id}
+
+    def validate_speech(self, text: str) -> dict:
+        """Preflight check so clients can validate before speaking or playback."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValidationFailure("text to speak is required")
+        if contains_secret(text):
+            raise ValidationFailure("refusing to speak text that looks like a credential")
+        return {"allowed": True}
 
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
         text = (text or "").strip()
-        if not text:
-            raise ValidationFailure("text to speak is required")
-        if contains_secret(text):
-            raise ValidationFailure("refusing to speak text that looks like a credential")
+        self.validate_speech(text)
         if self.tts_engine is None:
             raise ToolUnavailable(
                 "No local text-to-speech engine is configured. Install matrix-ai[voice], "
@@ -179,11 +203,21 @@ class VoiceSessionManager:
     def barge_in(self, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
         interrupted = bool(self._speak_task is not None and not self._speak_task.done())
-        if interrupted and self._speak_task is not None:
-            self._speak_task.cancel()
-            self._speak_task = None
+        if interrupted:
+            self._cancel_speech()
         session.state = "listening"
         return {"session_id": session.id, "state": session.state, "interrupted": interrupted}
+
+    def _cancel_speech(self) -> None:
+        task = self._speak_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._speak_task = None
+        # Engines with a native stop (e.g. Windows SAPI) must end audible output
+        # immediately, not only when their coroutine observes cancellation.
+        stop = getattr(self.tts_engine, "stop", None)
+        if callable(stop):
+            stop()
 
     async def shutdown(self) -> None:
         if self._speak_task is not None and not self._speak_task.done():
@@ -192,6 +226,6 @@ class VoiceSessionManager:
                 await self._speak_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutdown path
                 pass
-        self._speak_task = None
+        self._cancel_speech()
         self._sessions.clear()
         self._active_id = None
