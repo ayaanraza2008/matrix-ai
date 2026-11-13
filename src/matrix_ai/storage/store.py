@@ -383,6 +383,9 @@ class Store:
         graph = self.get_goal_graph(graph_id)
         if graph["owner_id"] != owner_id:
             raise NotFoundError(f"goal graph {graph_id} not found")
+        graph_deadline = parse_dt(graph.get("deadline"))
+        if graph_deadline is not None and graph_deadline <= utcnow():
+            raise ValueError("goal graph deadline has expired; create a new graph to continue")
         node = next((item for item in graph["nodes"] if item["node_id"] == node_id), None)
         if node is None:
             raise NotFoundError(f"goal graph node {node_id} not found")
