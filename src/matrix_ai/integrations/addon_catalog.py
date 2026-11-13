@@ -334,6 +334,24 @@ ADDONS: tuple[dict[str, Any], ...] = (
         "risk": "high",
         "install_note": "Browser agent uses a persistent Python REPL and raw Chrome DevTools Protocol. Local browsing is preferred; block local-network destinations and downloads by default, and require approval for form submissions, purchases, account changes and uploads.",
     },
+    {
+        "id": "ai-engineering-coach",
+        "name": "Microsoft AI Engineering Coach",
+        "repository": "microsoft/AI-Engineering-Coach",
+        "branch": "main",
+        "commit": "c5cfba17e732f100b4322f5c9c2116063d7e4ac4",
+        "license": "MIT",
+        "size_mb": 7,
+        "kind": "engineering_analytics_reference",
+        "protocol": "skill_pack",
+        "capabilities": ["coding_session_analytics", "anti_pattern_detection", "skill_discovery", "context_health", "agentic_engineering_guidance"],
+        "keywords": ["ai engineering coach", "coding analytics", "coding sessions", "anti-patterns", "prompt quality", "skill discovery", "agent performance", "context health", "engineering productivity"],
+        "context_paths": ["README.md", "docs/**", "skills/**"],
+        "sparse_paths": ["README.md", "README.extension.md", "LICENSE", "NOTICE", "AGENTS.md", "docs/**", "skills/**", "src/**", "package.json", "package-lock.json", "tsconfig.json"],
+        "context_enabled": True,
+        "risk": "low",
+        "install_note": "MIT-licensed, pinned source-only integration. MATRIX may autonomously consult bounded documentation/skills as untrusted reference material. Upstream is a VS Code/GitHub Copilot canvas extension, not a headless service or standalone API; native analytics/dashboard execution requires VS Code 1.125+ and a separately built VSIX. MATRIX does not execute upstream scripts or install VS Code extensions automatically.",
+    },
 )
 
 

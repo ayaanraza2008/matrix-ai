@@ -1,6 +1,6 @@
 # External capability add-ons
 
-MATRIX has a pinned catalogue for the 18 repositories listed below. The catalogue is not the same as an installed or running service: repositories are cloned lazily under MATRIX_HOME/addons/<id>, at the reviewed commit shown in addon_catalog.py. They are never added as Git submodules or copied into the core MATRIX source tree.
+MATRIX has a pinned catalogue for the 19 repositories listed below. The catalogue is not the same as an installed or running service: repositories are cloned lazily under MATRIX_HOME/addons/<id>, at the reviewed commit shown in addon_catalog.py. They are never added as Git submodules or copied into the core MATRIX source tree.
 
 Source install is deliberately **source-only**. It uses a sparse checkout, fetches one pinned commit, does not run npm install, pip install, build scripts or postinstall hooks, and does not grant the source direct tool authority. Packages/services must be installed and launched by the owner separately.
 
@@ -26,6 +26,7 @@ Source install is deliberately **source-only**. It uses a sparse checkout, fetch
 | [AgentMemory](https://github.com/rohitg00/agentmemory) | Persistent memory across agent sessions | Apache-2.0 | Owner-configured local MCP; optional second memory store |
 | [Scientific Agent Skills](https://github.com/K-Dense-AI/scientific-agent-skills) | 177 scientific/research skills and databases | MIT | Selected bounded reference skills |
 | [Browser Use](https://github.com/browser-use/browser-use) | Local browser agent and Chrome DevTools Protocol automation | MIT | Owner-configured local MCP |
+| [AI Engineering Coach](https://github.com/microsoft/AI-Engineering-Coach) | Coding-session analytics, anti-pattern detection, skill discovery and context health | MIT | Pinned source-only engineering guidance; native dashboard requires VS Code |
 
 Unknown/no-recognised licence repositories (Free for Dev and Build Your Own X) are treated as local link indices only and cannot be cloned by the installer. The links within those catalogues have their own licences and terms. AGPL-3.0 projects (OpenViking and G0DM0D3) are kept as separable optional sources; network deployments and redistribution must respect AGPL obligations.
 
@@ -124,3 +125,36 @@ Awesome Free LLM APIs is a reference catalogue only. MATRIX does not harvest key
 - Cal.diy's own README recommends personal/non-production usage; the repository is over 1 GB and requires a database/runtime stack.
 - Reverse engineering is limited to software/binaries you own or have explicit permission to inspect. Scientific/clinical outputs are research assistance, not patient-specific diagnoses or treatment recommendations.
 - Disconnect an add-on with DELETE /api/addons/{id}/connect. MATRIX unregisters its tools and terminates the corresponding local process.
+
+
+## AI Engineering Coach
+
+[Microsoft AI Engineering Coach](https://github.com/microsoft/AI-Engineering-Coach) is available as a pinned, source-only engineering-coach add-on. MATRIX can select it automatically for coding-quality, prompt-quality, agentic-workflow, anti-pattern and skill-discovery tasks, install its reviewed source snapshot lazily, and retrieve bounded Markdown references. Retrieved content remains untrusted guidance and cannot grant tools, change policy, approve actions or rewrite MATRIX configuration.
+
+**Important runtime boundary:** upstream currently ships as a VS Code extension and a GitHub Copilot app canvas, not as a headless service or documented standalone HTTP/MCP API. Its full session analytics and dashboard require VS Code 1.125+ and a locally built VSIX (or the supported Copilot canvas build). MATRIX therefore does **not** claim to run the upstream dashboard or invoke its internal analytics autonomously. This catalogue integration provides autonomous reference/skill guidance only; a future native bridge must be implemented and tested before claiming automated session ingestion or analytics inside MATRIX.
+
+The upstream extension is read-only with respect to coding-session logs and reports local processing/no proprietary telemetry. MATRIX must preserve those boundaries: do not upload raw transcripts, do not scan unrelated directories, and do not install the VSIX or run npm lifecycle/build scripts as part of task routing. Only the pinned source snapshot is fetched by MATRIX. To use the native dashboard separately, follow the upstream build instructions in its README and install the generated VSIX yourself.
+
+
+## Native MATRIX engineering coach
+
+MATRIX also ships a native, local analyzer exposed to the planner as
+`engineering_coach.analyze_session`. The tool is read-only and requires the
+existing `files.read` permission. It analyzes only an explicitly selected
+`.jsonl` or `.ndjson` session export inside one of MATRIX's configured
+filesystem roots. The default root is MATRIX_HOME/workspace; additional roots
+must be explicitly configured by the owner.
+
+Example task: "Analyze workspace/session.jsonl and summarize recurring tool
+failures and reusable workflows."
+
+The analyzer has a 10 MiB and 50,000-event limit. It returns aggregate tool
+counts, failure rates, repeated failure patterns, and repeated successful
+two-step workflows as skill candidates. It never returns or persists prompt
+text, tool arguments, or raw records and performs no network requests. It does
+not watch directories, silently ingest sessions, or assume that VS Code,
+Copilot, Claude Code, Codex, or any other agent stores logs in a common format.
+Exports must be normalized JSONL with one event object per line; recognizable
+tool events use `type: "tool_call"` or `type: "tool_result"` and a
+`tool_name` field. MATRIX only analyzes the file path explicitly supplied
+for that task.
