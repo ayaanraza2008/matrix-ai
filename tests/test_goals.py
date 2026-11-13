@@ -331,3 +331,38 @@ def test_schema_v3_goals_migrate_criteria_review_metadata(tmp_path):
     } <= columns
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_goal_gets_advisory_review_automatically(runtime, monkeypatch):
+    from matrix_ai.models.base import ModelResponse
+
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Verify disk report", success_criteria="A disk report is present."
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="Verify disk report", user_id="owner", kind="goal", goal_id=goal_id
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+    runtime.store.update_task(
+        task_id,
+        state="COMPLETE",
+        summary="Disk report was generated.",
+        evidence_json='{"verified":true,"steps":[{"tool":"files.write_text","verified":true}]}',
+    )
+    runtime.store.sync_goal_for_task(task_id)
+
+    async def fake_complete(messages, **kwargs):
+        return ModelResponse(
+            text='{"outcome":"met","confidence":0.8,"rationale":"The task evidence reports the disk report was generated.","evidence":["Disk report was generated."],"missing_evidence":[]}',
+            provider="test",
+            model="test-model",
+            latency_ms=1.0,
+        )
+
+    monkeypatch.setattr(runtime.models, "complete", fake_complete)
+    await runtime.orchestrator._evaluate_goal_candidate(task_id)
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["criteria_status"] == "candidate_met"
+    assert goal["state"] == "awaiting_verification"
+    assert goal["criteria_confirmed_at"] is None
