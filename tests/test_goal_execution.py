@@ -327,3 +327,54 @@ async def test_goal_supervisor_runs_independent_nodes_in_bounded_parallel_wave(c
     assert finished["state"] == "awaiting_verification"
     assert all(node["state"] == "completed" for node in finished["nodes"])
     assert 2 <= maximum_active <= 4
+
+
+@pytest.mark.asyncio
+async def test_goal_can_be_paused_and_resumed_without_starting_while_paused(client, runtime):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={
+            "title": "Pause and resume a plan",
+            "nodes": [
+                {"node_id": "first", "title": "what is my system status?"},
+                {"node_id": "second", "title": "what is my system status?", "depends_on": ["first"]},
+            ],
+        },
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+
+    paused = await client.post(f"/api/goals/{goal_id}/pause")
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["state"] == "paused"
+    assert all(node["state"] == "pending" for node in paused.json()["nodes"])
+    assert runtime.store.goal_node_task_ids(goal_id) == []
+
+    recovery = await runtime.goal_supervisor.recover_after_restart()
+    assert recovery["resumed"] == 0
+    assert runtime.goal_supervisor.status(goal_id)["state"] == "paused"
+
+    resumed = await client.post(f"/api/goals/{goal_id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    finished = await _wait_for_goal(client, goal_id)
+    assert finished["state"] == "awaiting_verification"
+    assert all(node["state"] == "completed" for node in finished["nodes"])
+
+
+@pytest.mark.asyncio
+async def test_paused_goal_can_be_cancelled_and_cannot_resume_after_cancel(client):
+    planned = await client.post(
+        "/api/goals/plan",
+        json={"title": "Pause then cancel", "nodes": [{"node_id": "a", "title": "what is my system status?"}]},
+    )
+    assert planned.status_code == 201, planned.text
+    goal_id = planned.json()["id"]
+    assert (await client.post(f"/api/goals/{goal_id}/pause")).status_code == 200
+
+    cancelled = await client.post(f"/api/goals/{goal_id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["state"] == "cancelled"
+    assert cancelled.json()["nodes"][0]["state"] == "cancelled"
+
+    resumed = await client.post(f"/api/goals/{goal_id}/resume")
+    assert resumed.status_code == 409
