@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import pytest
+
+from matrix_ai.tools.base import ToolContext
 from pydantic import ValidationError
 
 from matrix_ai.core.models import Risk
 from matrix_ai.core.policy import PolicyEngine
 from matrix_ai.errors import ToolExecutionError
 from matrix_ai.integrations.youtube_auth import build_youtube_service, connect_youtube, YOUTUBE_READ_SCOPE
-from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.youtube_tools import (
     YouTubeGetChannelTool,
     YouTubeListCommentsTool,
@@ -22,7 +23,6 @@ class FakeRequest:
     def execute(self):
         return self.payload
 
-
 class FakeChannels:
     def list(self, **kwargs):
         assert kwargs["mine"] is True
@@ -34,7 +34,6 @@ class FakeChannels:
                 "contentDetails": {"relatedPlaylists": {"uploads": "uploads-123"}},
             }]
         })
-
 
 class FakeVideos:
     def list(self, **kwargs):
@@ -59,7 +58,6 @@ class FakeVideos:
             "status": kwargs["body"].get("status", {}),
         })
 
-
 class FakeComments:
     def list(self, **kwargs):
         assert kwargs["videoId"] == "abcdefghijk"
@@ -81,7 +79,6 @@ class FakeComments:
             }]
         })
 
-
 class FakeService:
     def channels(self):
         return FakeChannels()
@@ -91,7 +88,6 @@ class FakeService:
 
     def videos(self):
         return FakeVideos()
-
 
 def test_youtube_read_tools_use_authenticated_channel_service(runtime, monkeypatch):
     import matrix_ai.tools.youtube_tools as youtube_tools
@@ -105,7 +101,6 @@ def test_youtube_read_tools_use_authenticated_channel_service(runtime, monkeypat
     assert output["title"] == "HOWTIVO"
     assert tool.verify({}, output).ok
 
-
 def test_youtube_comment_reader_returns_bounded_comment_metadata(runtime, monkeypatch):
     import matrix_ai.tools.youtube_tools as youtube_tools
 
@@ -117,7 +112,6 @@ def test_youtube_comment_reader_returns_bounded_comment_metadata(runtime, monkey
     ))
     assert output["comments"][0]["text"] == "Nice video"
     assert output["comments"][0]["author"] == "Viewer"
-
 
 def test_youtube_write_tools_are_opt_in_and_approval_gated(runtime):
     registry = runtime.registry
@@ -149,7 +143,6 @@ def test_youtube_write_tools_are_opt_in_and_approval_gated(runtime):
     assert upload_decision.allowed is True
     assert upload_decision.requires_approval is True
 
-
 def test_youtube_oauth_fails_closed_without_a_saved_token(runtime, monkeypatch):
     import matrix_ai.integrations.youtube_auth as auth
 
@@ -162,18 +155,15 @@ def test_youtube_oauth_fails_closed_without_a_saved_token(runtime, monkeypatch):
     with pytest.raises(ToolExecutionError, match="not connected"):
         build_youtube_service(runtime.config, YOUTUBE_READ_SCOPE)
 
-
 def test_youtube_auth_requires_owner_supplied_google_client_file(runtime):
     with pytest.raises(ToolExecutionError, match="MATRIX_YOUTUBE_CLIENT_SECRETS"):
         connect_youtube(runtime.config)
-
 
 @pytest.mark.asyncio
 async def test_youtube_integration_is_reported_unconfigured_without_token(runtime):
     integration = runtime.integrations.get("youtube")
     result = await integration.safe_check()
     assert result.status == "missing_credentials"
-
 
 def test_youtube_update_video_preserves_existing_metadata_and_confirms_owner(runtime, monkeypatch):
     import matrix_ai.tools.youtube_tools as youtube_tools
@@ -187,7 +177,6 @@ def test_youtube_update_video_preserves_existing_metadata_and_confirms_owner(run
     assert output["video_id"] == "abcdefghijk"
     assert output["title"] == "New title"
     assert tool.verify(args, output).ok
-
 
 def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
     with pytest.raises(ValidationError, match="private"):
@@ -204,7 +193,6 @@ def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
             "publish_at": "2030-01-01T12:00:00",
         })
 
-
 def test_youtube_upload_defaults_to_private():
     args = YouTubeUploadVideoInput.model_validate({
         "path": "approved/video.mp4",
@@ -212,7 +200,6 @@ def test_youtube_upload_defaults_to_private():
     })
     assert args.privacy_status == "private"
     assert args.publish_at is None
-
 
 def test_youtube_credentials_fail_closed_without_secure_keyring(runtime, monkeypatch):
     import matrix_ai.integrations.youtube_auth as auth
@@ -229,7 +216,6 @@ def test_youtube_credentials_fail_closed_without_secure_keyring(runtime, monkeyp
     monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
     with pytest.raises(ToolExecutionError, match="secure OS credential manager"):
         auth.load_youtube_credentials(runtime.config, YOUTUBE_READ_SCOPE)
-
 
 def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
     import matrix_ai.integrations.youtube_auth as auth
@@ -262,7 +248,6 @@ def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
 
     auth._persist_credentials(runtime.config, Credentials())
     assert auth.has_youtube_credentials(runtime.config)
-
 
 def test_public_config_reports_youtube_keyring_state_not_legacy_file(runtime, monkeypatch):
     import matrix_ai.integrations.youtube_auth as auth
