@@ -23,9 +23,9 @@ class FakeMCPClient:
         return {"called": name, "arguments": arguments}
 
 
-def test_catalog_contains_all_eighteen_pinned_user_requested_repositories():
-    assert len(ADDONS) == 18
-    assert len(ADDON_BY_ID) == 18
+def test_catalog_contains_all_nineteen_pinned_user_requested_repositories():
+    assert len(ADDONS) == 19
+    assert len(ADDON_BY_ID) == 19
     assert all(len(item["commit"]) == 40 for item in ADDONS)
     assert {item["id"] for item in ADDONS} >= {
         "openwhispr",
@@ -51,7 +51,7 @@ def test_catalog_contains_all_eighteen_pinned_user_requested_repositories():
 
 def test_addon_manager_reports_lazy_sources_not_installed(runtime):
     status = runtime.addon_manager.status()
-    assert status["count"] == 18
+    assert status["count"] == 19
     assert status["installed_count"] == 0
     assert status["connected_count"] == 0
     assert all(item["installed"] is False for item in status["addons"])
