@@ -62,7 +62,7 @@ class PolicyEngine:
 
     def task_scopes(self, requested: Sequence[str] | None) -> list[str]:
         """Narrow a task's scopes; never silently widen them."""
-        allowed = set(DEFAULT_SCOPES)
+        allowed = set(DEFAULT_SCOPES) | set(self.config.additional_scopes)
         if not requested:
             return sorted(allowed)
         return sorted({scope for scope in requested if scope in allowed})

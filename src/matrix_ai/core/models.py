@@ -447,4 +447,5 @@ DEFAULT_SCOPES: tuple[str, ...] = (
     "memory.write",
     "web.read",
     "vision.read",
+    "youtube.read",
 )

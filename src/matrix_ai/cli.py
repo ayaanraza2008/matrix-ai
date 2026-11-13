@@ -47,6 +47,7 @@ def _parser() -> argparse.ArgumentParser:
     backup.add_argument("--out", default=None, help="destination .db path")
 
     sub.add_parser("pair-code", help="issue a single-use device pairing code")
+    sub.add_parser("youtube-auth", help="connect a YouTube channel through Google OAuth consent")
 
     remote = sub.add_parser("remote-access", help="manage private Tailscale access (never public Funnel)")
     remote.add_argument("action", choices=["status", "enable", "disable"])
@@ -193,6 +194,14 @@ def main(argv: list[str] | None = None) -> int:
                 else manager.uninstall()
             )
             print(json.dumps(result, indent=2))
+            return 0
+
+        if args.command == "youtube-auth":
+            from .integrations.youtube_auth import connect_youtube
+
+            credential_store = connect_youtube(config)
+            print(f"YouTube OAuth connected. Refresh token stored in: {credential_store}.")
+            print("No plaintext OAuth token file is created. Keep your OS account protected.")
             return 0
 
         if args.command == "pair-code":
