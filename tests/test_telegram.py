@@ -210,3 +210,30 @@ async def test_database_migrates_telegram_source_update_key(runtime):
         row["name"] for row in runtime.db.query("PRAGMA table_info(tasks)")
     }
     assert "source_update_id" in columns
+
+async def test_telegram_persists_offset_only_after_update_is_handled(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def handle(_update):
+        return None
+
+    bridge._handle_update = handle
+    await bridge._process_update(update(update_id=456, text="hello"))
+
+    assert bridge._offset == 457
+    assert store.flags["telegram_update_offset"] == "456"
+
+
+async def test_telegram_failed_update_does_not_advance_durable_offset(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.flags["telegram_update_offset"] = "100"
+
+    async def fail(_update):
+        raise RuntimeError("temporary failure")
+
+    bridge._handle_update = fail
+    with pytest.raises(RuntimeError):
+        await bridge._process_update(update(update_id=101, text="retry me"))
+
+    assert bridge._offset is None
+    assert store.flags["telegram_update_offset"] == "100"
