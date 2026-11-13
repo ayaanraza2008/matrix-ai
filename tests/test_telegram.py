@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import TaskState
 from matrix_ai.security.ratelimit import RateLimiter
@@ -210,6 +212,7 @@ async def test_database_migrates_telegram_source_update_key(runtime):
         row["name"] for row in runtime.db.query("PRAGMA table_info(tasks)")
     }
     assert "source_update_id" in columns
+
 
 async def test_telegram_persists_offset_only_after_update_is_handled(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
