@@ -414,6 +414,18 @@ class JobCreate(BaseModel):
     autonomy_level: int = Field(default=1, ge=0, le=2)
     enabled: bool = True
 
+class JobUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
+    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
+    autonomy_level: int | None = Field(default=None, ge=0, le=2)
+    enabled: bool | None = None
+
+    @field_validator("name", "prompt")
+    @classmethod
+    def _strip_job_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
 
 #: Default permission scopes a new task may exercise. Tools outside the granted
 #: set are refused server-side even if the model asks for them.
