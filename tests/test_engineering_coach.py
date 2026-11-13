@@ -135,3 +135,30 @@ async def test_engineering_coach_schedule_is_explicit_and_owner_controlled(clien
     paused = await client.patch(f"/api/jobs/{payload['job_id']}", json={"enabled": False})
     assert paused.status_code == 200
     assert paused.json()["enabled"] is False
+
+
+def test_analyzer_correlates_codex_results_without_double_counting_calls(tmp_path):
+    source = tmp_path / "codex.jsonl"
+    records = []
+    for index in range(3):
+        records.append({
+            "type": "response_item",
+            "payload": {
+                "type": "function_call", "call_id": f"call-{index}", "name": "shell",
+                "arguments": '{"command":"private"}',
+            },
+        })
+        records.append({
+            "type": "response_item",
+            "payload": {
+                "type": "function_call_output", "call_id": f"call-{index}",
+                "is_error": index == 2, "output": "PRIVATE OUTPUT",
+            },
+        })
+    source.write_text("\\n".join(json.dumps(item) for item in records), encoding="utf-8")
+    result = analyze_jsonl(source)
+    assert result["source"]["format"] == ["codex"]
+    assert result["metrics"]["tool_calls"] == 3
+    assert result["metrics"]["tool_errors"] == 1
+    assert result["metrics"]["tool_failure_rate"] == round(1 / 3, 4)
+    assert "PRIVATE" not in str(result)
