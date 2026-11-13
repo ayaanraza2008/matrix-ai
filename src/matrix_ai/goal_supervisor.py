@@ -103,10 +103,17 @@ class GoalSupervisor:
             self.store.block_goal_graph_nodes(graph_id, queued, "goal graph deadline expired")
             for node in nodes:
                 goal = node["goal"]
-                if goal["task_id"] and goal["state"] in ACTIVE_STATES:
+                if goal["task_id"] and goal["state"] == "running":
                     await self.orchestrator.cancel(goal["task_id"])
-            completed_any = any(node["goal"]["state"] == "verified" for node in nodes)
-            terminal_state = "partial" if completed_any else "failed"
+            states = [node["goal"]["state"] for node in self.store.goal_graph_nodes(graph_id)]
+            if states and all(state == "verified" for state in states):
+                terminal_state = "completed"
+            elif any(state == "awaiting_verification" for state in states):
+                terminal_state = "awaiting_owner_confirmation"
+            elif any(state == "verified" for state in states):
+                terminal_state = "partial"
+            else:
+                terminal_state = "failed"
             self.store.update_goal_graph_state(graph_id, terminal_state)
             self.store.audit(
                 "goal_graph.deadline_expired",
