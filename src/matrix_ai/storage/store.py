@@ -470,19 +470,24 @@ class Store:
             raise NotFoundError(f"goal {goal_id} not found")
         if goal["state"] != "awaiting_verification":
             raise ValueError("only a fully completed goal can be owner-confirmed")
-        if not goal["criteria_review_json"]:
-            raise ValueError("run criteria evaluation before owner confirmation")
-        if outcome not in {"met", "not_met"}:
+                if outcome not in {"met", "not_met"}:
             raise ValueError("outcome must be met or not_met")
         if len(reason.strip()) < 8:
             raise ValueError("confirmation reason must contain at least 8 characters")
         state = "verified" if outcome == "met" else "needs_attention"
         status = "owner_confirmed_met" if outcome == "met" else "owner_confirmed_not_met"
+        manual_review = canonical_json({
+            "outcome": "owner_manual",
+            "confidence": None,
+            "rationale": "Owner reviewed the available task evidence without a model-generated candidate.",
+            "evidence": [],
+            "missing_evidence": [],
+        })
         cursor = self.db.execute(
-            "UPDATE goals SET state=?, criteria_status=?, criteria_confirmed_at=?, "
-            "criteria_confirmed_by=?, criteria_confirmation_reason=?, updated_at=? "
+            "UPDATE goals SET state=?, criteria_status=?, criteria_review_json=COALESCE(criteria_review_json,?), "
+            "criteria_confirmed_at=?, criteria_confirmed_by=?, criteria_confirmation_reason=?, updated_at=? "
             "WHERE id=? AND owner_id=? AND state='awaiting_verification'",
-            (state, status, iso(), owner_id, reason.strip()[:500], iso(), goal_id, owner_id),
+            (state, status, manual_review, iso(), owner_id, reason.strip()[:500], iso(), goal_id, owner_id),
         )
         if cursor.rowcount != 1:
             raise ValueError("goal changed before confirmation; reload and retry")
