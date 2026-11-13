@@ -19,7 +19,6 @@ _LINKEDIN_AUTHOR = re.compile(r"^urn:li:(?:person|organization):[0-9]+$")
 _LINKEDIN_VERSION = re.compile(r"^[0-9]{6}$")
 _GRAPH_VERSION = re.compile(r"^v[0-9]+\.[0-9]+$")
 _META_ID = re.compile(r"^[0-9]{5,40}$")
-_PHONE = re.compile(r"^\+?[1-9][0-9]{7,14}$")
 
 
 def _response_json(response: httpx.Response, provider: str) -> dict[str, Any]:
