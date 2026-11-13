@@ -134,7 +134,7 @@ The next implementation slice adds schema v4 persistence for bounded goal graph 
 
 Schema v5 links each goal-node task to a unique `(goal_id, goal_node_id)` identity. The owner can explicitly start a persisted plan with `POST /api/goals/{goal_id}/start`. MATRIX dispatches at most four dependency-ready nodes, creates normal orchestrator tasks for them, and only unlocks dependants after a node task reaches terminal completion with verified step evidence. Failed or cancelled prerequisites block descendants. Node/task linkage is reconciled during startup recovery, and completed nodes trigger the next ready wave automatically.
 
-This is bounded node-level execution, not yet full goal autonomy: there is no semantic success-criteria verifier, pause/resume endpoint, retry/replanning budget, or cross-process lease protocol. In-flight tool effects retain the orchestrator's conservative manual-review recovery behavior.
+This is bounded node-level execution, not yet full goal autonomy: bounded node dispatch, pause/resume, and independent criteria assessment are implemented; goal-level retry/replanning budgets and a cross-process lease protocol remain open. In-flight tool effects retain the orchestrator's conservative manual-review recovery behavior.
 
 Owner cancellation of a started DAG first changes the goal to a non-dispatchable `cancelling` state, marks pending nodes cancelled, then cancels linked running tasks and records the final goal as cancelled. This prevents task-finalization callbacks from launching another wave during cancellation.
 
