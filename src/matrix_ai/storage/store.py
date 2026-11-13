@@ -333,7 +333,7 @@ class Store:
 
     def goal_graph_nodes(self, graph_id: str) -> list[dict[str, Any]]:
         rows = self.db.query(
-            "SELECT node_id, goal_id, depends_on_json FROM goal_graph_nodes "
+            "SELECT node_id, goal_id, depends_on_json, retry_count FROM goal_graph_nodes "
             "WHERE graph_id=? ORDER BY rowid",
             (graph_id,),
         )
@@ -342,10 +342,78 @@ class Store:
                 "node_id": row["node_id"],
                 "goal_id": row["goal_id"],
                 "depends_on": _json_load(row["depends_on_json"], []),
+                "retry_count": int(row["retry_count"]),
+                "attempts": [
+                    dict(attempt)
+                    for attempt in self.db.query(
+                        "SELECT attempt, task_id, outcome, started_at, finished_at "
+                        "FROM goal_graph_node_attempts WHERE graph_id=? AND node_id=? ORDER BY attempt",
+                        (graph_id, row["node_id"]),
+                    )
+                ],
                 "goal": self.get_goal(row["goal_id"]),
             }
             for row in rows
         ]
+
+    def record_goal_graph_node_attempt(
+        self, graph_id: str, node_id: str, goal_id: str, task_id: str
+    ) -> int:
+        row = self.db.query_one(
+            "SELECT retry_count, goal_id FROM goal_graph_nodes WHERE graph_id=? AND node_id=?",
+            (graph_id, node_id),
+        )
+        if row is None or row["goal_id"] != goal_id:
+            raise NotFoundError(f"goal graph node {node_id} not found")
+        attempt = int(row["retry_count"]) + 1
+        self.db.execute(
+            "INSERT INTO goal_graph_node_attempts(id, graph_id, node_id, goal_id, task_id, attempt, outcome, started_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (uuid.uuid4().hex, graph_id, node_id, goal_id, task_id, attempt, "running", iso()),
+        )
+        self.db.execute(
+            "UPDATE goal_graph_nodes SET retry_count=? WHERE graph_id=? AND node_id=?",
+            (attempt, graph_id, node_id),
+        )
+        return attempt
+
+    def retry_goal_graph_node(
+        self, graph_id: str, node_id: str, *, owner_id: str, max_attempts: int = 3
+    ) -> dict[str, Any]:
+        graph = self.get_goal_graph(graph_id)
+        if graph["owner_id"] != owner_id:
+            raise NotFoundError(f"goal graph {graph_id} not found")
+        node = next((item for item in graph["nodes"] if item["node_id"] == node_id), None)
+        if node is None:
+            raise NotFoundError(f"goal graph node {node_id} not found")
+        goal = node["goal"]
+        if goal["state"] not in {"failed", "blocked", "cancelled"}:
+            raise ValueError("only failed, blocked or cancelled nodes can be retried")
+        if goal["state"] == "blocked":
+            by_id = {item["node_id"]: item for item in graph["nodes"]}
+            if any(by_id[dependency]["goal"]["state"] != "verified" for dependency in node["depends_on"]):
+                raise ValueError("all prerequisite goals must be verified before retrying this node")
+        if goal["task_id"]:
+            successful = self.db.query_one(
+                "SELECT COUNT(*) AS count FROM tool_calls WHERE task_id=? AND status='succeeded'",
+                (goal["task_id"],),
+            )
+            if successful and int(successful["count"]) > 0:
+                raise ValueError(
+                    "previous attempt has successful tool calls; automatic retry is blocked to prevent duplicate side effects"
+                )
+        if int(node["retry_count"]) >= max_attempts:
+            raise ValueError(f"goal node reached its maximum of {max_attempts} attempts")
+        self.db.execute(
+            "UPDATE goals SET state='queued', task_id=NULL, result_summary=NULL, "
+            "verification_status='pending', criteria_status='not_evaluated', evidence_json=NULL, "
+            "criteria_review_json=NULL, criteria_reviewed_at=NULL, criteria_confirmed_at=NULL, "
+            "criteria_confirmed_by=NULL, criteria_confirmation_reason=NULL, updated_at=?, finished_at=NULL "
+            "WHERE id=?",
+            (iso(), goal["id"]),
+        )
+        self.update_goal_graph_state(graph_id, "queued")
+        return self.get_goal(goal["id"])
 
     def cancel_goal_graph_nodes(self, graph_id: str) -> int:
         rows = self.db.query(
@@ -460,6 +528,11 @@ class Store:
                 state, task["summary"] or task["error"], verification_status,
                 json.dumps(evidence), iso(), iso(), goal_id, task_id,
             ),
+        )
+        self.db.execute(
+            "UPDATE goal_graph_node_attempts SET outcome=?, finished_at=? "
+            "WHERE task_id=? AND finished_at IS NULL",
+            (task["state"], iso(), task_id),
         )
 
     def save_goal_criteria_review(self, goal_id: str, review: dict[str, Any]) -> None:
