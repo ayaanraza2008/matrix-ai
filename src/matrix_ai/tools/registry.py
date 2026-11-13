@@ -28,6 +28,7 @@ from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
+from .weather_tools import OpenMeteoForecastTool
 from .web_tools import FetchPublicUrlTool
 from .youtube_tools import build_youtube_tools
 
@@ -89,6 +90,7 @@ def build_registry() -> ToolRegistry:
             MemorySaveTool(),
             FetchPublicUrlTool(),
             OcrImageTool(),
+            OpenMeteoForecastTool(),
             *build_youtube_tools(),
             GitHubWhoAmITool(),
             GitHubGetRepositoryTool(),
