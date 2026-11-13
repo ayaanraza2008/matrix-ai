@@ -63,4 +63,16 @@ The current consolidated branch adds two important correctness fixes after the p
 - Goal model assessment is advisory only. Goals remain `awaiting_verification` until the authenticated owner submits `POST /api/goals/{goal_id}/confirm`; owner identity, timestamp, reason and decision are persisted in schema v6 and audited.
 - Regression tests and migration coverage were added for these paths.
 
-These changes are on the updated PR #58 head and have **not yet received a CI result**. The earlier successful CI run applies only to its earlier commit. They are not yet integrated into current `main`; no live Telegram, device, OAuth or webhook acceptance is claimed.
+These changes were subsequently split into the restart-safe Telegram cursor work in PR #60 and consolidated into the current-main integration candidates. PR #65 is the preferred private Telegram / remote access / Android / voice foundation, but it remains a draft and is currently behind current `main`; PR #60 remains stacked on the YouTube integration branch. Neither should be treated as released until rebased, reviewed and tested on its exact final head. No live Telegram, device, OAuth or webhook acceptance is claimed.
+
+## Live integration snapshot (2026-11-13 09:55 UTC)
+
+- PR #61 (Vercel Skills rebased onto current main) is merged.
+- PR #66 (Engineering Coach session adapters) is merged.
+- PR #65 is the preferred foundation for private Telegram, Tailscale access, Android hardening, local voice and persistent goals. It is a draft, non-mergeable, and behind current main; the exact intervening main commits and overlapping files must be reconciled.
+- PR #60 adds persisted Telegram update offsets and replay idempotency, but is stacked on the YouTube integration branch rather than current main.
+- PR #58/#62 and #63 are older, non-mergeable integration candidates. Prefer the #65 line for the Telegram/Android foundation and port only independently reviewed missing changes from other branches.
+- PR #55/#64 contain notification inbox and signed webhook work on a separate stack. Do not assume webhook support is in PR #65; integrate it only after reviewing the exact diff and dependencies.
+- PR #67 is a temporary review candidate created from an older stacked branch; it is not a replacement for PR #65 and is not a release candidate while merge conflicts remain.
+
+The current release remains **NOT READY**. Required owner-environment evidence still includes real private Telegram pairing/chat/stop/restart/replay, Windows startup and recovery, microphone/speaker voice, Tailscale ACL isolation, physical Android pairing/network checks and signing, plus any provider OAuth/webhook smoke tests. Keep all high/critical writes behind exact owner approval and retain the emergency stop.
