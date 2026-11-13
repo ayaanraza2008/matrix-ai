@@ -19,7 +19,7 @@ def _tool_event(name: Any, *, failed: bool = False, role: str = "assistant") -> 
     }
 
 
-def normalize_agent_record(record: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def normalize_agent_record(\n    record: dict[str, Any], codex_tool_names: dict[str, str] | None = None\n) -> tuple[str, list[dict[str, Any]]]:
     """Return (format, metadata-only events); generic JSONL remains supported."""
     kind = str(record.get("type") or record.get("event") or "").casefold()
     events: list[dict[str, Any]] = []
@@ -53,7 +53,11 @@ def normalize_agent_record(record: dict[str, Any]) -> tuple[str, list[dict[str, 
     if kind == "response_item" and isinstance(payload, dict):
         payload_type = str(payload.get("type") or "").casefold()
         if payload_type == "function_call":
-            event = _tool_event(payload.get("name"))
+            name = payload.get("name")
+            call_id = payload.get("call_id") or payload.get("id")
+            if isinstance(call_id, str) and isinstance(name, str) and codex_tool_names is not None:
+                codex_tool_names[call_id] = name
+            event = _tool_event(name)
             if event:
                 events.append(event)
             return "codex", events
@@ -61,7 +65,16 @@ def normalize_agent_record(record: dict[str, Any]) -> tuple[str, list[dict[str, 
             failed = bool(payload.get("is_error")) or str(payload.get("status", "")).casefold() in {
                 "error", "failed", "failure"
             }
-            event = _tool_event(payload.get("name") or payload.get("tool_name"), failed=failed, role="tool")
+            call_id = payload.get("call_id") or payload.get("id")
+            correlated_name = (
+                codex_tool_names.get(call_id)
+                if isinstance(call_id, str) and codex_tool_names is not None else None
+            )
+            event = _tool_event(
+                payload.get("name") or payload.get("tool_name") or correlated_name,
+                failed=failed,
+                role="tool",
+            )
             if event:
                 events.append(event)
             return "codex", events
