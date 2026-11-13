@@ -385,6 +385,32 @@ async def start_goal_plan(
     return result
 
 
+@router.post("/goals/{goal_id}/pause", status_code=200, tags=["goals"])
+async def pause_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    try:
+        return await runtime.goal_supervisor.pause(goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/goals/{goal_id}/resume", status_code=202, tags=["goals"])
+async def resume_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    try:
+        return await runtime.goal_supervisor.resume(goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/goals/{goal_id}/graph", tags=["goals"])
 async def get_goal_graph(
     goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
@@ -420,7 +446,7 @@ async def cancel_goal(
     goal = runtime.store.get_goal(goal_id)
     if goal["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal {goal_id} not found")
-    if goal["state"] in {"planned", "running"} and runtime.store.get_goal_graph(goal_id):
+    if goal["state"] in {"planned", "running", "paused"} and runtime.store.get_goal_graph(goal_id):
         return await runtime.goal_supervisor.cancel(goal_id)
     if goal["task_id"] and goal["state"] in {"queued", "running"}:
         await runtime.orchestrator.cancel(goal["task_id"])
