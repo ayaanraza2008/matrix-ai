@@ -48,8 +48,8 @@ class FakeOrchestrator:
         return 2
 
 
-def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/help"):
-    return {"update_id": 123, "message": {
+def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/help", update_id=123):
+    return {"update_id": update_id, "message": {
         "chat": {"id": chat_id, "type": chat_type},
         "from": {"id": sender_id},
         "text": text,
