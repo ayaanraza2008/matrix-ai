@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import __version__
+from .access import RemoteAccessManager, StartupTaskManager
 from .config import MatrixConfig
 from .core.models import Principal
 from .errors import MatrixError, ModelUnavailable, ValidationFailure
@@ -46,6 +47,12 @@ def _parser() -> argparse.ArgumentParser:
     backup.add_argument("--out", default=None, help="destination .db path")
 
     sub.add_parser("pair-code", help="issue a single-use device pairing code")
+
+    remote = sub.add_parser("remote-access", help="manage private Tailscale access (never public Funnel)")
+    remote.add_argument("action", choices=["status", "enable", "disable"])
+
+    startup = sub.add_parser("startup", help="manage per-user Windows logon startup")
+    startup.add_argument("action", choices=["status", "install", "uninstall"])
     return parser
 
 
@@ -90,6 +97,8 @@ async def _doctor() -> int:
             "integrations": [view.model_dump(mode="json") for view in runtime.integrations.views()],
             "database": str(runtime.config.db_path),
             "settings": runtime.config.public_dict(),
+            "remote_access": RemoteAccessManager(port=runtime.config.port).status(),
+            "startup": StartupTaskManager().status(),
         }
         print(json.dumps(payload, indent=2))
         return 0
@@ -166,6 +175,26 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_benchmark_model(args.max_cases))
         if args.command == "backup":
             return _backup(args.out)
+        if args.command == "remote-access":
+            manager = RemoteAccessManager(port=config.port)
+            result = (
+                manager.status() if args.action == "status"
+                else manager.enable() if args.action == "enable"
+                else manager.disable()
+            )
+            print(json.dumps(result, indent=2))
+            return 0
+
+        if args.command == "startup":
+            manager = StartupTaskManager()
+            result = (
+                manager.status() if args.action == "status"
+                else manager.install() if args.action == "install"
+                else manager.uninstall()
+            )
+            print(json.dumps(result, indent=2))
+            return 0
+
         if args.command == "pair-code":
             runtime = MatrixRuntime.build(config)
             try:
@@ -177,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             finally:
                 asyncio.run(runtime.shutdown())
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except MatrixError as exc:
         print(f"error [{exc.code}]: {exc.message}", file=sys.stderr)
         return 2
