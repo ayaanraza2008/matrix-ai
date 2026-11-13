@@ -23,6 +23,8 @@ Do not paste the bot token into chat, source control, issue comments or screensh
 - `/stop` activates the emergency stop and cancels active tasks.
 - `/resume` clears the emergency stop for new tasks. It does not restart tasks cancelled by `/stop`.
 
+On startup, MATRIX registers the supported slash commands in the Telegram bot command menu; task commands remain available by typing them manually if Telegram's menu is unavailable.
+
 The bridge accepts only a private chat whose chat ID and sender ID both match the configured owner ID. It shares the runtime rate limiter, audits failures without storing message content, and cannot approve HIGH/CRITICAL actions. Approvals must be confirmed in the authenticated MATRIX dashboard. Telegram task lookup and cancellation are limited to tasks whose durable idempotency record was created by this private Telegram bridge.
 
 ### Restart and delivery behavior
