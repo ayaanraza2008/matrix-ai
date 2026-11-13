@@ -52,3 +52,15 @@ The core is free-first and can use local models, but “completely free” canno
 **Status: NOT READY FOR PRODUCTION.**
 
 CI-passing PRs are still draft and unmerged. No real personal accounts, live webhook, local microphone, Android handset or public production endpoint were connected or tested in this work session. Do not describe MATRIX as 100% autonomous or production-ready until the owner-environment acceptance gates above are evidenced.
+
+
+## Follow-up engineering changes (2026-11-13)
+
+The current consolidated branch adds two important correctness fixes after the previously recorded CI run:
+
+- Telegram startup no longer drains pending updates. Its last successfully handled update offset is persisted in SQLite, and a failed update retains the offset for retry. This avoids silently discarding a legitimate owner message during MATRIX restart.
+- Telegram delivery is currently **at-least-once**, not exactly-once. A crash after task creation but before cursor persistence may replay an update; task creation idempotency keyed to Telegram update ID is still required.
+- Goal model assessment is advisory only. Goals remain `awaiting_verification` until the authenticated owner submits `POST /api/goals/{goal_id}/confirm`; owner identity, timestamp, reason and decision are persisted in schema v6 and audited.
+- Regression tests and migration coverage were added for these paths.
+
+These changes are on the updated PR #58 head and have **not yet received a CI result**. The earlier successful CI run applies only to its earlier commit. They are not yet integrated into current `main`; no live Telegram, device, OAuth or webhook acceptance is claimed.
