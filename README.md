@@ -45,6 +45,8 @@ MATRIX includes the full 283-profile Agency Agents specialist library as a pinne
 
 MATRIX also has a pinned, lazy-loaded catalogue of 18 optional capability repositories (OpenWhispr, YouTube Automation Agent, Browser Use, Mobile MCP, REA, Craft Anything, HexStrike, ECC, OpenViking, AgentMemory, scientific skills and more). Their features are selected by task intent; only owner-installed references and explicitly connected services are used. Source install never runs upstream scripts. See [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md) for pinned licences, install/connect instructions, API routes and safety boundaries.
 
+MATRIX also integrates the pinned Vercel Agent Skills CLI. For free-form tasks with a configured local model, it can discover and install one relevant public skill, then route its bounded SKILL.md instructions into planner context. Skills are treated as untrusted reference data: no scripts, hooks or package commands are executed, and every real action still passes through MATRIX policy and approval. See [docs/VERCEL_SKILLS.md](docs/VERCEL_SKILLS.md).
+
 ---
 
 ## Quick start (Windows PowerShell)
