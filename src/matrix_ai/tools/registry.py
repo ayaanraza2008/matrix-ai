@@ -21,6 +21,7 @@ from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
 from .web_tools import FetchPublicUrlTool
+from .youtube_tools import build_youtube_tools
 
 
 class ToolRegistry:
@@ -63,9 +64,8 @@ class ToolRegistry:
         return len(self._tools)
 
 
-def build_registry() -> ToolRegistry:
-    return ToolRegistry(
-        [
+def build_registry(config=None) -> ToolRegistry:
+    tools = [
             SystemStatusTool(),
             ListFilesTool(),
             ReadTextTool(),
@@ -81,4 +81,6 @@ def build_registry() -> ToolRegistry:
             FetchPublicUrlTool(),
             OcrImageTool(),
         ]
-    )
+    if config is not None:
+        tools.extend(build_youtube_tools(config))
+    return ToolRegistry(tools)
