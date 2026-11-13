@@ -131,7 +131,7 @@ web dashboard, then sends the result back. `/status` reports model/emergency-sto
 state; `/stop` activates the emergency stop. `/help` lists commands. Only a
 private chat whose chat ID and sender ID both match the configured ID is accepted.
 The bridge uses outbound Telegram long polling, opens no inbound webhook, and
-ignores old queued updates at startup. HIGH/CRITICAL actions are never approved
+restores its durable update watermark and resumes polling from the next update ID; it does not discard pending owner commands at startup. See [TELEGRAM_RELIABILITY.md](TELEGRAM_RELIABILITY.md). HIGH/CRITICAL actions are never approved
 by Telegram automatically; review them in the MATRIX dashboard. Keep the token
 in a local environment variable or OS secret store, never in `.env` committed to
 Git or in chat. Telegram is a cloud messaging service, so messages you send
