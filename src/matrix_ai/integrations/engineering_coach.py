@@ -73,7 +73,7 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
 
     detected_formats: set[str] = set()
     tool_names_by_id: dict[str, str] = {}
-    observed_call_ids: set[str] = {}
+    observed_call_ids: set[str] = set()
     processed_lines = 0
     for line in raw.splitlines():
         if not line.strip():
