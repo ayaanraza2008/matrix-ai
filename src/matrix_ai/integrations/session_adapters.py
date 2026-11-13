@@ -19,7 +19,9 @@ def _tool_event(name: Any, *, failed: bool = False, role: str = "assistant") -> 
     }
 
 
-def normalize_agent_record(\n    record: dict[str, Any], codex_tool_names: dict[str, str] | None = None\n) -> tuple[str, list[dict[str, Any]]]:
+def normalize_agent_record(
+    record: dict[str, Any], codex_tool_names: dict[str, str] | None = None
+) -> tuple[str, list[dict[str, Any]]]:
     """Return (format, metadata-only events); generic JSONL remains supported."""
     kind = str(record.get("type") or record.get("event") or "").casefold()
     events: list[dict[str, Any]] = []
