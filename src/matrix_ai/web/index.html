@@ -40,6 +40,7 @@
         <button data-nav="vision"><span class="glyph">◐</span>Vision</button>
         <button data-nav="agents"><span class="glyph">⬡</span>Agents</button>
         <button data-nav="tools"><span class="glyph">⚙</span>Tools</button>
+        <button data-nav="engineering-coach"><span class="glyph">⌁</span>Engineering Coach</button>
         <button data-nav="devices"><span class="glyph">▭</span>Devices</button>
         <button data-nav="integrations"><span class="glyph">⧉</span>Integrations</button>
         <button data-nav="security"><span class="glyph">⛨</span>Security</button>
@@ -226,6 +227,27 @@
               </form>
               <div id="tool-result" class="result"></div>
             </div>
+          </div>
+        </section>
+
+        <!-- ENGINEERING COACH -->
+        <section class="view hidden" data-view="engineering-coach">
+          <div class="panel">
+            <div class="panel-head"><h3>Session analytics</h3><span class="pill">local · read-only</span></div>
+            <p class="muted">Analyze one session export inside an approved MATRIX filesystem root. Supported formats: MATRIX JSONL, Claude Code transcript JSONL, and Codex CLI rollout JSONL.</p>
+            <form id="engineering-coach-form" class="row">
+              <label class="sr-only" for="engineering-coach-path">Session file path</label>
+              <input id="engineering-coach-path" maxlength="1024" placeholder="workspace/session.jsonl" required>
+              <button type="submit">Analyze session</button>
+              <select id="engineering-coach-interval" aria-label="Recurring analysis interval">
+                <option value="3600">Every hour</option>
+                <option value="21600">Every 6 hours</option>
+                <option value="86400" selected>Daily</option>
+              </select>
+              <button type="button" class="ghost" id="engineering-coach-schedule">Schedule recurring analysis</button>
+            </form>
+            <p class="hint">Scheduling is opt-in and applies only to this exact file path. MATRIX does not watch directories or discover other logs. Raw prompts and tool arguments are not returned or stored.</p>
+            <div id="engineering-coach-result" class="result"><div class="empty">Choose a session export to view reliability metrics and reusable workflow candidates.</div></div>
           </div>
         </section>
 
