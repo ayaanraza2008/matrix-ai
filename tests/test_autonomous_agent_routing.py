@@ -149,6 +149,11 @@ async def test_planner_automatically_injects_selected_specialist_team(
     assert "task.skills_selected" in event_types
     assert event_types.count("task.agent_worker_run") == 2
 
+    dashboard = await client.get("/api/status")
+    assert dashboard.status_code == 200
+    assert dashboard.json()["skills"]["enabled"] is True
+    assert dashboard.json()["skills"]["execution_policy"].startswith("SKILL.md context only")
+
 
 @pytest.mark.asyncio
 async def test_deterministic_intents_skip_unneeded_specialist_model_calls(runtime, monkeypatch):
