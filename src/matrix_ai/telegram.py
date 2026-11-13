@@ -422,13 +422,27 @@ class TelegramChatBridge:
                 await self._send("Goal title and success criteria must each contain 1–2000 characters.")
                 return
             deadline_seconds = max(1.0, min(float(self.config.task_deadline_seconds), 86400.0))
+            goal_update_key = str(update["update_id"])
+            if self.store.get_idempotent_task_id("telegram.goal", goal_update_key) is None:
+                try:
+                    self.rate_limiter.check(f"telegram:{allowed_id}")
+                except RateLimited as exc:
+                    retry_after = int(exc.detail.get("retry_after_seconds", 60))
+                    self.store.audit(
+                        "telegram.rate_limited", actor="telegram", status="blocked",
+                        detail={"retry_after_seconds": retry_after, "kind": "goal"},
+                    )
+                    await self._send(
+                        f"Goal rate limit reached. Please try again in about {retry_after} seconds."
+                    )
+                    return
             goal_id, task_id = self.store.create_goal_task(
                 owner_id="owner",
                 title=title,
                 success_criteria=criteria,
                 autonomy_level=self.config.autonomy_level,
                 deadline_seconds=deadline_seconds,
-                idempotency_key=str(update["update_id"]),
+                idempotency_key=goal_update_key,
             )
             goal = self.store.get_goal(goal_id)
             if not goal.get("task_id"):
