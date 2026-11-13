@@ -136,3 +136,17 @@ def test_google_oauth_secrets_are_not_exposed_in_public_config(tmp_path):
     assert "client-secret" not in public
     assert "refresh-secret" not in public
     assert config.public_dict()["integrations_configured"]["youtube"] is True
+
+def test_youtube_oauth_and_extra_scopes_load_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("MATRIX_HOME", str(tmp_path))
+    monkeypatch.setenv("MATRIX_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("MATRIX_GOOGLE_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("MATRIX_GOOGLE_REFRESH_TOKEN", "refresh-secret")
+    monkeypatch.setenv("MATRIX_EXTRA_SCOPES", "youtube.write,github.write")
+
+    config = MatrixConfig.from_env()
+
+    assert config.google_client_id == "client-id"
+    assert config.google_client_secret == "client-secret"
+    assert config.google_refresh_token == "refresh-secret"
+    assert set(config.additional_scopes) == {"youtube.write", "github.write"}
