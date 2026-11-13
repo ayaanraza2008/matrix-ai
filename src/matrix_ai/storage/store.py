@@ -347,6 +347,21 @@ class Store:
             for row in rows
         ]
 
+    def cancel_goal_graph_nodes(self, graph_id: str) -> int:
+        rows = self.db.query(
+            "SELECT goal_id FROM goal_graph_nodes WHERE graph_id=?",
+            (graph_id,),
+        )
+        changed = 0
+        for row in rows:
+            cursor = self.db.execute(
+                "UPDATE goals SET state='cancelled', result_summary='Goal graph cancelled by owner', "
+                "updated_at=?, finished_at=? WHERE id=? AND state='queued' AND task_id IS NULL",
+                (iso(), iso(), row["goal_id"]),
+            )
+            changed += int(cursor.rowcount)
+        return changed
+
     def update_goal_graph_state(self, graph_id: str, state: str) -> None:
         allowed = {
             "queued", "running", "awaiting_owner_confirmation",
