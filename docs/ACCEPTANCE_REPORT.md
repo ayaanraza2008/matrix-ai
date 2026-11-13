@@ -1,8 +1,8 @@
 # MATRIX acceptance report — current main
 
 **Snapshot:** 2026-11-13  
-**Current main HEAD:** `44e7f9247f1fada840708cdace75e1c186aaf832` (PR #81, documentation-only acceptance-report evidence refresh).  
-**Latest main CI:** [run #43483560054](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43483560054), completed successfully with **7/7 jobs green** on that exact HEAD.  
+**Current main HEAD:** `2de018e09568c41f25c75963c6915bc9aceca12b` (PR #80, documentation-only acceptance-report refresh).  
+**Latest main CI:** [run #43469394227](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43469394227), completed successfully with **7/7 jobs green** on that exact HEAD.  
 **Certification verdict: NOT CERTIFIED.** Six mandatory real-world acceptance gates remain blocked or unverified. Repository CI and implementation status are not substitutes for live acceptance.
 
 ## Current merged implementation evidence
@@ -16,7 +16,6 @@ The following work is merged to `main`:
 - PR #78 — Telegram preflight, backup integrity hardening and independent security review package.
 - PR #79 — failed-upgrade recovery regression test proving database integrity/task data preservation and idempotent migration retry after simulated interruption.
 - PR #80 — documentation-only refresh of the acceptance report; it does not close a production gate.
-- PR #81 — updates the exact current-main SHA/CI evidence and records the FreeLLM integration discrepancy; it does not close a production gate.
 
 The latest CI run on current `main` has these seven successful jobs: dependency security audit, Astryx frontend build, Android debug/release assemble, Ubuntu Python 3.11 and 3.12 tests, and Windows Python 3.11 and 3.12 tests. This is hosted CI evidence, not physical-device acceptance.
 
@@ -35,14 +34,14 @@ The latest CI run on current `main` has these seven successful jobs: dependency 
 
 - The current model configuration and factory on this `main` expose only `none`, `ollama` and `openai`; no `FreeLLMAPIProvider` or `MATRIX_MODEL_PROVIDER=freellm` path is present in the current tracked implementation. Any reported FreeLLM work must be published in a reviewable branch/PR and validated before it is counted as merged.
 - The canonical Telegram setup guide is `docs/TELEGRAM_SETUP.md`.
-- Local/unpushed commits are not evidence available to reviewers or CI.
+- The repository had no other open PR when this report-only PR was opened. Local/unpushed commits are not evidence available to reviewers or CI.
 
 ## Recovery, packaging and CI
 
 - Backup corruption/truncation and secret-boundary protections have in-repository regression coverage (PR #78).
 - Failed-upgrade migration recovery is regression-tested (PR #79). This proves the simulated code path in CI, not a live restore/rollback rehearsal on the deployment PC.
 - Release packaging and Android APK assembly are cloud-validated; the Android release APK is intentionally unsigned until owner-controlled signing.
-- Current-main CI evidence is run [#43483560054](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43483560054) on `44e7f9247f1fada840708cdace75e1c186aaf832`, 7/7 successful.
+- Current-main CI evidence is run [#43469394227](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43469394227) on `2de018e09568c41f25c75963c6915bc9aceca12b`, 7/7 successful.
 
 ## Operational rules
 
