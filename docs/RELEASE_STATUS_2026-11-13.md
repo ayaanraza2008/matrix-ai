@@ -97,3 +97,32 @@ PR #68 is the current-main integration candidate for the capabilities listed abo
 The consolidated candidate is still a **draft and unmerged**. The latest CI run must pass on its final head, then receive independent review. This document's earlier PR #65/#60 references describe historical branch topology, not the current merge target. The web-fetch SSRF control validates DNS answers but the HTTP client resolves the hostname again for the TCP connection; a DNS-rebinding/TOCTOU gap remains documented and is not claimed as fully mitigated.
 
 No owner-host, real Telegram bot, OAuth account, public WhatsApp webhook, microphone/speaker, or physical Android device acceptance has been performed in this session. Android release signing, installer/upgrade/rollback, backup/restore and production operations evidence remain release gates.
+
+
+## Authoritative main snapshot (2026-11-13 12:30 UTC)
+
+This section supersedes the earlier PR #65/#68/#69 stacked-branch snapshots above.
+
+- Current `main`: `03ae2b3b67ce114871f68b733e1b5f9ef1389259`.
+- Integrated release candidate PR #72 was squash-merged as `f472e0e9f164c0f15bfc2a72b3288f073109f704`.
+- The merged main tree is identical to the exact candidate tree validated by GitHub Actions run #43424775584.
+- Exact-head validation passed: Windows and Ubuntu on Python 3.11 and 3.12 (lint, secret scan, full tests, byte-compile, CLI smoke); Android debug and unsigned release assemble; Astryx frontend build; blocking pip-audit; CycloneDX SBOM generation and upload.
+- The dependency refresh is included: httpx 0.28.1+, psutil 7.2.2+, Playwright 1.65.0+, pytest-asyncio 1.4.1.post1+, Ruff 0.17.4+, tzdata 2024.1+, checkout v7 and setup-python v7.
+- PR #36 was squash-merged as `03ae2b3b67ce114871f68b733e1b5f9ef1389259`. It adds isolated setup scripts and documentation for NVIDIA PersonaPlex and Nemotron. It does not download model weights, provision a GPU, or provide a production runtime adapter; do not claim either model is installed or active.
+- PR #10 remains open as an optional Windows SAPI/browser push-to-talk follow-up. It has merge conflicts against current main and is not part of the integrated release.
+
+### Current production certification gates
+
+The repository implementation and CI are integrated, but production certification is **not complete** until the owner environment provides evidence for:
+
+1. Windows target-PC installation, sign-in startup, restart/recovery, upgrade and rollback.
+2. Private Tailscale Serve access with verified ACL isolation; no public Funnel or port forwarding.
+3. Fresh owner-controlled Telegram credentials, owner pairing, live send/receive, restart/replay and emergency-stop acceptance.
+4. Local microphone/speaker acceptance and confirmation that a speech engine is installed and selected.
+5. Physical Android pairing, token revocation/session clearing, network-security checks, and owner-signed release APK.
+6. Provider OAuth and live GitHub/YouTube/LinkedIn/Instagram/WhatsApp account/webhook smoke tests with least-privilege scopes.
+7. Backup/restore, audit-log retention, monitoring and rollback rehearsal.
+
+High/critical provider writes remain behind exact owner approval; Telegram cannot approve them. Telegram task creation is idempotent by update ID, while external delivery and provider side effects remain at-least-once. The Android release APK remains unsigned and is not distributable. NVIDIA model weights/runtime integration remain uninstalled and require compatible GPU capacity, licensing review and target-machine validation.
+
+Historical references to PRs #65, #68, #69, #70 and #71 above describe superseded candidate branches; PR #72 is the merged integration source of truth.
