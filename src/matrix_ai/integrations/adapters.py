@@ -225,12 +225,74 @@ class FirebasePushIntegration(Integration):
         )
 
 
+class LinkedInIntegration(Integration):
+    name = "linkedin"
+    description = "Publish owner-approved text posts through the official LinkedIn Posts API."
+    category = "social"
+    required_settings = ("MATRIX_LINKEDIN_ACCESS_TOKEN", "MATRIX_LINKEDIN_AUTHOR_URN")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.linkedin_access_token and self.config.linkedin_author_urn)
+
+    async def check(self) -> IntegrationResult:
+        return IntegrationResult(
+            STATUS_CONFIGURED,
+            "Credentials are present. LinkedIn account permissions are verified when an approved post is submitted.",
+        )
+
+
+class InstagramIntegration(Integration):
+    name = "instagram"
+    description = "Read and reply to comments on an Instagram Professional account."
+    category = "social"
+    required_settings = ("MATRIX_INSTAGRAM_ACCESS_TOKEN", "MATRIX_META_GRAPH_VERSION")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.instagram_access_token and self.config.meta_graph_version)
+
+    async def check(self) -> IntegrationResult:
+        return IntegrationResult(
+            STATUS_CONFIGURED,
+            "Credentials are present. Professional-account eligibility and comment permissions are verified by the Graph API.",
+        )
+
+
+class WhatsAppIntegration(Integration):
+    name = "whatsapp"
+    description = "Send owner-approved messages through the WhatsApp Business Cloud API."
+    category = "social"
+    required_settings = (
+        "MATRIX_WHATSAPP_ACCESS_TOKEN",
+        "MATRIX_WHATSAPP_PHONE_NUMBER_ID",
+        "MATRIX_META_GRAPH_VERSION",
+    )
+
+    @property
+    def configured(self) -> bool:
+        return bool(
+            self.config.whatsapp_access_token
+            and self.config.whatsapp_phone_number_id
+            and self.config.meta_graph_version
+        )
+
+    async def check(self) -> IntegrationResult:
+        return IntegrationResult(
+            STATUS_CONFIGURED,
+            "Credentials are present. Business-account permissions are verified when an approved message is sent.",
+        )
+
+
 def build_integrations(config: MatrixConfig) -> list[Integration]:
     return [
         GitHubIntegration(config),
         TelegramIntegration(config),
         GoogleWorkspaceIntegration(config),
         YouTubeIntegration(config),
+        LinkedInIntegration(config),
+        InstagramIntegration(config),
+        WhatsAppIntegration(config),
         HomeAssistantIntegration(config),
         WeatherIntegration(config),
         FirebasePushIntegration(config),
@@ -243,6 +305,9 @@ __all__ = [
     "GitHubIntegration",
     "GoogleWorkspaceIntegration",
     "HomeAssistantIntegration",
+    "InstagramIntegration",
+    "LinkedInIntegration",
+    "WhatsAppIntegration",
     "IntegrationResult",
     "STATUS_UNAVAILABLE",
     "TelegramIntegration",

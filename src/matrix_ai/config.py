@@ -166,6 +166,13 @@ class MatrixConfig:
     youtube_client_secrets_path: str | None = None
     youtube_token_path: str | None = None
     youtube_max_upload_bytes: int = 2_000_000_000
+    linkedin_access_token: str | None = None
+    linkedin_author_urn: str | None = None
+    linkedin_api_version: str = "202609"
+    instagram_access_token: str | None = None
+    whatsapp_access_token: str | None = None
+    whatsapp_phone_number_id: str | None = None
+    meta_graph_version: str | None = None
 
     def __post_init__(self) -> None:
         self.home = Path(self.home).expanduser().resolve()
@@ -256,6 +263,9 @@ class MatrixConfig:
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
                 "youtube": bool(self.youtube_token_path and Path(self.youtube_token_path).is_file()),
+                "linkedin": bool(self.linkedin_access_token and self.linkedin_author_urn),
+                "instagram": bool(self.instagram_access_token and self.meta_graph_version),
+                "whatsapp": bool(self.whatsapp_access_token and self.whatsapp_phone_number_id and self.meta_graph_version),
             },
         }
 
@@ -310,4 +320,11 @@ class MatrixConfig:
             youtube_client_secrets_path=_env("MATRIX_YOUTUBE_CLIENT_SECRETS"),
             youtube_token_path=_env("MATRIX_YOUTUBE_TOKEN_FILE"),
             youtube_max_upload_bytes=_env_int("MATRIX_YOUTUBE_MAX_UPLOAD_BYTES", 2_000_000_000),
+            linkedin_access_token=_env("MATRIX_LINKEDIN_ACCESS_TOKEN"),
+            linkedin_author_urn=_env("MATRIX_LINKEDIN_AUTHOR_URN"),
+            linkedin_api_version=_env("MATRIX_LINKEDIN_API_VERSION", "202609") or "202609",
+            instagram_access_token=_env("MATRIX_INSTAGRAM_ACCESS_TOKEN"),
+            whatsapp_access_token=_env("MATRIX_WHATSAPP_ACCESS_TOKEN"),
+            whatsapp_phone_number_id=_env("MATRIX_WHATSAPP_PHONE_NUMBER_ID"),
+            meta_graph_version=_env("MATRIX_META_GRAPH_VERSION"),
         )
