@@ -219,7 +219,7 @@ async def test_addon_api_routes_are_authenticated_and_report_sources(client, ano
 
     response = await client.get("/api/addons")
     assert response.status_code == 200
-    assert response.json()["count"] == 18
+    assert response.json()["count"] == 19
 
     routed = await client.get(
         "/api/addons/route",
