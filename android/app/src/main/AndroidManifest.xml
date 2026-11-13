@@ -3,17 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!--
-      usesCleartextTraffic is enabled only so the scaffold can talk to a loopback/LAN
-      MATRIX instance during development. For any non-private network, put MATRIX
-      behind TLS (reverse proxy or Tailscale Serve) and disable cleartext.
-    -->
+    <!-- Release and default builds require HTTPS; only the debug resource overlay permits emulator cleartext. -->
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
-        android:usesCleartextTraffic="true">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false">
 
         <activity
             android:name=".MainActivity"

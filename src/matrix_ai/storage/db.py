@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     user_id TEXT NOT NULL,
     device_id TEXT,
     kind TEXT NOT NULL DEFAULT 'chat',
+    goal_id TEXT,
+    goal_node_id TEXT,
     state TEXT NOT NULL,
     original_request TEXT NOT NULL,
     normalized_goal TEXT,
@@ -83,6 +85,43 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    success_criteria TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'queued',
+    task_id TEXT,
+    result_summary TEXT,
+    deadline TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'pending',
+    criteria_status TEXT NOT NULL DEFAULT 'not_evaluated',
+    evidence_json TEXT,
+    criteria_confirmed_at TEXT,
+    criteria_confirmed_by TEXT,
+    criteria_confirmation_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goals_owner_created ON goals(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_state ON goals(state);
+
+CREATE TABLE IF NOT EXISTS goal_nodes (
+    goal_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    depends_on_json TEXT NOT NULL DEFAULT '[]',
+    state TEXT NOT NULL DEFAULT 'pending',
+    task_id TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    evidence_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (goal_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_goal_nodes_state ON goal_nodes(goal_id, state);
 
 CREATE TABLE IF NOT EXISTS plan_steps (
     task_id TEXT NOT NULL,
@@ -227,6 +266,28 @@ class Database:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
             if version < SCHEMA_VERSION:
                 self._conn.executescript(SCHEMA_SQL)
+                columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+                if "goal_id" not in columns:
+                    self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_id TEXT")
+                if "goal_node_id" not in columns:
+                    self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_node_id TEXT")
+                self._conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_goal_node "
+                    "ON tasks(goal_id, goal_node_id) WHERE goal_node_id IS NOT NULL"
+                )
+                goal_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()}
+                for name, declaration in (
+                    ("deadline", "TEXT"),
+                    ("verification_status", "TEXT NOT NULL DEFAULT 'pending'"),
+                    ("criteria_status", "TEXT NOT NULL DEFAULT 'not_evaluated'"),
+                    ("evidence_json", "TEXT"),
+                    ("criteria_confirmed_at", "TEXT"),
+                    ("criteria_confirmed_by", "TEXT"),
+                    ("criteria_confirmation_reason", "TEXT"),
+                ):
+                    if name not in goal_columns:
+                        self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {declaration}")
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id)")
                 self._ensure_fts()
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -284,7 +345,7 @@ class Database:
         return destination
 
     def table_counts(self) -> dict[str, int]:
-        tables = ("tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
+        tables = ("goals", "tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
         counts: dict[str, int] = {}
         for table in tables:
             row = self.query_one(f"SELECT COUNT(*) AS c FROM {table}")  # noqa: S608 - static names

@@ -22,6 +22,7 @@ from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
+from .goal_supervisor import GoalSupervisor
 from .integrations.addons import AddonManager
 from .integrations.engineering_coach import EngineeringCoachAnalyzeTool
 from .integrations.registry import IntegrationRegistry
@@ -35,6 +36,7 @@ from .security.auth import AuthService
 from .security.ratelimit import RateLimiter
 from .storage.db import Database
 from .storage.store import Store
+from .telegram import TelegramChatBridge
 from .tools.base import ToolContext
 from .tools.registry import ToolRegistry, build_registry
 from .vision.manager import VisionSessionManager
@@ -53,14 +55,16 @@ class MatrixRuntime:
     planner: PlannerService
     worker_pool: AgentWorkerPool
     orchestrator: Orchestrator
+    goal_supervisor: GoalSupervisor
     auth: AuthService
     limiter: RateLimiter
     voice: VoiceSessionManager
     vision: VisionSessionManager
     integrations: IntegrationRegistry
     addon_manager: AddonManager
-    skills_manager: SkillsManager
     scheduler: Scheduler
+    telegram: TelegramChatBridge
+    skills_manager: SkillsManager
     started_at: float = field(default_factory=time.time)
     version: str = __version__
 
@@ -98,8 +102,11 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
+        goal_supervisor = GoalSupervisor(store, orchestrator, models)
         auth = AuthService(store, config)
         auth.bootstrap()
+        voice = VoiceSessionManager(config, tts_engine)
+        limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
             db=db,
@@ -111,16 +118,22 @@ class MatrixRuntime:
             planner=planner,
             worker_pool=worker_pool,
             orchestrator=orchestrator,
+            goal_supervisor=goal_supervisor,
             auth=auth,
-            limiter=RateLimiter(config.rate_limit_per_minute),
-            voice=VoiceSessionManager(config, tts_engine),
+            limiter=limiter,
+            voice=voice,
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
             addon_manager=addon_manager,
-            skills_manager=skills_manager,
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
+            telegram=TelegramChatBridge(
+                config=config, orchestrator=orchestrator, store=store,
+                rate_limiter=limiter,
+                voice_manager=voice,
+            ),
+            skills_manager=skills_manager,
         )
         store.audit(
             "system.started",
@@ -197,8 +210,11 @@ class MatrixRuntime:
     # -- lifecycle --------------------------------------------------------
     def start_background(self) -> None:
         self.scheduler.start()
+        self.telegram.start()
 
     async def shutdown(self) -> None:
+        await self.goal_supervisor.shutdown()
+        await self.telegram.stop()
         await self.scheduler.stop()
         await self.voice.shutdown()
         self.vision.stop_all()

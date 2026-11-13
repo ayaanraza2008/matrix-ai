@@ -42,6 +42,10 @@ class AuthService:
     def bootstrap(self) -> None:
         """Register the local owner and the owner token (hash only in the DB)."""
         self.store.ensure_user("owner", "Owner", "owner")
+        # Demote legacy paired-device sessions that were incorrectly stored as owner.
+        self.store.db.execute(
+            "UPDATE sessions SET scope='device' WHERE device_id IS NOT NULL AND scope != 'device'"
+        )
         if not self.config.owner_token:
             return
         expires = iso(utcnow() + timedelta(days=OWNER_SESSION_TTL_DAYS))
@@ -97,7 +101,7 @@ class AuthService:
         self.store.db.execute(
             "INSERT INTO sessions(token_hash, user_id, device_id, scope, created_at, expires_at) "
             "VALUES(?,?,?,?,?,?)",
-            (hash_secret(token), user_id, device_id, "owner", iso(), expires),
+            (hash_secret(token), user_id, device_id, "device" if device_id else "owner", iso(), expires),
         )
         return token, expires
 

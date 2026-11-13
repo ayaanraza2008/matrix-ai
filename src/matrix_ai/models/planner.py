@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
 from ..core.agents import render_specialist_context, route_agency_agents
 from ..core.models import Plan, PlanStep, StepKind
 from ..core.worker_pool import AgentWorkerPool
@@ -19,16 +21,17 @@ from ..tools.registry import ToolRegistry
 from .base import ChatMessage
 from .manager import ModelManager
 
-PROMPT_VERSION = "plan.v4-vercel-skills"
+PROMPT_VERSION = "plan.v5-dependencies-vercel-skills"
 
 SYSTEM_PROMPT = """You are the planning module of MATRIX, a local-first personal assistant.
 Convert exactly one user request into a short JSON plan.
 
 Output ONLY a JSON object, no prose, no markdown:
-{"goal": "<one sentence>", "steps": [{"title": "<short>", "kind": "tool", "tool_name": "<name>", "arguments": {}}]}
+{"goal": "<one sentence>", "steps": [{"title": "<short>", "kind": "tool", "tool_name": "<name>", "arguments": {}, "depends_on": []}]}
 
 Rules:
 - At most 5 steps. Prefer 1.
+- Each step may include `depends_on`: zero-based step indexes that must finish first; omit or use [] for independent steps.
 - Use only the listed tools and only fields shown in their schemas.
 - kind must be "tool" unless no tool is needed; then use {"kind": "answer", "answer": "<text>"}.
 - Never invent a tool, a path, or a URL that the user did not provide.
@@ -147,6 +150,7 @@ class PlanParser:
                         title=title,
                         kind=StepKind.ANSWER,
                         arguments={"answer": answer} if answer else {},
+                        depends_on=raw.get("depends_on", []),
                     )
                 )
                 continue
@@ -167,9 +171,13 @@ class PlanParser:
                     kind=StepKind.TOOL,
                     tool_name=tool_name,
                     arguments=validated.model_dump(mode="json"),
+                    depends_on=raw.get("depends_on", []),
                 )
             )
-        return Plan(goal=goal, steps=steps, source="model")
+        try:
+            return Plan(goal=goal, steps=steps, source="model")
+        except ValidationError as exc:
+            raise ValidationFailure(f"invalid plan: {exc}") from exc
 
 
 @dataclass

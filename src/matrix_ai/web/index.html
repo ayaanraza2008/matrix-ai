@@ -90,6 +90,17 @@
 
           <div class="panel">
             <div class="panel-head">
+              <h3>Notifications <span id="notification-unread" class="pill">0 unread</span></h3>
+              <div class="row">
+                <button class="ghost" id="notifications-filter" type="button">Unread only</button>
+                <button class="ghost" id="notifications-refresh" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="notification-list" class="list"><div class="empty">Loading notifications…</div></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
               <h3>Recent tasks</h3>
               <button class="ghost" data-refresh="tasks">Refresh</button>
             </div>
@@ -306,6 +317,15 @@
               <div id="model-status" class="list"></div>
               <pre id="hardware-json" class="code">Loading…</pre>
             </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Notification preferences</h3></div>
+              <form id="notification-preferences-form" class="stack">
+                <label class="check"><input type="checkbox" id="pref-health-recovered"> Notify me when MATRIX recovers</label>
+                <label class="check"><input type="checkbox" id="pref-daily-digest"> Daily summary at 09:00 (configured timezone)</label>
+                <p class="hint">Recovery preferences apply to enabled push channels and the inbox. Emergency-stop and degraded-state alerts cannot be disabled. Daily summaries remain in-app.</p>
+                <button type="submit">Save preferences</button>
+              </form>
+            </div>
           </div>
         </section>
       </div>
@@ -316,3 +336,5 @@
   <script src="/assets/app.js" defer></script>
 </body>
 </html>
+
+

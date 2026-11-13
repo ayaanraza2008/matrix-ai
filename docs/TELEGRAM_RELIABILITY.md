@@ -1,0 +1,22 @@
+# Telegram update durability
+
+MATRIX's private Telegram bridge uses long polling with a durable SQLite update watermark.
+
+## Delivery behavior
+
+- The last successfully handled Telegram `update_id` is stored in `system_flags.telegram_update_offset`.
+- On restart, polling resumes at the next update ID. Startup does not drain or discard pending owner messages.
+- The watermark advances only after the update handler completes successfully. A failed update is retried on the next poll.
+- Task creation uses MATRIX's durable idempotency table with scope `telegram.update` and the Telegram update ID as the key. Replayed messages return the original task rather than creating a second task.
+- Existing idempotency is checked before the emergency-stop gate so replaying an already-created task does not create a new task or lose the original acknowledgement while the stop is active.
+- Unauthorized chats and unsupported message shapes are ignored and acknowledged, so they do not block later owner messages.
+
+## Delivery guarantee
+
+Telegram polling provides at-least-once update handling with idempotent task creation. Telegram `sendMessage` cannot guarantee exactly-once responses: if MATRIX sends a reply and crashes before persisting the update watermark, the reply may be sent again after restart. Repeated `/stop` is safe and idempotent. Public or external task actions still pass through MATRIX's normal policy, exact-action approval and verification rules.
+
+## Recovery and acceptance
+
+Task rows are persisted before enqueue. If MATRIX stops after task creation but before the update watermark is committed, replay finds the same task through the idempotency key. Normal startup recovery remains responsible for requeueing untouched RECEIVED tasks and refusing uncertain in-flight side effects.
+
+Automated regression tests cover cursor restoration, success-only watermark persistence, failure retry behavior and duplicate task prevention even when the emergency stop is active. Real bot delivery, owner-chat restriction, process restart and response replay still require acceptance on the owner's configured Windows host.
