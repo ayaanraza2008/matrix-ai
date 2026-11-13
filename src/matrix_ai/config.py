@@ -16,8 +16,8 @@ import secrets
 import sys
 from dataclasses import dataclass, field
 from datetime import time as datetime_time
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import ConfigError
 
