@@ -83,3 +83,12 @@ reproducible demonstration — not when code exists.
 - [x] Keep write permission opt-in via `MATRIX_EXTRA_SCOPES=youtube.write`.
 - [x] Add an integration health check that confirms OAuth can read the authenticated channel.
 - [ ] Complete owner OAuth consent, real channel smoke tests, quota checks and upload processing acceptance.
+
+### M9 — Durable Telegram update handling
+
+- [x] Persist the last successfully handled Telegram update ID in SQLite.
+- [x] Resume long polling from the saved offset instead of draining pending updates at startup.
+- [x] Advance the offset only after successful handling; failed updates remain retryable.
+- [x] Add a unique task source-update key so replayed messages cannot create duplicate tasks.
+- [x] Document the at-least-once delivery boundary and Telegram sendMessage duplicate-notification caveat.
+- [ ] Verify real Telegram delivery across process restarts with the owner's configured bot.
