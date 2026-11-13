@@ -88,7 +88,12 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
-        goal_supervisor = GoalSupervisor(store=store, orchestrator=orchestrator, config=config)
+        telegram = TelegramChatBridge(
+            config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
+        )
+        goal_supervisor = GoalSupervisor(
+            store=store, orchestrator=orchestrator, config=config, telegram=telegram
+        )
         auth = AuthService(store, config)
         auth.bootstrap()
         limiter = RateLimiter(config.rate_limit_per_minute)
@@ -112,9 +117,7 @@ class MatrixRuntime:
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
-            telegram=TelegramChatBridge(
-                config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
-            ),
+            telegram=telegram,
         )
         store.audit(
             "system.started",
