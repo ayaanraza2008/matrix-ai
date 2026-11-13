@@ -219,7 +219,8 @@ def test_youtube_credentials_fail_closed_without_secure_keyring(runtime, monkeyp
     import matrix_ai.integrations.youtube_auth as auth
 
     class InsecureKeyring:
-        priority = 0
+        __module__ = "keyrings.alt.file"
+        priority = 1
 
     class FakeKeyringModule:
         @staticmethod
@@ -235,6 +236,7 @@ def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
     import matrix_ai.integrations.youtube_auth as auth
 
     class SecureKeyring:
+        __module__ = "keyring.backends.Windows"
         priority = 1
         values = {}
 
