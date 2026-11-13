@@ -18,7 +18,7 @@ from .core.models import (
     ToolSpec,
     iso,
 )
-from .core.orchestrator import Orchestrator
+from .core.orchestrator import Orchestrator\nfrom .goal_supervisor import GoalSupervisor
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
@@ -50,6 +50,7 @@ class MatrixRuntime:
     planner: PlannerService
     worker_pool: AgentWorkerPool
     orchestrator: Orchestrator
+    goal_supervisor: GoalSupervisor
     auth: AuthService
     limiter: RateLimiter
     voice: VoiceSessionManager
@@ -86,6 +87,7 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
+        goal_supervisor = GoalSupervisor(store=store, orchestrator=orchestrator, config=config)
         auth = AuthService(store, config)
         auth.bootstrap()
         limiter = RateLimiter(config.rate_limit_per_minute)
@@ -100,6 +102,7 @@ class MatrixRuntime:
             planner=planner,
             worker_pool=worker_pool,
             orchestrator=orchestrator,
+            goal_supervisor=goal_supervisor,
             auth=auth,
             limiter=limiter,
             voice=VoiceSessionManager(config, tts_engine),
@@ -186,8 +189,10 @@ class MatrixRuntime:
     def start_background(self) -> None:
         self.scheduler.start()
         self.telegram.start()
+        self.goal_supervisor.start()
 
     async def shutdown(self) -> None:
+        await self.goal_supervisor.stop()
         await self.telegram.stop()
         await self.scheduler.stop()
         await self.voice.shutdown()
