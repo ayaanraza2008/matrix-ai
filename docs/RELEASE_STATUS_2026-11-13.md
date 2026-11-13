@@ -1,56 +1,69 @@
-# MATRIX release status — 2026-11-13
+# MATRIX production release status
 
-## Authoritative repository state
+**Snapshot:** 2026-11-13  
+**Repository:** https://github.com/ayaanraza2008/matrix-ai  
+**Default branch:** `main`  
+**Integrated candidate:** [PR #72](https://github.com/ayaanraza2008/matrix-ai/pull/72), merged as `f472e0e9f164c0f15bfc2a72b3288f073109f704`  
+**Exact candidate tree:** `7b822ccb14c6c1b1a122b9476847d0a49629ce87`
 
-**Production status: NOT CERTIFIED.** The integrated repository candidate is merged to `main`, and exact-head CI passed. This is a repository/CI milestone, not proof of deployment or live operation on the owner's Windows PC, Telegram account, Android handset or provider accounts.
+## What is complete in the repository
 
-- Integrated release PR: [#72](https://github.com/ayaanraza2008/matrix-ai/pull/72) — merged.
-- Merge commit: `f472e0e9f164c0f15bfc2a72b3288f073109f704`.
-- Exact candidate CI: [workflow run #43424775584](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43424775584).
-- Exact-head jobs: Windows Python 3.11/3.12; Ubuntu Python 3.11/3.12; Android debug + unsigned release assembly; Astryx frontend; blocking pip-audit; CycloneDX SBOM generation/upload. All seven jobs passed.
-- PRs #68 and #69 were superseded and closed; PR #72 is the integrated source of truth. Historical candidate references earlier in this document are not current merge instructions.
-- PR #10 remains an optional, conflicted Windows SAPI/browser push-to-talk follow-up. It is not required for the integrated core and must not be merged without reconciliation and fresh CI. Core optional voice adapters are already in main.
-- PR #36 (NVIDIA PersonaPlex/Nemotron setup documentation/scripts) is merged. It does not download model weights, provision a GPU, or activate a runtime adapter.
+PR #72 consolidated the Telegram, autonomy, notifications, integrations, Android hardening and dependency-refresh work onto current main. It was squash-merged after exact-head CI passed.
 
-## Integrated capabilities
+The recorded GitHub Actions run [#43424775584](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43424775584) completed successfully. All seven jobs passed:
 
-- Private Telegram chat bridge with durable update cursor, idempotent task creation, task recovery/result reporting, rate limits and emergency-stop handling.
-- Persistent goal execution, dependency-aware scheduling, owner controls and explicit owner confirmation for goal completion.
-- Private Tailscale Serve and Windows current-user startup helpers.
-- Android companion scaffold with Android Keystore token storage and strict release network policy.
-- Optional local speech adapters, voice session controls and browser voice experience.
-- GitHub, YouTube, weather, LinkedIn, Instagram and WhatsApp integration adapters, guarded by scopes and action approvals.
-- Authenticated notification inbox, owner preferences, daily digest and optional signed HTTPS health webhook.
-- Blocking dependency audit, SBOM publication and multi-platform Python CI.
+- Windows Python 3.11 and 3.12 full test/lint/secret-scan/byte-compile/CLI checks
+- Ubuntu Python 3.11 and 3.12 full test/lint/secret-scan/byte-compile/CLI checks
+- Android debug and unsigned release APK assembly
+- Astryx frontend build
+- Blocking dependency audit and CycloneDX SBOM generation
 
-Capabilities remain conditional on configuration. A provider adapter in the repository does not mean an account is connected or live writes have been tested.
+The run published `matrix-python-sbom` and `matrix-android-apks` artifacts. The APK artifact expires 2026-11-20; the SBOM artifact expires 2026-12-13. The release APK is unsigned and is not distributable.
 
-## Remaining production certification gates
+Integrated repository capabilities include:
+- Private Tailscale Serve and current-user Windows logon startup (opt-in)
+- Owner-paired private Telegram chat, persistent update cursor, idempotent task creation, shared rate limits and emergency stop
+- Persistent goals and dependency DAGs, pause/resume/cancel, criteria assessment and owner confirmation
+- Scheduled jobs, quiet hours, notification inbox/preferences/digest and optional signed HTTPS health webhooks
+- Optional local faster-whisper/Piper speech engines
+- Android Keystore token storage, explicit local session clearing and release HTTPS-only policy
+- GitHub, YouTube, LinkedIn, Instagram and WhatsApp integration adapters with policy/approval safeguards
+- Engineering Coach, Vercel Skills and optional add-on catalogue
 
-These require the owner's target devices, accounts, credentials or operational decisions; repository CI cannot complete them by itself.
+## Production certification: still blocked by owner-environment evidence
 
-1. **Windows installation and recovery:** install from the intended environment; verify current-user sign-in startup, process restart, sleep/wake recovery, upgrade and rollback.
-2. **Private remote access:** verify Tailscale Serve from an enrolled remote device, review restrictive tailnet ACLs, test revocation, and confirm no Funnel/public port forwarding.
-3. **Telegram:** configure a fresh bot token and numeric private owner chat ID locally; verify Start, private chat, task results, voice-note path, restart/replay, rate limiting and emergency stop. Never put tokens in Git or chat.
-4. **Local audio:** install/select an STT/TTS engine and verify microphone capture, English/Hindi recognition as needed, speaker output, interruption, cancellation, latency and RAM on the actual PC.
-5. **Android:** install the debug build on a physical handset; verify pairing, reconnect, clear-local-session and server-side revocation over HTTPS; configure protected signing and produce an owner-signed release APK.
-6. **Provider accounts:** connect least-privilege GitHub/Google/Meta/LinkedIn credentials and run read-only smoke tests first. Test each write only with explicit owner approval and a harmless target. WhatsApp inbound additionally requires a public HTTPS callback, HMAC secret and sender allowlist.
-7. **Operations:** rehearse backup/restore, upgrade/rollback, audit retention, incident recovery and emergency-stop recovery.
-8. **Security review:** independently review the merged code and residual risks, especially DNS rebinding/TOCTOU in public web fetching, host compromise, token storage and provider scopes.
+The source and CI integration are complete; the following cannot be honestly marked complete from GitHub-hosted CI alone.
 
-## Known technical and product limits
+| Gate | Required evidence | State |
+|---|---|---|
+| Windows install/startup | Fresh install on target PC; logon startup; stop/start; reboot recovery; upgrade and rollback | Pending target PC |
+| Private remote access | Tailscale Serve works only for authorized tailnet devices; ACL isolation and revoke test | Pending owner tailnet |
+| Telegram | Fresh bot token stored locally; owner pairing; send/receive; /status; /stop; restart/replay; unauthorized chat rejected | Pending live bot |
+| Local voice | Install voice extra and local model/voice; real mic/speaker; mute, stop, barge-in and no-audio-persistence test | Pending target hardware |
+| Android | Install debug build; physical pairing/reconnect; session clear and server revocation; network checks | Pending handset |
+| Android distribution | Owner-controlled signing key, signed release build, signature verification and secure key custody | Pending owner signing |
+| Provider integrations | OAuth/least-privilege setup and read/write smoke tests per enabled provider | Pending owner accounts |
+| WhatsApp inbound | Public HTTPS callback, HMAC verification, sender allowlist and replay test | Pending public endpoint + Meta app |
+| Operations | Backup/restore rehearsal, audit retention, monitoring, incident recovery and rollback rehearsal | Pending deployment |
+| Security review | Review residual DNS-rebinding/TOCTOU risk in public web fetch, data-at-rest protection and release supply-chain posture | Follow-up required |
 
-- Telegram update handling provides at-least-once processing with idempotent task creation; reply delivery and external provider side effects are not exactly-once.
-- The HTTP fetch SSRF defence validates DNS before requesting, but the HTTP client resolves the hostname again when connecting. DNS-rebinding/TOCTOU remains a documented residual risk; do not describe this as fully mitigated.
-- Android release assembly produces an **unsigned** APK. It is not distributable until owner-controlled signing and device acceptance are complete.
-- MATRIX requires the host PC to be powered on, the Windows user signed in, network connected and the service running. Tailscale does not make a powered-off PC reachable.
-- HIGH/CRITICAL actions still require exact owner approval. Telegram cannot approve them, and MATRIX must not grant itself permissions or bypass emergency stop.
-- Social/media capabilities are limited to implemented provider APIs and scopes. Reels/Stories/DMs, LinkedIn media/analytics, WhatsApp media/interactive messages and other absent features are not implied.
-- PersonaPlex/Nemotron weights and production runtime are not installed by the setup documentation alone.
-- The optional PR #10 Windows SAPI/browser push-to-talk work remains a separate, non-blocking follow-up and is not merged.
+## Safety invariants
+
+- HIGH/CRITICAL writes require exact owner approval; Telegram cannot approve them.
+- Emergency stop remains authoritative.
+- Do not expose the API through public port forwarding or Tailscale Funnel. Use private Tailscale Serve with restrictive ACLs.
+- Provider credentials belong in the local environment/OS credential manager; never commit them or paste them into chat.
+- Social/provider writes are not enabled merely because adapters exist. Each account, scope and live action needs owner setup and acceptance.
+- Telegram task creation is idempotent by update ID. Network delivery and external side effects are at-least-once, not exactly-once.
+- Android release artifacts remain unsigned until the owner supplies and controls the signing key.
+- Optional NVIDIA PersonaPlex/Nemotron setup scripts do not download model weights, provision a GPU or activate runtime adapters.
+
+## Optional follow-up, not a release blocker
+
+[PR #10](https://github.com/ayaanraza2008/matrix-ai/pull/10) adds a separate Windows SAPI speech-output option and browser voice refinements. The integrated main branch already has optional local Whisper/Piper voice and browser push-to-talk/transcription. PR #10 is based on an older snapshot and has merge conflicts; do not merge it as-is. Rebase and review it only if Windows SAPI is specifically required.
 
 ## Release decision
 
-**Repository integration: COMPLETE. Exact-head CI: PASS. Production certification: NOT COMPLETE.**
+**Repository integration: complete. Exact-head CI: passed. Production certification: not complete.**
 
-Do not advertise MATRIX as 100% autonomous or production-ready until the owner-environment gates above have reproducible evidence. Keep the emergency stop and exact-action approval requirements enabled throughout acceptance.
+Do not label MATRIX production-ready until the target Windows PC, tailnet, Telegram bot, local audio devices, Android handset, provider accounts and operational recovery procedures have passed the acceptance gates above. This is a concrete, bounded release checklist—not a claim that the assistant is already installed, connected or operating autonomously on the owner's devices.
