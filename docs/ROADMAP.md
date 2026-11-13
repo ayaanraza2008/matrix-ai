@@ -8,13 +8,13 @@ reproducible demonstration — not when code exists.
 | 0. Discovery | Repo inventory, baseline report, integration status | Reproducible baseline + prioritized gaps | **Complete** — `docs/BASELINE_REPORT.md` (empty repo, fresh build) |
 | 1. Stabilize core | API, state machine, tool registry, policy, cancellation, audit | Core tests pass; no unguarded execution | **Complete** — A01/A03–A08/A16/A17/A22/A23 pass |
 | 2. Local brain | Model adapter, manager, structured tools, benchmark harness | Local chat + tool routing within RAM budget | **Partial** — adapters/manager done; no benchmark harness or model configured on this PC |
-| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — mute/barge-in/PTT control done and tested; engines blocked |
+| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional local faster-whisper/Piper wired; target audio E2E, wake word, VAD and streaming pending |
 | 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — sessions + OCR adapter; Tesseract/MediaPipe/camera missing |
 | 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — files/apps/shell/system done; pywinauto + Playwright pending |
 | 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; not built |
-| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — memory + jobs done; quiet hours/alert routing pending |
+| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — owner-created recurring goals respect the global autonomy ceiling; quiet hours, alert routing and deeper goal lifecycle pending |
 | 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial** — adapters and status implemented; credentials unconfigured |
-| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — UI/docs/CI/acceptance done; installer and signed build pending |
+| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — docs/CI/acceptance plus opt-in private Tailscale access and Windows logon startup; installer, signed build and physical-device E2E pending |
 
 ## Next milestones
 
@@ -47,3 +47,13 @@ reproducible demonstration — not when code exists.
 ### M5 — Packaging & release (Phase 9 exit)
 - PyInstaller or MSIX, startup shortcut, signed release, `matrix doctor` in the bundle.
 - Acceptance: fresh install on the target PC passes A01–A25 (except environment-blocked IDs, reported honestly).
+
+
+### M6 — Always-available, bounded autonomy
+
+- [x] Add an opt-in per-user Windows logon task with limited privileges.
+- [x] Add opt-in Tailscale Serve access that proxies only to loopback and never configures public Funnel.
+- [x] Expose authenticated automation and private-access status.
+- [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
+- [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
+- [ ] Add quiet hours, notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
