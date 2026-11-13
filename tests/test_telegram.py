@@ -190,3 +190,23 @@ async def test_telegram_emergency_stop_is_not_blocked_by_task_rate_limit(tmp_pat
     assert store.stopped is True
     assert sent == ["Emergency stop activated. Cancelled tasks: 2."]
 
+
+
+async def test_telegram_proactive_owner_notification_uses_running_client(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    bridge._client = object()
+
+    async def send(message):
+        sent.append(message)
+
+    bridge._send = send
+    delivered = await bridge.notify_owner("Goal graph completed.")
+
+    assert delivered is True
+    assert sent == ["Goal graph completed."]
+
+
+async def test_telegram_proactive_notification_is_disabled_without_credentials(tmp_path):
+    config = MatrixConfig(home=tmp_path)
+    bridge = TelegramChatBridge(config=config, orchestrator=FakeOrchestrator(), store=FakeStore())
+    assert await bridge.notify_owner("This must not be sent.") is False
