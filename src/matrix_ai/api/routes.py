@@ -516,7 +516,7 @@ async def update_notification_preferences(
 ) -> dict[str, bool]:
     updates = body.model_dump(exclude_none=True)
     if not updates:
-        raise ValueError("at least one notification preference must be supplied")
+        return runtime.store.notification_preferences()
     preferences = runtime.store.set_notification_preferences(updates)
     runtime.store.audit(
         "notification.preferences_updated", actor=principal.user_id, status="updated",
