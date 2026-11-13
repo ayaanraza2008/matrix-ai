@@ -48,3 +48,19 @@ def test_generic_normalized_jsonl_is_preserved_for_existing_analyzer():
     fmt, events = normalize_agent_record(record)
     assert fmt == "normalized_jsonl"
     assert events == [record]
+
+
+def test_codex_output_correlates_to_original_function_call_name():
+    names = {}
+    call_format, call_events = normalize_agent_record({
+        "type": "response_item",
+        "payload": {"type": "function_call", "call_id": "call-42", "name": "shell"},
+    }, names)
+    output_format, output_events = normalize_agent_record({
+        "type": "response_item",
+        "payload": {"type": "function_call_output", "call_id": "call-42", "is_error": True},
+    }, names)
+    assert call_format == output_format == "codex"
+    assert call_events[0]["tool_name"] == "shell"
+    assert output_events[0]["tool_name"] == "shell"
+    assert output_events[0]["is_error"] is True
