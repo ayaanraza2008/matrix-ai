@@ -431,6 +431,36 @@ class Store:
             (state, iso(), iso() if state in {"completed", "partial", "failed", "cancelled"} else None, graph_id),
         )
 
+    def claim_goal_graph_notification(
+        self, graph_id: str, state: str, *, cooldown_seconds: int = 60
+    ) -> bool:
+        row = self.db.query_one(
+            "SELECT last_notified_state, notification_attempted_state, notification_attempted_at "
+            "FROM goal_graphs WHERE id=?",
+            (graph_id,),
+        )
+        if row is None or row["last_notified_state"] == state:
+            return False
+        attempted_at = parse_dt(row["notification_attempted_at"])
+        if (
+            row["notification_attempted_state"] == state
+            and attempted_at is not None
+            and (utcnow() - attempted_at).total_seconds() < cooldown_seconds
+        ):
+            return False
+        self.db.execute(
+            "UPDATE goal_graphs SET notification_attempted_state=?, notification_attempted_at=?, updated_at=? "
+            "WHERE id=?",
+            (state, iso(), iso(), graph_id),
+        )
+        return True
+
+    def mark_goal_graph_notified(self, graph_id: str, state: str) -> None:
+        self.db.execute(
+            "UPDATE goal_graphs SET last_notified_state=?, updated_at=? WHERE id=?",
+            (state, iso(), graph_id),
+        )
+
     def block_goal_graph_nodes(self, graph_id: str, node_ids: list[str], reason: str) -> int:
         if not node_ids:
             return 0
