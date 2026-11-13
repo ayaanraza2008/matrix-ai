@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from matrix_ai.tools.youtube_tools import (
+    YouTubeGetChannelTool,
+    YouTubeListCommentsTool,
+    YouTubeUpdateVideoTool,
+    YouTubeUploadVideoInput,
+)
 from pydantic import ValidationError
 
 from matrix_ai.core.models import Risk
@@ -8,90 +14,6 @@ from matrix_ai.core.policy import PolicyEngine
 from matrix_ai.errors import ToolExecutionError
 from matrix_ai.integrations.youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service, connect_youtube
 from matrix_ai.tools.base import ToolContext
-from matrix_ai.tools.youtube_tools import (
-    YouTubeGetChannelTool,
-    YouTubeListCommentsTool,
-    YouTubeUpdateVideoTool,
-    YouTubeUploadVideoInput,
-)
-
-class FakeRequest:
-    def __init__(self, payload):
-        self.payload = payload
-
-    def execute(self):
-        return self.payload
-
-
-class FakeChannels:
-    def list(self, **kwargs):
-        assert kwargs["mine"] is True
-        return FakeRequest({
-            "items": [{
-                "id": "channel-123",
-                "snippet": {"title": "HOWTIVO", "description": "Channel"},
-                "statistics": {"videoCount": "12", "viewCount": "340"},
-                "contentDetails": {"relatedPlaylists": {"uploads": "uploads-123"}},
-            }]
-        })
-
-
-class FakeVideos:
-    def list(self, **kwargs):
-        return FakeRequest({
-            "items": [{
-                "id": kwargs["id"],
-                "snippet": {
-                    "channelId": "channel-123",
-                    "title": "Old title",
-                    "description": "Old description",
-                    "categoryId": "22",
-                    "tags": ["old"],
-                },
-                "status": {"privacyStatus": "private", "license": "youtube"},
-            }]
-        })
-
-    def update(self, **kwargs):
-        return FakeRequest({
-            "id": kwargs["body"]["id"],
-            "snippet": kwargs["body"].get("snippet", {}),
-            "status": kwargs["body"].get("status", {}),
-        })
-
-
-class FakeComments:
-    def list(self, **kwargs):
-        assert kwargs["videoId"] == "abcdefghijk"
-        return FakeRequest({
-            "items": [{
-                "id": "thread-1",
-                "snippet": {
-                    "topLevelComment": {
-                        "id": "comment-1",
-                        "snippet": {
-                            "textDisplay": "Nice video",
-                            "authorDisplayName": "Viewer",
-                            "publishedAt": "2026-01-01T00:00:00Z",
-                            "likeCount": 2,
-                        },
-                    },
-                    "totalReplyCount": 0,
-                },
-            }]
-        })
-
-
-class FakeService:
-    def channels(self):
-        return FakeChannels()
-
-    def commentThreads(self):
-        return FakeComments()
-
-    def videos(self):
-        return FakeVideos()
-
 
 def test_youtube_read_tools_use_authenticated_channel_service(runtime, monkeypatch):
     import matrix_ai.tools.youtube_tools as youtube_tools
