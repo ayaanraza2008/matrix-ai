@@ -183,3 +183,14 @@ The inbox includes the core health component summary only. It does not include t
 The dashboard renders the authenticated local notification inbox, unread count, severity, event type and read acknowledgement. Owner preferences are available through `GET/PUT /api/notifications/preferences`; they control routine recovery notices and the daily digest. Degraded-state and emergency-stop alerts are not suppressible. Preferences apply to the in-app inbox and do not silently change external push delivery.
 
 The scheduler creates at most one daily digest per local calendar day, on its first tick at or after 09:00 in `MATRIX_NOTIFICATION_TIMEZONE`. The digest contains aggregate counts for recent tasks and the emergency-stop state, not task prompts or private task content. It is persisted in the same bounded inbox. The scheduler must be running for the digest to be generated; it is not an external push guarantee.
+
+
+### Optional signed webhook notifications
+
+MATRIX can deliver health transitions to an owner-configured HTTPS webhook in addition to Telegram. Configure all three environment variables together:
+
+- `MATRIX_NOTIFICATION_WEBHOOK_URL` — HTTPS endpoint, default port only, no URL credentials, query or fragment.
+- `MATRIX_NOTIFICATION_WEBHOOK_SECRET` — signing secret used for HMAC-SHA256.
+- `MATRIX_NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` — comma-separated exact host allowlist; local/private IPs and local hostnames are rejected.
+
+Each request includes `X-MATRIX-Event-ID` and `X-MATRIX-Signature: sha256=...`. The JSON body includes the stable event ID, event type, severity and a limited health component summary. Receivers should verify the HMAC over the exact raw request body and deduplicate by event ID. MATRIX retries failed channels independently and remembers successful channels so a retry does not resend an already-confirmed Telegram or webhook delivery. Redirects are disabled. No webhook destination or signing secret is exposed in public settings.
