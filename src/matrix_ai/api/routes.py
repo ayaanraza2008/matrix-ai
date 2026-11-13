@@ -11,11 +11,12 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictStr
 
 from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
-from ..core.goal_graph import GoalGraph, GoalGraphError, GoalNode\nfrom ..core.goal_verifier import review_goal_criteria
+from ..core.goal_graph import GoalGraph, GoalGraphError, GoalNode
+from ..core.goal_verifier import review_goal_criteria
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -126,10 +127,10 @@ class GoalCriteriaConfirmationBody(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
 
 class GoalGraphNodeBody(BaseModel):
-    node_id: str = Field(min_length=1, max_length=64, pattern="^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    node_id: StrictStr = Field(min_length=1, max_length=64, pattern="^[A-Za-z0-9][A-Za-z0-9_-]*$")
     title: str = Field(min_length=1, max_length=2000)
     success_criteria: str = Field(min_length=1, max_length=2000)
-    depends_on: list[str] = Field(default_factory=list, max_length=16)
+    depends_on: list[StrictStr] = Field(default_factory=list, max_length=16)
 
 
 class GoalGraphCreateBody(BaseModel):
