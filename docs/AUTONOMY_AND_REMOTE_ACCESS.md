@@ -65,6 +65,21 @@ tool timeouts, verification failures and task deadlines continue to block or fai
 work. MATRIX must not grant itself new permissions, approve its own requests,
 invent credentials or silently repeat a non-idempotent action.
 
+Owner goals have a persistent lifecycle through the authenticated API:
+
+- `GET /api/jobs` — list saved goals and their next/last run information.
+- `PUT /api/jobs/{id}` — update the name, prompt, interval, autonomy level or enabled state.
+- `PATCH /api/jobs/{id}` — pause or resume a goal.
+- `POST /api/jobs/{id}/run` — request an immediate run.
+- `DELETE /api/jobs/{id}` — permanently remove a saved goal.
+
+Edits, pauses/resumes and deletions are recorded in the audit log. Resuming a
+paused goal schedules its next run one full interval from resume time rather than
+immediately replaying an overdue run. Immediate runs are capped at the configured
+global autonomy ceiling and the scheduled-job maximum. Deletion removes the
+recurring definition; it does not erase task history or audit records already
+created by earlier runs.
+
 Example owner-created recurring goal (authenticated request):
 
 ```http
