@@ -31,7 +31,6 @@ front of it for anything beyond development.
 
 ## Security notes
 
-- The token is kept in memory in this scaffold. Before shipping, store it in `EncryptedSharedPreferences`
-  and add biometric/device-lock gating.
-- `usesCleartextTraffic="true"` exists only for loopback/LAN development; disable it for release.
+- The paired token stays in non-saveable in-memory Compose state and can be cleared with **Clear local session**. Before shipping, move it to Android Keystore-backed encrypted storage and add biometric/device-lock gating.
+- Release builds deny cleartext traffic. Only the debug resource overlay permits HTTP to the emulator host alias; physical-device access should use HTTPS (for example, Tailscale Serve).
 - Camera, notifications, offline cache and WorkManager are not implemented yet (Phase 6).

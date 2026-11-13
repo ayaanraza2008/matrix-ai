@@ -103,12 +103,15 @@ class Scheduler:
 
         if current != previous:
             self.store.set_flag("health_monitor_state", current)
-            self.store.audit(
-                "system.health_transition",
-                actor="health-monitor",
-                status=current,
-                detail={"previous": previous, "components": components},
-            )
+            # The first healthy observation establishes a baseline, not an alert-worthy
+            # recovery. A first degraded observation is still actionable and is recorded.
+            if previous != "unknown" or current == "degraded":
+                self.store.audit(
+                    "system.health_transition",
+                    actor="health-monitor",
+                    status=current,
+                    detail={"previous": previous, "components": components},
+                )
             if current == "degraded" or previous == "degraded":
                 await self._send_health_notification(current, components)
 

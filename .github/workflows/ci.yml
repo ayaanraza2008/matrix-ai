@@ -52,6 +52,21 @@ jobs:
       - name: CLI smoke test
         run: python -m matrix_ai doctor
 
+  android-build:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Assemble debug APK
+        run: gradle --no-daemon --project-dir android assembleDebug assembleRelease
+
   dependency-audit:
     name: dependency audit (advisory)
     runs-on: ubuntu-latest
