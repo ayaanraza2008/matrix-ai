@@ -137,3 +137,10 @@ Schema v5 links each goal-node task to a unique `(goal_id, goal_node_id)` identi
 This is bounded node-level execution, not yet full goal autonomy: there is no semantic success-criteria verifier, pause/resume endpoint, retry/replanning budget, or cross-process lease protocol. In-flight tool effects retain the orchestrator's conservative manual-review recovery behavior.
 
 Owner cancellation of a started DAG first changes the goal to a non-dispatchable `cancelling` state, marks pending nodes cancelled, then cancels linked running tasks and records the final goal as cancelled. This prevents task-finalization callbacks from launching another wave during cancellation.
+
+
+### Owner-controlled pause and resume
+
+The DAG API now exposes owner-scoped POST /api/goals/{goal_id}/pause and POST /api/goals/{goal_id}/resume operations. Pausing is a durable dispatch gate: no additional goal nodes can be claimed or dispatched while the goal is paused. Tasks already in flight are **not** forcibly interrupted; they may finish their current bounded work, but completion cannot launch the next dependency wave until the owner resumes the goal. This avoids pretending that an external side effect can be safely suspended mid-request.
+
+Resume is accepted only from the persisted paused state and immediately attempts to dispatch dependency-ready nodes through the ordinary orchestrator. Existing task approvals, scopes, cancellation, deadlines and evidence checks remain unchanged. A process restart preserves the paused state; startup recovery schedules only running goals, so paused plans remain paused until an owner explicitly resumes them.
