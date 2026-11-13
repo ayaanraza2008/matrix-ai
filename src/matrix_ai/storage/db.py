@@ -354,7 +354,7 @@ class Database:
         return destination
 
     def table_counts(self) -> dict[str, int]:
-        tables = ("goals", "tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
+        tables = ("goals", "goal_graphs", "goal_graph_nodes", "tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
         counts: dict[str, int] = {}
         for table in tables:
             row = self.query_one(f"SELECT COUNT(*) AS c FROM {table}")  # noqa: S608 - static names
