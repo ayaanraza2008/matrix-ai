@@ -551,6 +551,12 @@ class Store:
     ) -> str:
         if severity not in {"info", "success", "warning", "critical"}:
             raise ValueError("invalid notification severity")
+        preferences = self.notification_preferences()
+        if event_type == "health.recovered" and not preferences["health_recovered"]:
+            return ""
+        if event_type == "daily.digest" and not preferences["daily_digest"]:
+            return ""
+        # Emergency-stop events are never suppressible by owner preferences.
         notification_id = uuid.uuid4().hex
         raw = self.get_flag("notification_inbox", "[]")
         items = _json_load(raw, [])
@@ -568,6 +574,22 @@ class Store:
         # Bounded storage prevents the inbox flag from growing without limit.
         self.set_flag("notification_inbox", json.dumps(items[-100:], separators=(",", ":")))
         return notification_id
+
+    def notification_preferences(self) -> dict[str, bool]:
+        defaults = {"health_recovered": True, "daily_digest": True}
+        raw = _json_load(self.get_flag("notification_preferences", "{}"), {})
+        if not isinstance(raw, dict):
+            raw = {}
+        return {key: bool(raw.get(key, default)) for key, default in defaults.items()}
+
+    def set_notification_preferences(self, preferences: dict[str, bool]) -> dict[str, bool]:
+        allowed = {"health_recovered", "daily_digest"}
+        if set(preferences) - allowed or any(not isinstance(value, bool) for value in preferences.values()):
+            raise ValueError("invalid notification preferences")
+        current = self.notification_preferences()
+        current.update(preferences)
+        self.set_flag("notification_preferences", json.dumps(current, separators=(",", ":")))
+        return current
 
     def list_notifications(self, *, limit: int = 50, unread_only: bool = False) -> list[dict[str, Any]]:
         items = _json_load(self.get_flag("notification_inbox", "[]"), [])
