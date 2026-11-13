@@ -70,9 +70,34 @@ class GoalSupervisor:
         if link:
             self._ensure_runner(link["goal_id"])
 
+    async def pause(self, goal_id: str) -> dict:
+        goal = self.store.get_goal(goal_id)
+        if goal["state"] not in {"planned", "running"}:
+            raise ValueError("only a planned or running goal can be paused")
+        if not self.store.pause_goal_graph(goal_id):
+            raise ValueError("goal could not be paused in its current state")
+        self.store.audit(
+            "goal.paused", actor="owner", status="paused",
+            detail={"goal_id": goal_id},
+        )
+        return self.status(goal_id)
+
+    async def resume(self, goal_id: str) -> dict:
+        goal = self.store.get_goal(goal_id)
+        if goal["state"] != "paused":
+            raise ValueError("only a paused goal can be resumed")
+        if not self.store.resume_goal_graph(goal_id):
+            raise ValueError("goal could not be resumed in its current state")
+        self.store.audit(
+            "goal.resumed", actor="owner", status="running",
+            detail={"goal_id": goal_id},
+        )
+        self._ensure_runner(goal_id)
+        return self.status(goal_id)
+
     async def cancel(self, goal_id: str) -> dict:
         goal = self.store.get_goal(goal_id)
-        if goal["state"] not in {"planned", "running", "cancelling"}:
+        if goal["state"] not in {"planned", "running", "paused", "cancelling"}:
             return self.status(goal_id)
         task_ids = self.store.begin_cancel_goal_graph(goal_id)
         for task_id in task_ids:
@@ -107,6 +132,18 @@ class GoalSupervisor:
                 self.store.start_goal_graph(goal_id)
                 while True:
                     goal = self.store.get_goal(goal_id)
+                    if goal["state"] == "paused":
+                        # Let already-dispatched tasks finish, persist their outcomes,
+                        # and stop before another node can be claimed.
+                        for node in self.store.get_goal_graph(goal_id):
+                            if node["state"] == "running" and node["task_id"]:
+                                task = self.store.get_task_row(node["task_id"])
+                                if TaskState(task["state"]) in {
+                                    TaskState.COMPLETE, TaskState.PARTIAL,
+                                    TaskState.FAILED, TaskState.CANCELLED,
+                                }:
+                                    self._sync_node(goal_id, node, task)
+                        return
                     if goal["state"] not in {"running", "planned"}:
                         return
                     deadline = parse_dt(goal.get("deadline"))
