@@ -5,7 +5,7 @@ import httpx
 from pydantic import Field, field_validator
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
-from .base import StrictModel, Tool, ToolContext
+from .base import StrictModel, Tool
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 def _repo(v):
