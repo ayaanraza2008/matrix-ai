@@ -16,15 +16,35 @@ from .file_tools import (
     StatPathTool,
     WriteTextTool,
 )
+from .github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
+)
 from .memory_tools import MemorySaveTool, MemorySearchTool
-from .github_tools import (GitHubWhoAmITool, GitHubGetRepositoryTool, GitHubListIssuesTool, GitHubGetPullRequestTool, GitHubCreateIssueTool, GitHubCommentIssueTool)
-from .social_tools import (LinkedInCreatePostTool, InstagramListCommentsTool, InstagramReplyCommentTool, InstagramPublishImageTool, WhatsAppSendTextTool, WhatsAppSendTemplateTool)
-from .weather_tools import OpenMeteoForecastTool
-from .youtube_tools import (YouTubeGetChannelTool, YouTubeListCommentsTool, YouTubeReplyCommentTool, YouTubeUpdateVideoTool, YouTubeUploadVideoTool)
+from .social_tools import (
+    InstagramListCommentsTool,
+    InstagramPublishImageTool,
+    InstagramReplyCommentTool,
+    LinkedInCreatePostTool,
+    WhatsAppSendTemplateTool,
+    WhatsAppSendTextTool,
+)
 from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
+from .weather_tools import OpenMeteoForecastTool
 from .web_tools import FetchPublicUrlTool
+from .youtube_tools import (
+    YouTubeGetChannelTool,
+    YouTubeListCommentsTool,
+    YouTubeReplyCommentTool,
+    YouTubeUpdateVideoTool,
+    YouTubeUploadVideoTool,
+)
 
 
 class ToolRegistry:
@@ -89,11 +109,22 @@ def build_registry() -> ToolRegistry:
             FetchPublicUrlTool(),
             OcrImageTool(),
             OpenMeteoForecastTool(),
-            GitHubWhoAmITool(), GitHubGetRepositoryTool(), GitHubListIssuesTool(), GitHubGetPullRequestTool(),
-            GitHubCreateIssueTool(), GitHubCommentIssueTool(),
-            LinkedInCreatePostTool(), InstagramListCommentsTool(), InstagramReplyCommentTool(),
-            InstagramPublishImageTool(), WhatsAppSendTextTool(), WhatsAppSendTemplateTool(),
-            YouTubeGetChannelTool(), YouTubeListCommentsTool(), YouTubeReplyCommentTool(),
-            YouTubeUpdateVideoTool(), YouTubeUploadVideoTool(),
+            GitHubWhoAmITool(),
+            GitHubGetRepositoryTool(),
+            GitHubListIssuesTool(),
+            GitHubGetPullRequestTool(),
+            GitHubCreateIssueTool(),
+            GitHubCommentIssueTool(),
+            LinkedInCreatePostTool(),
+            InstagramListCommentsTool(),
+            InstagramReplyCommentTool(),
+            InstagramPublishImageTool(),
+            WhatsAppSendTextTool(),
+            WhatsAppSendTemplateTool(),
+            YouTubeGetChannelTool(),
+            YouTubeListCommentsTool(),
+            YouTubeReplyCommentTool(),
+            YouTubeUpdateVideoTool(),
+            YouTubeUploadVideoTool(),
         ]
     )
