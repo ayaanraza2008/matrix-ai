@@ -218,12 +218,16 @@ class MatrixConfig:
         if any(webhook_values) and not all(webhook_values):
             raise ConfigError("notification webhook URL and signing secret must be configured together")
         if self.notification_webhook_url:
-            parsed = urlsplit(self.notification_webhook_url)
+            try:
+                parsed = urlsplit(self.notification_webhook_url)
+                port = parsed.port
+            except ValueError as exc:
+                raise ConfigError("MATRIX_NOTIFICATION_WEBHOOK_URL is invalid") from exc
             host = (parsed.hostname or "").lower().rstrip(".")
             allowed_hosts = {item.lower().rstrip(".") for item in self.notification_webhook_allowed_hosts}
             if (
                 parsed.scheme != "https" or not host or parsed.username or parsed.password
-                or parsed.query or parsed.fragment or parsed.port not in (None, 443)
+                or parsed.query or parsed.fragment or port not in (None, 443)
                 or host not in allowed_hosts
             ):
                 raise ConfigError("notification webhook must be HTTPS on an explicitly allowed host and use the default port")
