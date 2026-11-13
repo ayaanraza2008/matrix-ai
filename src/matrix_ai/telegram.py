@@ -208,6 +208,32 @@ class TelegramChatBridge:
             await self._send("Unknown command. Send /help for available commands.")
             return
 
+        idempotency_key = str(update["update_id"])
+        # A prior attempt may have committed the task but failed before enqueue or
+        # Telegram acknowledgement. Recover it before rate limiting the replay.
+        existing_task_id = self.store.get_idempotent_task_id(
+            "telegram.update", idempotency_key
+        )
+        if existing_task_id is not None:
+            existing_view = self.store.task_view(existing_task_id)
+            if existing_view.state is TaskState.RECEIVED:
+                await self.orchestrator.enqueue(existing_task_id)
+                await self._send(
+                    f"Recovered previously accepted MATRIX task: {existing_task_id}"
+                )
+                report = asyncio.create_task(
+                    self._report_task(existing_task_id),
+                    name=f"telegram-task-{existing_task_id}",
+                )
+                self._report_tasks.add(report)
+                report.add_done_callback(self._report_tasks.discard)
+            else:
+                await self._send(
+                    f"Already accepted. MATRIX task: {existing_task_id} "
+                    f"({existing_view.state.value})."
+                )
+            return
+
         try:
             self.rate_limiter.check(f"telegram:{allowed_id}")
         except RateLimited as exc:
@@ -230,19 +256,22 @@ class TelegramChatBridge:
                 autonomy_level=self.config.autonomy_level,
                 kind="chat",
                 idempotency_scope="telegram.update",
-                idempotency_key=str(update["update_id"]),
+                idempotency_key=idempotency_key,
             )
             await self.orchestrator.enqueue(task_id)
-            await self._send(f"Received. MATRIX task: {task_id}")
-            report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
-            self._report_tasks.add(report)
-            report.add_done_callback(self._report_tasks.discard)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - keep update retryable
             self.store.audit(
                 "telegram.task_submission_failed", actor="telegram", status="failed",
                 detail={"error": type(exc).__name__},
             )
-            await self._send("MATRIX could not accept that task. Check its local logs/status.")
+            raise
+
+        # Acknowledge only after durable task creation and queue submission.
+        # If Telegram send fails, replay resolves to this same task ID.
+        await self._send(f"Received. MATRIX task: {task_id}")
+        report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
+        self._report_tasks.add(report)
+        report.add_done_callback(self._report_tasks.discard)
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
