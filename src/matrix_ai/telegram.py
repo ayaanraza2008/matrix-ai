@@ -87,6 +87,40 @@ class TelegramChatBridge:
                 "disable_web_page_preview": True,
             })
 
+    async def notify_owner(self, text: str) -> bool:
+        """Send a proactive owner notification without requiring the polling loop."""
+        if not self.enabled:
+            return False
+        token = self.config.telegram_bot_token
+        payload = {
+            "chat_id": self.config.telegram_chat_id,
+            "disable_web_page_preview": True,
+        }
+        try:
+            if self._client is not None:
+                await self._send(text)
+            else:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=5.0)) as client:
+                    for start in range(0, len(text) or 1, 3900):
+                        response = await client.post(
+                            f"https://api.telegram.org/bot{token}/sendMessage",
+                            json={**payload, "text": text[start:start + 3900] or " "},
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+                        if not result.get("ok"):
+                            raise RuntimeError("Telegram did not confirm the notification")
+            return True
+        except Exception as exc:  # noqa: BLE001 - notifications must not stop task execution
+            self.store.audit(
+                "telegram.owner_notification_failed",
+                actor="telegram",
+                status="failed",
+                detail={"error": type(exc).__name__},
+            )
+            log.warning("Telegram owner notification failed: %s", type(exc).__name__)
+            return False
+
     async def _discard_pending_updates(self) -> None:
         """Advance Telegram's offset while draining every pre-startup update batch."""
         while True:
