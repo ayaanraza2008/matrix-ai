@@ -38,7 +38,7 @@ The model is **untrusted**: it proposes plans, never permissions, never executio
 | T5 | Command injection | No free-form command tool; `command_id` only; fixed `argv`; `shell=False`; regex-constrained IDs; scrubbed child environment (A16) | Allowlisted commands themselves could be dangerous — review the list |
 | T6 | Destructive action without consent | HIGH/CRITICAL require approval bound to `sha256(tool + canonical args)`, TTL, single use; denial executes nothing (A05) | Owner can approve a harmful action intentionally |
 | T7 | Approval replay / reuse on different args | Hash includes exact arguments; resume re-checks hash; approval expired at decision time is `expired` (A05) | None known |
-| T8 | SSRF via research fetch | Disabled by default (`MATRIX_ALLOW_WEB_FETCH=false`); when explicitly enabled, http(s)-only, allowed ports, no URL credentials, DNS answers must be global, redirects are not followed, and response size/content types are bounded | The HTTP client resolves the hostname again for the TCP connection; DNS-rebinding/TOCTOU is not yet eliminated. Keep the feature disabled in production until connection-level IP pinning is implemented and tested. Tracked in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74) |
+| T8 | SSRF via research fetch | Disabled by default (`MATRIX_ALLOW_WEB_FETCH=false`). PR #75 implements connection-level pinning: validate every DNS answer as global, connect to the validated numeric IPv4/IPv6 address without a second hostname lookup, preserve the original hostname for TLS SNI/certificate verification and HTTP Host, verify the connected peer, refuse redirects, and bound response size/content types. Deterministic regression tests cover the pinning behavior. | The fix is not yet merged and has not received independent security review. Keep public web fetch disabled in production until PR #75 has current-candidate CI confirmation, independent review and merge. Tracked in [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) and [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74). |
 | T9 | Token theft from dashboard | CSP `script-src 'self'`, no third-party scripts, token in localStorage, lock button clears it; Android paired token is encrypted with a device-bound Android Keystore AES-GCM key | XSS in same-origin custom JS or a compromised host would expose it; OS keyring integration is planned |
 | T10 | Rogue/revoked device | Pairing code single-use + 5 min TTL; device token hashed; revocation invalidates sessions immediately (A19) | No hardware attestation on Android yet |
 | T11 | Duplicate execution after reconnect | One runner per task id; double enqueue/no-op; approvals single-use; terminal tasks never restart (A20) | In-flight tasks interrupted by a crash resume only where durable state allows; non-idempotent tools are not retried |
@@ -93,6 +93,12 @@ profile. Do not file a public issue with an exploit before a fix is available. I
 and the affected commit.
 
 ## 9. Verification checklist
+
+### Public web fetch security gate
+
+The connection-pinning implementation is in [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75). Its recorded exact-head CI run passed 7/7 jobs, but that does not replace independent review or a fresh check of the current PR candidate. Do not set `MATRIX_ALLOW_WEB_FETCH=true` in production until an independent reviewer has reviewed the transport and tests, required checks are green for the current candidate, and the PR is merged. Follow [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74) for gate status.
+
+
 
 ```powershell
 python -m pytest -m acceptance          # A01-A25 mapped tests
