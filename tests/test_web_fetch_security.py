@@ -44,8 +44,8 @@ class FakeSocket:
 
 def test_resolver_rejects_private_and_returns_all_public_answers():
     infos = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
-        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:4860:4860::8888", 443, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 80)),
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:4860:4860::8888", 80, 0, 0)),
     ]
     assert web_tools.resolve_and_validate("https://example.com", lambda *a, **k: infos) == [
         "8.8.8.8",
@@ -59,8 +59,8 @@ def test_resolver_rejects_private_and_returns_all_public_answers():
 @pytest.mark.parametrize(
     ("address", "family", "expected_target"),
     [
-        ("8.8.8.8", socket.AF_INET, ("8.8.8.8", 443)),
-        ("2001:4860:4860::8888", socket.AF_INET6, ("2001:4860:4860::8888", 443, 0, 0)),
+        ("8.8.8.8", socket.AF_INET, ("8.8.8.8", 80)),
+        ("2001:4860:4860::8888", socket.AF_INET6, ("2001:4860:4860::8888", 80, 0, 0)),
     ],
 )
 def test_fetch_connects_to_numeric_validated_ipv4_or_ipv6(monkeypatch, address, family, expected_target):
@@ -68,7 +68,7 @@ def test_fetch_connects_to_numeric_validated_ipv4_or_ipv6(monkeypatch, address, 
     socket_factory = Mock(return_value=fake)
     monkeypatch.setattr(web_tools.socket, "socket", socket_factory)
     status, headers, body = web_tools._fetch_from_pinned_address(
-        "https://example.com/path?q=1", address
+        "http://example.com/path?q=1", address
     )
     assert status == 200
     assert headers["content-type"] == "text/plain"
