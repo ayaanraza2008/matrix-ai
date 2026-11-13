@@ -10,6 +10,7 @@ Design rules from the blueprint:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import secrets
@@ -17,6 +18,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import time as datetime_time
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import ConfigError
@@ -157,6 +159,9 @@ class MatrixConfig:
     notification_quiet_hours_start: str | None = None
     notification_quiet_hours_end: str | None = None
     notification_timezone: str = "UTC"
+    notification_webhook_url: str | None = None
+    notification_webhook_secret: str | None = None
+    notification_webhook_allowed_hosts: tuple[str, ...] = ()
 
     # Optional integrations - never required, never logged, never committed.
     github_token: str | None = None
@@ -209,6 +214,28 @@ class MatrixConfig:
             ZoneInfo(self.notification_timezone)
         except ZoneInfoNotFoundError as exc:
             raise ConfigError("MATRIX_NOTIFICATION_TIMEZONE must be a valid IANA timezone") from exc
+        webhook_values = (self.notification_webhook_url, self.notification_webhook_secret)
+        if any(webhook_values) and not all(webhook_values):
+            raise ConfigError("notification webhook URL and signing secret must be configured together")
+        if self.notification_webhook_url:
+            parsed = urlsplit(self.notification_webhook_url)
+            host = (parsed.hostname or "").lower().rstrip(".")
+            allowed_hosts = {item.lower().rstrip(".") for item in self.notification_webhook_allowed_hosts}
+            if (
+                parsed.scheme != "https" or not host or parsed.username or parsed.password
+                or parsed.query or parsed.fragment or parsed.port not in (None, 443)
+                or host not in allowed_hosts
+            ):
+                raise ConfigError("notification webhook must be HTTPS on an explicitly allowed host and use the default port")
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError:
+                address = None
+            if address is not None and (
+                address.is_private or address.is_loopback or address.is_link_local
+                or address.is_multicast or address.is_reserved or address.is_unspecified
+            ):
+                raise ConfigError("notification webhook host must not be a private or special-use IP address")
 
     # -- helpers -----------------------------------------------------------
     def _load_or_create_owner_token(self) -> str:
@@ -264,6 +291,7 @@ class MatrixConfig:
                 "quiet_hours_end": self.notification_quiet_hours_end,
                 "timezone": self.notification_timezone,
                 "urgent_degradation_bypasses_quiet_hours": True,
+                "webhook_configured": bool(self.notification_webhook_url and self.notification_webhook_secret),
             },
             "allow_web_fetch": self.allow_web_fetch,
             "allowed_app_ids": sorted(self.allowed_apps),
@@ -320,6 +348,11 @@ class MatrixConfig:
             notification_quiet_hours_start=_env("MATRIX_NOTIFICATION_QUIET_HOURS_START"),
             notification_quiet_hours_end=_env("MATRIX_NOTIFICATION_QUIET_HOURS_END"),
             notification_timezone=_env("MATRIX_NOTIFICATION_TIMEZONE", "UTC") or "UTC",
+            notification_webhook_url=_env("MATRIX_NOTIFICATION_WEBHOOK_URL"),
+            notification_webhook_secret=_env("MATRIX_NOTIFICATION_WEBHOOK_SECRET"),
+            notification_webhook_allowed_hosts=tuple(
+                item.strip() for item in (_env("MATRIX_NOTIFICATION_WEBHOOK_ALLOWED_HOSTS", "") or "").split(",") if item.strip()
+            ),
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_env("MATRIX_TELEGRAM_CHAT_ID"),
