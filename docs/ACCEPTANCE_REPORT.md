@@ -2,6 +2,7 @@
 
 **Snapshot:** 2026-11-13  
 **Integrated source:** PR #72, merged to `main` as `f472e0e9f164c0f15bfc2a72b3288f073109f704`  
+**Latest main CI follow-up:** run [#43437775032](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43437775032), commit `54e36d64c19276c3e1d00d0e594d4f3ebc171af8`, reported 7/7 jobs successful after the Ruff import-order correction.  
 **Exact candidate tree validated:** `7b822ccb14c6c1b1a122b9476847d0a49629ce87`
 
 ## Automated CI evidence
@@ -64,7 +65,7 @@ This is strong repository/CI evidence. It is not a substitute for a fresh instal
 
 ## Security follow-up: public web fetch
 
-The DNS-rebinding/TOCTOU gap was identified in `web.fetch_public`: the hostname was validated before the request, but the HTTP client resolved it again when opening the connection. `MATRIX_ALLOW_WEB_FETCH` remains **false by default**. [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) implements connection-level pinning to validated numeric IPv4/IPv6 addresses, preserves the original hostname for TLS SNI/certificate verification and HTTP Host, verifies the connected peer, and adds deterministic tests. Exact PR-head CI run [#43432576244](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43432576244) passed **7/7 jobs**. PR #75 remains open for independent security review and merge. Keep public web fetch disabled until review accepts the implementation and it is merged. Track the gate in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
+The DNS-rebinding/TOCTOU gap was identified in `web.fetch_public`: the original implementation validated the hostname before the request, but the HTTP client then resolved it again when opening the connection. PR #75 implements connection-level IP pinning and deterministic regression tests. `MATRIX_ALLOW_WEB_FETCH` remains **false by default**. [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) implements connection-level pinning to validated numeric IPv4/IPv6 addresses, preserves the original hostname for TLS SNI/certificate verification and HTTP Host, verifies the connected peer, and adds deterministic tests. Exact PR-head CI run [#43432576244](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43432576244) passed **7/7 jobs**. PR #75 remains open for independent security review and merge. Keep public web fetch disabled until review accepts the implementation and it is merged. Track the gate in [issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74).
 See [`docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`](PRODUCTION_ACCEPTANCE_RUNBOOK.md) for the exact owner-device validation sequence and evidence requirements.
 
 ## Release decision
