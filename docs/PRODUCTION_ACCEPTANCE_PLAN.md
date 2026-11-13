@@ -35,6 +35,7 @@ This plan turns the current roadmap and acceptance report into an ordered releas
 - [ ] Ensure failed prerequisites block descendants while independent branches may continue.
 - [ ] Preserve idempotency and refuse blind replay after uncertain side effects.
 - [ ] Independently evaluate owner-defined success criteria using persisted evidence; fail closed on missing, malformed, unavailable, or low-confidence verification.
+- [ ] Provide an owner-only, audited confirmation/recovery path for goals left awaiting owner review; model assessment alone must never silently become owner confirmation.
 - [ ] Keep owner confirmation explicit where required; audit all goal lifecycle changes.
 - [ ] Exercise restart/crash recovery with active, waiting, approved, expired, failed, and partially completed tasks.
 
@@ -48,7 +49,8 @@ This plan turns the current roadmap and acceptance report into an ordered releas
 - [ ] Deliver progress, approval requests, final results, failures, and recovery notices to the correct private chat.
 - [ ] Verify approval messages bind to the exact action, arguments, expiry, and task; Telegram text must not bypass the policy broker.
 - [ ] Verify emergency stop works while rate-limited and blocks scheduled and interactive tool execution.
-- [ ] Verify duplicate Telegram updates do not duplicate task execution.
+- [ ] Verify duplicate Telegram updates do not duplicate task execution using a durable update cursor/idempotency record.
+- [ ] Verify fresh owner messages arriving during MATRIX startup are not silently discarded; distinguish intentionally stale updates from valid commands and document any at-most-once/loss trade-off.
 - [ ] Test bot restart, MATRIX restart, network loss, reconnect, rate limiting, and oversized/malformed updates.
 - [ ] Document supported commands and honest limitations.
 
@@ -129,3 +131,10 @@ Do not perform destructive, financial, public-posting, or account-changing tests
 - **Blocked / Skipped:** a dependency or environment prevented the test; never count it as a pass.
 
 **Current release decision remains NOT READY until the gates are evidenced on a single integrated release candidate.**
+
+
+## Additional integration blockers found during the 2026-11-13 review
+
+- The goal-DAG verification branch (#37) can leave a goal in `pending_owner_review`, but the inspected branch does not include an owner-facing confirmation endpoint. The competing #46 branch contains a confirmation flow; that capability must be reconciled into the selected DAG implementation rather than leaving goals permanently awaiting review.
+- The merged Telegram bridge implementation drains queued updates at startup. This is safe against replaying old commands, but the current behavior can also discard a fresh owner command sent while MATRIX is restarting. Production acceptance must test and document this behavior, then use a durable update cursor/idempotency design if reliable command delivery is required.
+- Several feature PRs are merged only into stacked feature branches. A fresh integration branch from current `main` is required before feature status can be upgraded to integrated/CI-verified.
