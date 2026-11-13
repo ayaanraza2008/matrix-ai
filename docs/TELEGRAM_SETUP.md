@@ -15,11 +15,15 @@ Do not paste the bot token into chat, source control, issue comments or screensh
 
 - Plain text creates a normal MATRIX task through the policy-checked orchestrator.
 - A Telegram voice note is downloaded in memory, limited to 8 MB, transcribed by the configured local Whisper engine and submitted as a normal task.
-- `/status` reports local model and emergency-stop state.
+- `/status` reports local model health, active task count, pending owner approvals and emergency-stop state.
+- `/tasks` lists the five most recent tasks submitted through this Telegram chat.
+- `/task <task-id>` reports the state and result of one Telegram-submitted task.
+- `/cancel <task-id>` cancels one Telegram-submitted task; it cannot target dashboard or system tasks.
 - `/help` lists the supported commands.
 - `/stop` activates the emergency stop and cancels active tasks.
+- `/resume` clears the emergency stop for new tasks. It does not restart tasks cancelled by `/stop`.
 
-The bridge accepts only a private chat whose chat ID and sender ID both match the configured owner ID. It shares the runtime rate limiter, audits failures without storing message content, and cannot approve HIGH/CRITICAL actions. Approvals must be confirmed in the authenticated MATRIX dashboard.
+The bridge accepts only a private chat whose chat ID and sender ID both match the configured owner ID. It shares the runtime rate limiter, audits failures without storing message content, and cannot approve HIGH/CRITICAL actions. Approvals must be confirmed in the authenticated MATRIX dashboard. Telegram task lookup and cancellation are limited to tasks whose durable idempotency record was created by this private Telegram bridge.
 
 ### Restart and delivery behavior
 
