@@ -214,6 +214,7 @@ class YouTubeGetChannelTool(Tool):
     autonomy_level = 0
     timeout_seconds = 30
     idempotent = True
+    returns_untrusted = True
     input_model = YouTubeChannelInput
 
     def __init__(self, client: YouTubeClient) -> None:
