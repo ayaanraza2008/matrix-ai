@@ -410,3 +410,44 @@ async def test_recovery_preference_suppresses_routine_push_but_not_urgent_alerts
     assert sent == ["degraded"]
     assert [item["event_type"] for item in store.notifications] == ["health.degraded"]
     assert store.get_flag("pending_health_notifications") == ""
+
+
+@pytest.mark.asyncio
+async def test_telegram_notification_uses_real_line_breaks(tmp_path, monkeypatch):
+    scheduler, _, _ = make_scheduler(tmp_path)
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": True}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, json):
+            captured.update({"url": url, "json": json})
+            return Response()
+
+    monkeypatch.setattr(scheduler_module.httpx, "AsyncClient", Client)
+    sent = await scheduler._send_telegram_health_notification(
+        "degraded",
+        {"database": "ok", "model": "unavailable", "emergency_stop": "off"},
+    )
+
+    assert sent is True
+    assert captured["json"]["text"].splitlines() == [
+        "MATRIX needs attention",
+        "Database: ok",
+        "Local model: unavailable",
+        "Emergency stop: off",
+    ]
