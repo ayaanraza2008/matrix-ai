@@ -88,3 +88,12 @@ The preferred PR #65 branch now also contains the durable Telegram update handli
 - Add regression tests for cursor restoration, success-only offset persistence, failed-update retry, and duplicate replay while emergency stop is active.
 
 This is an automated implementation on PR #65's branch, not yet release evidence. Fresh CI on the updated PR #65 head and real bot restart/replay acceptance remain required.
+
+
+## Consolidated candidate update (2026-11-13 11:46 UTC)
+
+PR #68 is the current-main integration candidate for the capabilities listed above. Its latest changes restore and register the GitHub, Open-Meteo, YouTube, LinkedIn, Instagram and WhatsApp tool modules, and add Telegram task idempotency/recovery before rate limiting. The exact current head is validated only by the CI run attached to that commit; older stacked-PR CI results are not substitutes.
+
+The consolidated candidate is still a **draft and unmerged**. The latest CI run must pass on its final head, then receive independent review. This document's earlier PR #65/#60 references describe historical branch topology, not the current merge target. The web-fetch SSRF control validates DNS answers but the HTTP client resolves the hostname again for the TCP connection; a DNS-rebinding/TOCTOU gap remains documented and is not claimed as fully mitigated.
+
+No owner-host, real Telegram bot, OAuth account, public WhatsApp webhook, microphone/speaker, or physical Android device acceptance has been performed in this session. Android release signing, installer/upgrade/rollback, backup/restore and production operations evidence remain release gates.
