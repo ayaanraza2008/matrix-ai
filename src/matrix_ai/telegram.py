@@ -23,6 +23,8 @@ from .voice.manager import MAX_AUDIO_BYTES
 log = logging.getLogger("matrix.telegram")
 
 PREFLIGHT_TIMEOUT_SECONDS = 15.0
+TELEGRAM_REPORT_RESTORE_LIMIT = 100
+TELEGRAM_REPORT_RETRY_ATTEMPTS = 4
 
 
 async def telegram_preflight(
@@ -198,11 +200,56 @@ class TelegramChatBridge:
         self._offset = update_id + 1
         self.store.set_system_flag("telegram_update_offset", str(update_id))
 
+    def _restore_pending_reports(self) -> int:
+        """Reattach result watchers for recent, nonterminal Telegram-created tasks."""
+        list_task_ids = getattr(self.store, "list_idempotent_task_ids", None)
+        if not callable(list_task_ids):
+            return 0
+        restored = 0
+        try:
+            task_ids = list_task_ids(
+                "telegram.update", limit=TELEGRAM_REPORT_RESTORE_LIMIT
+            )
+        except Exception as exc:  # noqa: BLE001 - notification recovery must not stop polling
+            self.store.audit(
+                "telegram.report_restore_failed",
+                actor="telegram",
+                status="failed",
+                detail={"error": type(exc).__name__},
+            )
+            return 0
+
+        for task_id in task_ids:
+            try:
+                view = self.store.task_view(task_id)
+            except Exception as exc:  # noqa: BLE001 - one stale task must not block others
+                self.store.audit(
+                    "telegram.report_restore_task_failed",
+                    actor="telegram",
+                    task_id=task_id,
+                    status="failed",
+                    detail={"error": type(exc).__name__},
+                )
+                continue
+            if view.state not in TERMINAL_TASK_STATES:
+                self._ensure_report_task(task_id)
+                restored += 1
+
+        if restored:
+            self.store.audit(
+                "telegram.report_watchers_restored",
+                actor="telegram",
+                status="succeeded",
+                detail={"count": restored},
+            )
+        return restored
+
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
         try:
             self._restore_offset()
+            self._restore_pending_reports()
             while True:
                 try:
                     if not announced:
@@ -288,24 +335,89 @@ class TelegramChatBridge:
         if command == "/start":
             await self._send("MATRIX is connected. Send me a task in plain language.")
             return
+        args = text.split(maxsplit=1)
+        command_args = args[1].strip() if len(args) > 1 else ""
         if command == "/help":
             await self._send(
-                "Send any task as a normal message.\n/status — system health\n"
+                "Send any task as a normal message.\n"
+                "/status — system health and active task counts\n"
+                "/tasks — recent Telegram tasks\n"
+                "/task <task-id> — inspect one of your Telegram tasks\n"
+                "/cancel <task-id> — cancel one of your Telegram tasks\n"
                 "/stop — activate emergency stop\n"
-                "Pending HIGH/CRITICAL approvals must still be confirmed in MATRIX."
+                "/resume — clear emergency stop\n"
+                "HIGH/CRITICAL approvals must still be confirmed in the MATRIX dashboard."
             )
             return
         if command == "/status":
             health = await self.orchestrator.models.status()
-            await self._send(
-                f"MATRIX model: {health.status}\nEmergency stop: "
-                f"{'ACTIVE' if self.store.emergency_stop else 'off'}"
+            active = self.store.nonterminal_tasks()
+            waiting = sum(
+                1 for task in active
+                if task.get("state") in {
+                    TaskState.APPROVAL_REQUIRED.value,
+                    TaskState.WAITING_FOR_USER.value,
+                }
             )
+            await self._send(
+                f"MATRIX Telegram: {'running' if self.running else 'starting'}\n"
+                f"Model: {health.status} ({health.provider}/{health.model})\n"
+                f"Active tasks: {len(active)}\n"
+                f"Waiting for owner approval: {waiting}\n"
+                f"Emergency stop: {'ACTIVE' if self.store.emergency_stop else 'off'}"
+            )
+            return
+        if command == "/tasks":
+            task_ids = self.store.list_idempotent_task_ids("telegram.update", limit=5)
+            if not task_ids:
+                await self._send("No Telegram tasks have been recorded yet.")
+                return
+            lines = ["Recent MATRIX Telegram tasks:"]
+            for task_id in task_ids:
+                view = self.store.task_view(task_id)
+                state = getattr(view.state, "value", str(view.state))
+                summary = (view.summary or view.error or view.original_request or "").replace("\n", " ")
+                lines.append(f"{state} · {task_id[:12]} · {summary[:120]}")
+            await self._send("\n".join(lines))
+            return
+        if command in {"/task", "/cancel"}:
+            if not command_args or len(command_args) > 128 or any(ch.isspace() for ch in command_args):
+                await self._send(f"Usage: {command} <task-id>")
+                return
+            if not self.store.is_idempotent_task("telegram.update", command_args):
+                await self._send("That task ID does not belong to a task submitted through this Telegram chat.")
+                return
+            if command == "/cancel":
+                view = await self.orchestrator.cancel(command_args)
+                state = getattr(view.state, "value", str(view.state))
+                if view.state in TERMINAL_TASK_STATES:
+                    await self._send(f"Task {command_args[:12]} is already terminal ({state}).")
+                else:
+                    await self._send(f"Cancellation requested for task {command_args[:12]}. Current state: {state}.")
+                return
+            view = self.store.task_view(command_args)
+            state = getattr(view.state, "value", str(view.state))
+            summary = view.summary or view.error or "No final result yet."
+            response = (
+                f"MATRIX task {command_args[:12]}\nState: {state}\n"
+                f"Request: {(view.original_request or '')[:300]}\n"
+                f"Result: {summary[:1800]}"
+            )
+            if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+                response += "\nOwner approval is required in the MATRIX dashboard; Telegram cannot auto-approve."
+            await self._send(response)
             return
         if command == "/stop":
             self.store.set_emergency_stop(True, actor="telegram-owner")
             cancelled = await self.orchestrator.cancel_all()
             await self._send(f"Emergency stop activated. Cancelled tasks: {cancelled}.")
+            return
+        if command == "/resume":
+            if not self.store.emergency_stop:
+                await self._send("Emergency stop is already off.")
+                return
+            self.store.set_emergency_stop(False, actor="telegram-owner")
+            await self._send("Emergency stop cleared. New tasks may be accepted under the configured policy.")
             return
         if command.startswith("/"):
             await self._send("Unknown command. Send /help for available commands.")
@@ -474,6 +586,19 @@ class TelegramChatBridge:
         )
         return transcript[:4000]
 
+    async def _send_report(self, message: str) -> None:
+        """Retry transient Telegram delivery failures for task notifications."""
+        for attempt in range(TELEGRAM_REPORT_RETRY_ATTEMPTS):
+            try:
+                await self._send(message)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if attempt + 1 >= TELEGRAM_REPORT_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(min(2 ** attempt, 8))
+
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
         approval_notified = False
@@ -485,7 +610,7 @@ class TelegramChatBridge:
                 # after approving or denying the action in the MATRIX dashboard.
                 if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
                     if not approval_notified:
-                        await self._send(
+                        await self._send_report(
                             f"Task {task_id} needs owner approval for a protected action. "
                             "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
                         )
@@ -493,10 +618,10 @@ class TelegramChatBridge:
                     continue
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
-                    await self._send(f"MATRIX {view.state.value}:\n{result}")
+                    await self._send_report(f"MATRIX {view.state.value}:\n{result}")
                     return
-            await self._send(
-                f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."
+            await self._send_report(
+                f"Task {task_id} is still running. Use /task {task_id} or the MATRIX dashboard for details."
             )
         except asyncio.CancelledError:
             raise
