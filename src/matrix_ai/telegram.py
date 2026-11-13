@@ -202,7 +202,7 @@ class TelegramChatBridge:
 
     def _restore_pending_reports(self) -> int:
         """Reattach result watchers for recent, nonterminal Telegram-created tasks."""
-        list_task_ids = getattr(self.store, "list_idempotent_task_ids", None)
+        list_task_ids = getattr(self.store, "list_nonterminal_idempotent_task_ids", None)
         if not callable(list_task_ids):
             return 0
         restored = 0
