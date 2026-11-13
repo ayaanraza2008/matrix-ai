@@ -7,6 +7,7 @@ are HIGH risk and remain subject to MATRIX's owner approval flow.
 from __future__ import annotations
 
 import mimetypes
+import threading
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -32,8 +33,13 @@ class YouTubeClient:
         self.config = config
         self._access_token: str | None = None
         self._expires_at = 0.0
+        self._token_lock = threading.Lock()
 
     def _token(self) -> str:
+        with self._token_lock:
+            return self._get_token()
+
+    def _get_token(self) -> str:
         if self._access_token and time.monotonic() < self._expires_at - 60:
             return self._access_token
         if not all((
@@ -92,7 +98,9 @@ class YouTubeClient:
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 if response.status_code == 401:
-                    self._access_token = None
+                    with self._token_lock:
+                        self._access_token = None
+                        self._expires_at = 0.0
                     token = self._token()
                     response = client.request(
                         method,
