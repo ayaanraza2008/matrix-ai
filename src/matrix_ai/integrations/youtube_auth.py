@@ -25,8 +25,19 @@ def _credential_store():
         import keyring
         backend = keyring.get_keyring()
         priority = getattr(backend, "priority", 0)
-        if not isinstance(priority, (int, float)) or priority <= 0:
-            raise RuntimeError("no secure OS credential backend is available")
+        module = type(backend).__module__
+        secure_modules = (
+            "keyring.backends.Windows",
+            "keyring.backends.macOS",
+            "keyring.backends.SecretService",
+            "keyring.backends.kwallet",
+        )
+        if (
+            not isinstance(priority, (int, float))
+            or priority <= 0
+            or not module.startswith(secure_modules)
+        ):
+            raise RuntimeError("no supported secure OS credential backend is available")
         return keyring
     except Exception as exc:  # noqa: BLE001 - keyring backends vary by operating system
         raise ToolExecutionError(
