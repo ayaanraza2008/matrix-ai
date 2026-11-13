@@ -134,3 +134,27 @@ Awesome Free LLM APIs is a reference catalogue only. MATRIX does not harvest key
 **Important runtime boundary:** upstream currently ships as a VS Code extension and a GitHub Copilot app canvas, not as a headless service or documented standalone HTTP/MCP API. Its full session analytics and dashboard require VS Code 1.125+ and a locally built VSIX (or the supported Copilot canvas build). MATRIX therefore does **not** claim to run the upstream dashboard or invoke its internal analytics autonomously. This catalogue integration provides autonomous reference/skill guidance only; a future native bridge must be implemented and tested before claiming automated session ingestion or analytics inside MATRIX.
 
 The upstream extension is read-only with respect to coding-session logs and reports local processing/no proprietary telemetry. MATRIX must preserve those boundaries: do not upload raw transcripts, do not scan unrelated directories, and do not install the VSIX or run npm lifecycle/build scripts as part of task routing. Only the pinned source snapshot is fetched by MATRIX. To use the native dashboard separately, follow the upstream build instructions in its README and install the generated VSIX yourself.
+
+
+## Native MATRIX engineering coach
+
+MATRIX also ships a native, local analyzer exposed to the planner as
+`engineering_coach.analyze_session`. The tool is read-only and requires the
+existing `files.read` permission. It analyzes only an explicitly selected
+`.jsonl` or `.ndjson` session export inside one of MATRIX's configured
+filesystem roots. The default root is MATRIX_HOME/workspace; additional roots
+must be explicitly configured by the owner.
+
+Example task: "Analyze workspace/session.jsonl and summarize recurring tool
+failures and reusable workflows."
+
+The analyzer has a 10 MiB and 50,000-event limit. It returns aggregate tool
+counts, failure rates, repeated failure patterns, and repeated successful
+two-step workflows as skill candidates. It never returns or persists prompt
+text, tool arguments, or raw records and performs no network requests. It does
+not watch directories, silently ingest sessions, or assume that VS Code,
+Copilot, Claude Code, Codex, or any other agent stores logs in a common format.
+Exports must be normalized JSONL with one event object per line; recognizable
+tool events use `type: "tool_call"` or `type: "tool_result"` and a
+`tool_name` field. MATRIX only analyzes the file path explicitly supplied
+for that task.
