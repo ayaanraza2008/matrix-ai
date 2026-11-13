@@ -483,3 +483,24 @@ def test_schema_v4_migrates_goal_graph_tables(tmp_path):
     assert {"goal_graphs", "goal_graph_nodes"} <= tables
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_goal_supervisor_enforces_total_graph_concurrency(runtime, monkeypatch):
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    graph_id = runtime.store.create_goal_graph(
+        owner_id="owner",
+        title="Bounded parallel work",
+        nodes=[
+            {"node_id": "a", "title": "A", "success_criteria": "A done", "depends_on": []},
+            {"node_id": "b", "title": "B", "success_criteria": "B done", "depends_on": []},
+            {"node_id": "c", "title": "C", "success_criteria": "C done", "depends_on": []},
+        ],
+    )
+    await runtime.goal_supervisor.tick()
+    nodes = runtime.store.get_goal_graph(graph_id)["nodes"]
+    assert sum(node["goal"]["state"] == "running" for node in nodes) == 2
+    assert sum(node["goal"]["state"] == "queued" for node in nodes) == 1
