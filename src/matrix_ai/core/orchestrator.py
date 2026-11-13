@@ -31,7 +31,7 @@ from ..core.models import (
     parse_dt,
     utcnow,
 )
-from ..core.policy import PolicyEngine
+from ..core.goal_verifier import review_goal_criteria\nfrom ..core.policy import PolicyEngine
 from ..core.state_machine import TaskStateMachine
 from ..errors import (
     EmergencyStopActive,
@@ -289,6 +289,57 @@ class Orchestrator:
             self._mark_cancelled(task_id)
         except Exception as exc:  # defensive: never leave a task in a running state
             self._abort(task_id, "internal_error", f"{type(exc).__name__}: {exc}")
+
+        await self._evaluate_goal_candidate(task_id)
+
+    async def _evaluate_goal_candidate(self, task_id: str) -> None:
+        """Create a criteria-review candidate after successful goal task completion.
+
+        This is advisory only: a model can never move a goal into the verified
+        state. The owner must confirm the criteria outcome through the API.
+        """
+        task = self.store.get_task_row(task_id)
+        if not task["goal_id"] or task["state"] != TaskState.COMPLETE.value:
+            return
+        goal = self.store.get_goal(str(task["goal_id"]))
+        if goal["state"] != "awaiting_verification" or goal["criteria_review_json"]:
+            return
+        try:
+            task_evidence = json.loads(task["evidence_json"] or "{}")
+        except (TypeError, ValueError):
+            task_evidence = {}
+        try:
+            review = await review_goal_criteria(
+                self.models,
+                title=goal["title"],
+                success_criteria=goal["success_criteria"],
+                result_summary=goal["result_summary"] or "",
+                task_evidence=task_evidence,
+            )
+            self.store.save_goal_criteria_review(goal["id"], review.model_dump(mode="json"))
+            self.store.audit(
+                "goal.criteria_reviewed",
+                actor="model",
+                task_id=task_id,
+                status=review.outcome,
+                detail={"goal_id": goal["id"], "confidence": review.confidence},
+            )
+        except ModelUnavailable:
+            self.store.audit(
+                "goal.criteria_review_unavailable",
+                actor="system",
+                task_id=task_id,
+                status="model_unavailable",
+                detail={"goal_id": goal["id"]},
+            )
+        except Exception as exc:  # model output is untrusted and must not fail the completed task
+            self.store.audit(
+                "goal.criteria_review_failed",
+                actor="system",
+                task_id=task_id,
+                status="invalid_review",
+                detail={"goal_id": goal["id"], "error": f"{type(exc).__name__}: {exc}"[:300]},
+            )
 
     async def run(self, task_id: str) -> None:
         row = self.store.get_task_row(task_id)
