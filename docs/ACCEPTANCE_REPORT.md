@@ -66,6 +66,8 @@ This is strong repository/CI evidence. It is not a substitute for a fresh instal
 
 A DNS-rebinding/TOCTOU gap remains in `web.fetch_public`: the hostname is validated before the request, but the HTTP client resolves it again when opening the connection. To fail closed by default, `MATRIX_ALLOW_WEB_FETCH` is now **false** unless explicitly enabled. Do not enable it in a production deployment until connection-level IP pinning is implemented and tested.
 
+See [`docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`](PRODUCTION_ACCEPTANCE_RUNBOOK.md) for the exact owner-device validation sequence and evidence requirements.
+
 ## Release decision
 
 **Repository integration and exact-head CI: PASS. Production certification: BLOCKED pending owner-environment evidence and security sign-off.**
