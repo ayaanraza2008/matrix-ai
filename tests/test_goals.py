@@ -704,3 +704,24 @@ async def test_goal_supervisor_sends_deduplicated_graph_progress_notifications(c
 
     assert len(messages) == 2
     assert "FAILED" in messages[1]
+
+
+def test_schema_v6_migrates_goal_graph_notification_state(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "schema-v6.sqlite"
+    initial = Database(path)
+    for column in ("last_notified_state", "notification_attempted_state", "notification_attempted_at"):
+        initial.execute(f"ALTER TABLE goal_graphs DROP COLUMN {column}")
+    initial.execute("PRAGMA user_version=6")
+    initial.close()
+
+    upgraded = Database(path)
+    columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goal_graphs)")}
+    assert {
+        "last_notified_state",
+        "notification_attempted_state",
+        "notification_attempted_at",
+    } <= columns
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
