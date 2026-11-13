@@ -217,9 +217,30 @@ class Scheduler:
             # Degradation alerts (including emergency-stop state) always bypass quiet hours.
             if state == "healthy" and self._quiet_hours_active():
                 break
-            if not await self._send_health_notification(state, components):
+
+            # Persist the head before attempting delivery. A failed or interrupted
+            # send must never erase an urgent alert when a later state is queued.
+            self.store.set_flag(
+                "pending_health_notifications",
+                json.dumps(pending, separators=(",", ":")),
+            )
+            try:
+                delivered = await self._send_health_notification(state, components)
+            except Exception as exc:  # noqa: BLE001 - keep queued alerts for retry
+                self.store.audit(
+                    "notification.health_failed",
+                    actor="health-monitor",
+                    status="failed",
+                    detail={"error": type(exc).__name__},
+                )
+                delivered = False
+            if not delivered:
                 break
             pending.pop(0)
+            self.store.set_flag(
+                "pending_health_notifications",
+                json.dumps(pending, separators=(",", ":")) if pending else "",
+            )
 
         self.store.set_flag(
             "pending_health_notifications",
