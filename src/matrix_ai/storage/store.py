@@ -352,15 +352,22 @@ class Store:
             "unavailable": "criteria_verifier_unavailable",
         }[decision]
         safe_evidence = redact_obj(evidence)
+        try:
+            prior_evidence = json.loads(goal["evidence_json"] or "{}")
+        except (TypeError, ValueError):
+            prior_evidence = {}
+        combined_evidence = {
+            "task_evidence": prior_evidence,
+            "criteria_verification": safe_evidence,
+        }
         self.db.execute(
-            "UPDATE goals SET state=?, criteria_status=?, verification_status=?, "
-            "evidence_json=?, result_summary=?, updated_at=?, finished_at=? WHERE id=? "
+            "UPDATE goals SET state=?, criteria_status=?, evidence_json=?, "
+            "result_summary=?, updated_at=?, finished_at=? WHERE id=? "
             "AND state='awaiting_verification'",
             (
                 state,
                 status,
-                status,
-                json.dumps(safe_evidence, default=str)[:12000],
+                json.dumps(combined_evidence, default=str)[:12000],
                 str(safe_evidence.get("summary") or goal["result_summary"] or "")[:1000],
                 iso(),
                 iso(),
