@@ -118,37 +118,41 @@ class VoiceSessionManager:
 
     def transcribe(self, audio_base64: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
+        self._require_capture_ready(session)
         if self.stt_engine is None:
             raise ToolUnavailable(
                 "No local speech-to-text engine is installed. Install matrix-ai[voice] "
                 "and allow the first Whisper model download, or use text chat."
             )
-        payload = self._decode_audio(session, audio_base64)
+        payload = self._decode_audio(audio_base64)
         result = self._transcribe_payload(payload)
         transcript = str(result.get("text", "")).strip()
         session.last_utterance = transcript[:500] or None
         return {**result, "text": transcript, "session_id": session.id}
 
     async def transcribe_async(self, audio_base64: str, *, session_id: str | None = None) -> dict:
-        """Decode on the event loop, but keep model inference off it."""
+        """Keep every guard in the sync order; model inference runs off the loop."""
         session = self._require_session(session_id)
+        self._require_capture_ready(session)
         if self.stt_engine is None:
             raise ToolUnavailable(
                 "No local speech-to-text engine is installed. Install matrix-ai[voice] "
                 "and allow the first Whisper model download, or use text chat."
             )
-        payload = self._decode_audio(session, audio_base64)
+        payload = self._decode_audio(audio_base64)
         # Whisper inference is CPU-bound; running it directly would block the API.
         result = await asyncio.to_thread(self._transcribe_payload, payload)
         transcript = str(result.get("text", "")).strip()
         session.last_utterance = transcript[:500] or None
         return {**result, "text": transcript, "session_id": session.id}
 
-    def _decode_audio(self, session: VoiceSession, audio_base64: str) -> bytes:
+    def _require_capture_ready(self, session: VoiceSession) -> None:
         if session.muted:
             raise VoiceMuted("microphone is muted; audio capture is refused")
         if session.state != "listening":
             raise ConflictError(f"session state '{session.state}' does not accept audio")
+
+    def _decode_audio(self, audio_base64: str) -> bytes:
         try:
             payload = base64.b64decode(audio_base64, validate=True)
         except (binascii.Error, ValueError) as exc:

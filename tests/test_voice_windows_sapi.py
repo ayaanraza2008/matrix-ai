@@ -103,6 +103,35 @@ def test_voice_manager_blocks_credentials_from_being_spoken(config):
     assert manager.validate_speech("MATRIX is ready") == {"allowed": True}
 
 
+def test_muted_session_refuses_capture_before_engine_availability(config, monkeypatch):
+    # Guard order matters: a muted session is a 409 even when no STT engine is
+    # installed (which would otherwise surface as a 503).
+    monkeypatch.setattr("matrix_ai.voice.manager.build_stt_engine", lambda: None)
+    manager = VoiceSessionManager(config)
+    assert manager.stt_engine is None
+    manager.start()
+    manager.mute()
+    with pytest.raises(Exception) as muted_error:
+        manager.transcribe("AQID", session_id=manager.active_session.id)
+    from matrix_ai.errors import VoiceMuted
+
+    assert isinstance(muted_error.value, VoiceMuted)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_async_keeps_mute_check_before_engine_availability(config, monkeypatch):
+    monkeypatch.setattr("matrix_ai.voice.manager.build_stt_engine", lambda: None)
+    manager = VoiceSessionManager(config)
+    assert manager.stt_engine is None
+    manager.start()
+    manager.mute()
+    with pytest.raises(Exception) as muted_error:
+        await manager.transcribe_async("AQID", session_id=manager.active_session.id)
+    from matrix_ai.errors import VoiceMuted
+
+    assert isinstance(muted_error.value, VoiceMuted)
+
+
 class BlockingEngine:
     name = "test-engine"
 
