@@ -12,9 +12,10 @@ class CursorStore:
     def __init__(self):
         self.flags = {}
         self.audits = []
+        self.existing_task_id = None
 
     def get_idempotent_task_id(self, scope, key):
-        return None
+        return self.existing_task_id if (scope, key) == ("telegram.update", "1234") else None
 
     def get_system_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -33,6 +34,7 @@ def make_bridge():
         autonomy_level=2,
         telegram_bot_token="test-token",
         telegram_chat_id="12345",
+        autonomy_level=2,
     )
     bridge = TelegramChatBridge(
         config=config, orchestrator=SimpleNamespace(), store=store
@@ -119,6 +121,7 @@ async def test_replayed_update_does_not_reenqueue_terminal_task():
         async def enqueue(self, task_id):
             enqueued.append(task_id)
 
+    store.existing_task_id = "existing-task"
     store.task_view = lambda task_id: ExistingTask()
     bridge.orchestrator = Orchestrator()
 
@@ -136,4 +139,4 @@ async def test_replayed_update_does_not_reenqueue_terminal_task():
     })
 
     assert enqueued == []
-    assert any("Already completed" in message for message in sent)
+    assert any("Already accepted" in message for message in sent)
