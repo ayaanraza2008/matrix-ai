@@ -151,7 +151,15 @@ def test_youtube_write_tools_are_opt_in_and_approval_gated(runtime):
     assert upload_decision.requires_approval is True
 
 
-def test_youtube_oauth_fails_closed_without_a_saved_token(runtime):
+def test_youtube_oauth_fails_closed_without_a_saved_token(runtime, monkeypatch):
+    import matrix_ai.integrations.youtube_auth as auth
+
+    class EmptySecureKeyring:
+        @staticmethod
+        def get_password(_service, _username):
+            return None
+
+    monkeypatch.setattr(auth, "_credential_store", lambda: EmptySecureKeyring())
     with pytest.raises(ToolExecutionError, match="not connected"):
         build_youtube_service(runtime.config, YOUTUBE_READ_SCOPE)
 
