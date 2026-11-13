@@ -66,7 +66,7 @@ class MatrixRuntime:
         config = config or MatrixConfig.from_env()
         db = Database(config.db_path)
         store = Store(db)
-        registry = build_registry()
+        registry = build_registry(config)
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
