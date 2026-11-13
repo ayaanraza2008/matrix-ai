@@ -60,3 +60,14 @@ reproducible demonstration — not when code exists.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
 - [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
 - [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+
+### M7 — Dependency-aware task plans
+
+- [x] Validate planner step dependency indexes, unknown references, duplicates and cycles.
+- [x] Preserve zero-based `depends_on` relationships through the planner parser.
+- [x] Execute only dependency-ready steps, including prerequisites that appear later in the plan.
+- [x] Block transitive descendants after a failed or unverified prerequisite.
+- [x] Continue independent branches after a step failure; final task outcome remains PARTIAL/FAILED when any required branch did not complete.
+- [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
+- [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
+- Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.

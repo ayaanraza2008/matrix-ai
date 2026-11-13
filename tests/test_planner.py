@@ -121,3 +121,23 @@ def test_heuristic_falls_back_to_chat(registry):
     intent = HeuristicPlanner(registry).plan("tell me a story about robots")
     assert intent.intent == "chat"
     assert intent.plan.steps[0].kind is StepKind.ANSWER
+
+def test_parser_preserves_dependency_graph_and_rejects_cycles(registry):
+    plan = PlanParser(registry).parse(
+        '{"goal":"ordered work","steps":['
+        '{"title":"publish","kind":"tool","tool_name":"system.get_status","arguments":{},"depends_on":[1]},'
+        '{"title":"prepare","kind":"tool","tool_name":"system.get_status","arguments":{},"depends_on":[]}'
+        ']}',
+        fallback_goal="fallback",
+    )
+    assert plan.steps[0].depends_on == [1]
+    assert plan.steps[1].depends_on == []
+
+    with pytest.raises(ValidationFailure):
+        PlanParser(registry).parse(
+            '{"goal":"cycle","steps":['
+            '{"title":"a","kind":"tool","tool_name":"system.get_status","arguments":{},"depends_on":[1]},'
+            '{"title":"b","kind":"tool","tool_name":"system.get_status","arguments":{},"depends_on":[0]}'
+            ']}',
+            fallback_goal="fallback",
+        )
