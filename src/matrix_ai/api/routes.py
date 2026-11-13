@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
+from ..core.goal_verifier import review_goal_criteria
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -38,7 +39,6 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..core.goal_verifier import review_goal_criteria
 from ..errors import AuthenticationError, ModelUnavailable, NotFoundError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
