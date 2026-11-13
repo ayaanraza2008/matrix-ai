@@ -413,7 +413,9 @@ async def voice_stop(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, 
 async def voice_transcribe(
     body: VoiceTranscribeBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> dict[str, Any]:
-    return runtime.voice.transcribe(body.audio_base64, session_id=body.session_id)
+    return await asyncio.to_thread(
+        runtime.voice.transcribe, body.audio_base64, session_id=body.session_id
+    )
 
 
 @router.post("/voice/speak", tags=["voice"])
