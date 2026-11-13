@@ -233,8 +233,13 @@ class SkillsManager:
             raise SkillsError("Could not locate npm's npx-cli.js beside node.exe; repair the Node.js installation.")
         launcher = [node, str(npx_cli)] if os.name == "nt" else [npx]
         command = [*launcher, "--yes", f"skills@{SKILLS_CLI_VERSION}", "update", "--yes"]
+        allowed = {"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT",
+                   "TEMP", "TMP", "NPM_CONFIG_CACHE", "NPM_CONFIG_USERCONFIG"}
+        env = {key: value for key, value in os.environ.items() if key.upper() in allowed}
+        env.update({"CI": "1", "NO_COLOR": "1", "npm_config_audit": "false",
+                    "npm_config_fund": "false"})
         try:
-            result = subprocess.run(command, cwd=self.project, capture_output=True, text=True,
+            result = subprocess.run(command, cwd=self.project, env=env, capture_output=True, text=True,
                                     encoding="utf-8", errors="replace",
                                     timeout=240, check=False, shell=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
