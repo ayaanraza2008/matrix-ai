@@ -142,19 +142,28 @@ class Store:
         kind: str = "chat",
         deadline_seconds: float | None = None,
         goal_id: str | None = None,
+        source_update_id: str | None = None,
     ) -> str:
+        if source_update_id:
+            existing = self.db.query_one(
+                "SELECT id FROM tasks WHERE source_update_id=?", (source_update_id,)
+            )
+            if existing is not None:
+                return str(existing["id"])
         task_id = uuid.uuid4().hex
         now = iso()
         deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
         self.db.execute(
-            "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, state, original_request, autonomy_level, "
-            "scopes_json, created_at, updated_at, deadline) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, source_update_id, state, "
+            "original_request, autonomy_level, scopes_json, created_at, updated_at, deadline) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id,
                 user_id,
                 device_id,
                 kind,
                 goal_id,
+                source_update_id,
                 TaskState.RECEIVED.value,
                 original_request,
                 int(autonomy_level),
