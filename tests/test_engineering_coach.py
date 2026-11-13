@@ -115,3 +115,23 @@ async def test_engineering_coach_dashboard_api_rejects_unauthenticated(anon_clie
         "/api/engineering-coach/analyze", json={"path": "session.jsonl"}
     )
     assert response.status_code == 401
+
+
+async def test_engineering_coach_schedule_is_explicit_and_owner_controlled(client, config):
+    source = config.workspace_dir / "scheduled-session.jsonl"
+    source.write_text(
+        json.dumps({"type": "tool_call", "tool_name": "search"}), encoding="utf-8"
+    )
+    response = await client.post(
+        "/api/engineering-coach/schedule",
+        json={"path": "scheduled-session.jsonl", "interval_seconds": 3600},
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["interval_seconds"] == 3600
+    jobs = await client.get("/api/jobs")
+    matching = [job for job in jobs.json() if job["id"] == payload["job_id"]]
+    assert matching and matching[0]["enabled"] is True
+    paused = await client.patch(f"/api/jobs/{payload['job_id']}", json={"enabled": False})
+    assert paused.status_code == 200
+    assert paused.json()["enabled"] is False
