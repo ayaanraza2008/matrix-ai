@@ -573,8 +573,9 @@ class Store:
         items = _json_load(self.get_flag("notification_inbox", "[]"), [])
         if not isinstance(items, list):
             return []
+        items = [item for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)]
         if unread_only:
-            items = [item for item in items if isinstance(item, dict) and not item.get("read", False)]
+            items = [item for item in items if not item.get("read", False)]
         return list(reversed(items[-max(1, min(limit, 100)):]))
 
     def mark_notification_read(self, notification_id: str) -> bool:
