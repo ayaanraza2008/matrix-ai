@@ -219,3 +219,33 @@ def test_active_telegram_task_recovery_is_not_limited_by_recent_terminal_history
     )
 
     assert recovered == [active_task]
+
+
+
+def test_telegram_goal_creation_is_atomic_and_idempotent(runtime):
+    first_goal_id, first_task_id = runtime.store.create_goal_task(
+        owner_id="owner",
+        title="Prepare report",
+        success_criteria="Verify every number",
+        autonomy_level=2,
+        deadline_seconds=900,
+        idempotency_key="telegram-update-9001",
+    )
+    second_goal_id, second_task_id = runtime.store.create_goal_task(
+        owner_id="owner",
+        title="Prepare report",
+        success_criteria="Verify every number",
+        autonomy_level=2,
+        deadline_seconds=900,
+        idempotency_key="telegram-update-9001",
+    )
+
+    assert (second_goal_id, second_task_id) == (first_goal_id, first_task_id)
+    goal = runtime.store.get_goal(first_goal_id)
+    task = runtime.store.get_task_row(first_task_id)
+    assert goal["owner_id"] == "owner"
+    assert goal["title"] == "Prepare report"
+    assert task["goal_id"] == first_goal_id
+    assert task["kind"] == "goal"
+    assert runtime.store.get_idempotent_task_id("telegram.goal", "telegram-update-9001") == first_task_id
+    assert len(runtime.store.list_goals(owner_id="owner", limit=50)) == 1
