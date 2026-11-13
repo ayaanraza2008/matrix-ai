@@ -1,7 +1,6 @@
 """Owner-authorized YouTube Data API tools. Writes are high/critical risk."""
 from __future__ import annotations
 from datetime import datetime
-from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
