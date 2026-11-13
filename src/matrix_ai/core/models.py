@@ -414,6 +414,7 @@ class JobCreate(BaseModel):
     autonomy_level: int = Field(default=1, ge=0, le=2)
     enabled: bool = True
 
+
 class JobUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     prompt: str | None = Field(default=None, min_length=1, max_length=2000)
