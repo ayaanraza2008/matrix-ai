@@ -30,6 +30,16 @@ class FakeStore:
     def list_idempotent_task_ids(self, scope, limit=20):
         return self.telegram_task_ids[:limit] if scope == "telegram.update" else []
 
+    def list_nonterminal_idempotent_task_ids(self, scope, limit=100):
+        if scope != "telegram.update":
+            return []
+        return [
+            task_id for task_id in self.telegram_task_ids
+            if self.task_view(task_id).state not in {
+                TaskState.COMPLETE, TaskState.PARTIAL, TaskState.FAILED, TaskState.CANCELLED
+            }
+        ][:limit]
+
     def nonterminal_tasks(self):
         return list(self.nonterminal)
 
