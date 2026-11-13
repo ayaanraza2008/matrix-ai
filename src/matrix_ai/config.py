@@ -256,7 +256,7 @@ class MatrixConfig:
         ):
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai"}:
-            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi")
+            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
         if bool(self.notification_quiet_hours_start) != bool(self.notification_quiet_hours_end):
             raise ConfigError("notification quiet hours require both start and end times")
         for label, value in (
