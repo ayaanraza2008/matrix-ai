@@ -22,6 +22,88 @@ from .voice.manager import MAX_AUDIO_BYTES
 
 log = logging.getLogger("matrix.telegram")
 
+PREFLIGHT_TIMEOUT_SECONDS = 15.0
+
+
+async def telegram_preflight(
+    config: MatrixConfig,
+    *,
+    send_test: bool = False,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Non-destructive live-acceptance preflight for the Telegram bridge.
+
+    Validates that the locally configured credentials can actually reach the
+    Telegram Bot API before the owner starts full live acceptance. Never logs
+    or returns the bot token; the optional test message goes only to the
+    configured private owner chat.
+    """
+    if not config.telegram_bot_token or not config.telegram_chat_id:
+        raise ValidationFailure(
+            "Telegram is not configured; set MATRIX_TELEGRAM_BOT_TOKEN and "
+            "MATRIX_TELEGRAM_CHAT_ID in the local environment/secret store."
+        )
+    results: dict[str, Any] = {"token_configured": True, "chat_id_configured": True}
+    timeout = httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            response = await client.get(
+                f"https://api.telegram.org/bot{config.telegram_bot_token}/getMe"
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                raise ToolUnavailable("Telegram getMe request was rejected (check the bot token).")
+            bot = data.get("result", {})
+            results["bot_username"] = bot.get("username")
+            results["bot_id"] = bot.get("id")
+            results["bot_can_read_all_group_messages"] = bool(
+                bot.get("can_read_all_group_messages")
+            )
+
+            response = await client.get(
+                f"https://api.telegram.org/bot{config.telegram_bot_token}/getWebhookInfo"
+            )
+            response.raise_for_status()
+            webhook = response.json()
+            if not webhook.get("ok"):
+                raise ToolUnavailable("Telegram getWebhookInfo request was rejected.")
+            info = webhook.get("result", {})
+            results["webhook_url"] = info.get("url") or ""
+            results["pending_updates"] = info.get("pending_update_count")
+            if info.get("url"):
+                raise ToolUnavailable(
+                    "A webhook is configured for this bot; the private-chat bridge uses long "
+                    "polling and will not receive updates. Delete the webhook first "
+                    "(deleteWebhook), or use the webhook integration instead."
+                )
+
+            if send_test:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{config.telegram_bot_token}/sendMessage",
+                    json={
+                        "chat_id": config.telegram_chat_id,
+                        "text": "MATRIX telegram-preflight test message.",
+                        "disable_web_page_preview": True,
+                    },
+                )
+                response.raise_for_status()
+                sent = response.json()
+                if not sent.get("ok"):
+                    raise ToolUnavailable(
+                        "The test message was rejected; verify the chat id and that the "
+                        "owner has started a private chat with the bot."
+                    )
+                results["test_message_sent"] = True
+    except httpx.TimeoutException as exc:
+        raise ToolUnavailable("Telegram API did not respond before the preflight timeout.") from exc
+    except httpx.HTTPError as exc:
+        raise ToolUnavailable(
+            f"Telegram API request failed ({type(exc).__name__}); check network connectivity."
+        ) from exc
+    results["preflight"] = "ok"
+    return results
+
 
 class TelegramChatBridge:
     def __init__(
