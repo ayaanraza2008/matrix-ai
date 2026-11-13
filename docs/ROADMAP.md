@@ -82,5 +82,5 @@ reproducible demonstration — not when code exists.
 - [x] Block transitive descendants on failure while allowing independent branches to continue.
 - [x] Persist graph state and poll it after restart; reconcile ordinary tasks before graph dispatch begins.
 - [x] Expose owner-scoped create/list/read/cancel APIs.
-- [ ] Add bounded retry/replan endpoint for failed nodes with durable attempt history.
+- [x] Add owner-approved bounded retry endpoint with durable attempt history and a fail-closed guard against repeating successful tool side effects.
 - [ ] Run restart/recovery acceptance on a real multi-node graph and validate Telegram progress notifications.
