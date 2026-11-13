@@ -26,6 +26,12 @@ from .github_tools import (
 )
 from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
+from .social_tools import (
+    InstagramListCommentsTool,
+    InstagramReplyCommentTool,
+    LinkedInCreatePostTool,
+    WhatsAppSendTextTool,
+)
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
 from .weather_tools import OpenMeteoForecastTool
@@ -92,6 +98,10 @@ def build_registry() -> ToolRegistry:
             OcrImageTool(),
             OpenMeteoForecastTool(),
             *build_youtube_tools(),
+            LinkedInCreatePostTool(),
+            InstagramListCommentsTool(),
+            InstagramReplyCommentTool(),
+            WhatsAppSendTextTool(),
             GitHubWhoAmITool(),
             GitHubGetRepositoryTool(),
             GitHubListIssuesTool(),
