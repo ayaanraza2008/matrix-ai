@@ -7,6 +7,7 @@ import pytest
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import TaskState
 from matrix_ai.security.ratelimit import RateLimiter
+from matrix_ai.storage.db import Database
 from matrix_ai.telegram import TelegramChatBridge
 
 
@@ -243,3 +244,21 @@ async def test_telegram_failed_update_does_not_advance_durable_offset(tmp_path):
 
     assert bridge._offset == 101
     assert store.flags["telegram_update_offset"] == "100"
+
+def test_database_v3_migrates_telegram_source_update_key(tmp_path):
+    path = tmp_path / "legacy.db"
+    legacy = Database(path)
+    legacy.execute("DROP INDEX IF EXISTS idx_tasks_source_update")
+    legacy.execute("ALTER TABLE tasks DROP COLUMN source_update_id")
+    legacy.execute("PRAGMA user_version=3")
+    legacy.close()
+
+    migrated = Database(path)
+    try:
+        columns = {
+            row["name"] for row in migrated.query("PRAGMA table_info(tasks)")
+        }
+        assert "source_update_id" in columns
+        assert migrated.query_one("PRAGMA user_version")[0] == 4
+    finally:
+        migrated.close()
