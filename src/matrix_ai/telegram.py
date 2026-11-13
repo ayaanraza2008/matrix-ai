@@ -15,7 +15,8 @@ import httpx
 from .config import MatrixConfig
 from .core.models import TERMINAL_TASK_STATES, TaskState
 from .core.orchestrator import Orchestrator
-from .errors import RateLimited
+from .errors import RateLimited, ToolUnavailable, ValidationFailure
+from .voice.manager import MAX_AUDIO_BYTES
 from .security.ratelimit import RateLimiter
 from .storage.store import Store
 
@@ -26,10 +27,12 @@ class TelegramChatBridge:
     def __init__(
         self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
         rate_limiter: RateLimiter | None = None,
+        voice_manager: Any | None = None,
     ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
+        self.voice_manager = voice_manager
         # Share the runtime limiter so Telegram cannot bypass API task throttling.
         self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
         self._task: asyncio.Task | None = None
@@ -170,16 +173,34 @@ class TelegramChatBridge:
         chat = message.get("chat") or {}
         sender = message.get("from") or {}
         text = (message.get("text") or "").strip()
+        voice = message.get("voice")
         allowed_id = str(self.config.telegram_chat_id or "")
         # Require a private chat, matching chat ID, and matching sender ID.
         if chat.get("type") != "private" or str(chat.get("id")) != allowed_id:
             return
-        if str(sender.get("id")) != allowed_id or not text:
+        if str(sender.get("id")) != allowed_id:
+            return
+        if not text and isinstance(voice, dict):
+            try:
+                text = await self._transcribe_voice(voice)
+            except (ToolUnavailable, ValidationFailure) as exc:
+                self.store.audit(
+                    "telegram.voice_unavailable", actor="telegram", status="degraded",
+                    detail={"error": type(exc).__name__},
+                )
+                await self._send(
+                    "I couldn't transcribe that voice note. Check local speech-to-text setup "
+                    "or send the request as text."
+                )
+                return
+            if text:
+                await self._send(f"I heard: {text[:1000]}")
+        if not text:
             return
 
         self.store.audit(
             "telegram.message_received", actor="telegram", status="accepted",
-            detail={"message_length": min(len(text), 8000)},
+            detail={"message_length": min(len(text), 8000), "voice": isinstance(voice, dict)},
         )
         command = text.split(maxsplit=1)[0].lower().split("@", 1)[0]
         if command == "/start":
@@ -283,6 +304,91 @@ class TelegramChatBridge:
                 report = asyncio.create_task(self._report_task(task_id), name=reporter_name)
                 self._report_tasks.add(report)
                 report.add_done_callback(self._report_tasks.discard)
+
+    async def _transcribe_voice(self, voice: dict[str, Any]) -> str:
+        """Download a bounded Telegram voice note and transcribe it locally in memory."""
+        file_id = voice.get("file_id")
+        if not isinstance(file_id, str) or not file_id or len(file_id) > 512:
+            raise ValidationFailure("Telegram voice note has an invalid file ID")
+        file_size = voice.get("file_size")
+        if file_size is not None and (not isinstance(file_size, int) or file_size < 0 or file_size > MAX_AUDIO_BYTES):
+            raise ValidationFailure("Telegram voice note exceeds the 8 MB limit")
+        manager = self.voice_manager
+        if manager is None or getattr(manager, "stt_engine", None) is None:
+            raise ToolUnavailable("Local speech-to-text is not configured for Telegram voice notes.")
+        if self._client is None:
+            raise ToolUnavailable("Telegram bridge is not connected; retry the voice note shortly.")
+
+        info = await self._api("getFile", {"file_id": file_id})
+        result = info.get("result") or {}
+        file_path = result.get("file_path")
+        if (
+            not isinstance(file_path, str)
+            or not file_path
+            or len(file_path) > 1024
+            or file_path.startswith("/")
+            or "\\" in file_path
+            or "?" in file_path
+            or "#" in file_path
+            or any(part in {"", ".", ".."} for part in file_path.split("/"))
+        ):
+            raise ValidationFailure("Telegram returned an invalid voice file path")
+
+        suffixes = {
+            "audio/ogg": ".ogg",
+            "audio/oga": ".oga",
+            "audio/mpeg": ".mp3",
+            "audio/mp4": ".m4a",
+            "audio/wav": ".wav",
+            "audio/webm": ".webm",
+        }
+        suffix = suffixes.get(str(voice.get("mime_type") or "").lower(), "")
+        if not suffix:
+            suffix = "." + file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ".ogg"
+        if suffix not in {".ogg", ".oga", ".mp3", ".m4a", ".wav", ".webm"}:
+            raise ValidationFailure("Telegram voice note format is not supported")
+
+        url = f"https://api.telegram.org/file/bot{self.config.telegram_bot_token}/{file_path}"
+        audio = bytearray()
+        async with self._client.stream("GET", url) as response:
+            response.raise_for_status()
+            declared = response.headers.get("content-length")
+            if declared:
+                try:
+                    if int(declared) > MAX_AUDIO_BYTES:
+                        raise ValidationFailure("Telegram voice note exceeds the 8 MB limit")
+                except ValueError as exc:
+                    raise ValidationFailure("Telegram returned an invalid voice size") from exc
+            async for chunk in response.aiter_bytes():
+                if len(audio) + len(chunk) > MAX_AUDIO_BYTES:
+                    raise ValidationFailure("Telegram voice note exceeds the 8 MB limit")
+                audio.extend(chunk)
+        if not audio:
+            raise ValidationFailure("Telegram voice note is empty")
+
+        try:
+            if callable(getattr(manager, "transcribe_bytes", None)):
+                transcript_result = await asyncio.to_thread(
+                    manager.transcribe_bytes, bytes(audio), suffix=suffix
+                )
+            else:
+                transcript_result = await asyncio.to_thread(
+                    manager.stt_engine.transcribe, bytes(audio)
+                )
+        except Exception as exc:  # noqa: BLE001 - optional codec/model errors vary
+            raise ToolUnavailable(
+                f"Local speech-to-text failed ({type(exc).__name__})."
+            ) from exc
+        transcript = str((transcript_result or {}).get("text", "")).strip()
+        if not transcript:
+            raise ValidationFailure("No speech could be recognized in the Telegram voice note")
+        self.store.audit(
+            "telegram.voice_transcribed",
+            actor="telegram",
+            status="succeeded",
+            detail={"audio_bytes": len(audio), "characters": min(len(transcript), 1000)},
+        )
+        return transcript[:4000]
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
