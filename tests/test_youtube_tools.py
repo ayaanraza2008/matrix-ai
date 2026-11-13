@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 import pytest
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk
 from matrix_ai.core.policy import PolicyEngine
-from matrix_ai.errors import PermissionDenied, ToolExecutionError
+from matrix_ai.errors import ConfigError, PermissionDenied, ToolExecutionError
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.youtube_tools import (
     YouTubeClient,
@@ -45,7 +43,7 @@ def test_youtube_write_scope_is_opt_in_and_no_wildcards(tmp_path):
     enabled = MatrixConfig(home=tmp_path / "enabled", additional_scopes=("youtube.write",))
     assert "youtube.write" in PolicyEngine(enabled).task_scopes(None)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigError):
         MatrixConfig(home=tmp_path / "wildcard", additional_scopes=("*",))
 
 
