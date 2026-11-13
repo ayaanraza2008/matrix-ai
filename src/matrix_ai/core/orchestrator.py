@@ -328,8 +328,9 @@ class Orchestrator:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
             (
-                plan, intent, model_name, selected_agents, specialist_context_used, worker_runs,
-                selected_addons, addon_context_used, selected_skills, skill_context_used,
+                plan, intent, model_name, selected_agents, specialist_context_used,
+                worker_runs, selected_addons, addon_context_used,
+                selected_skills, skill_context_used,
             ) = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
@@ -384,18 +385,6 @@ class Orchestrator:
         )
 
         self.store.audit(
-            "task.addons_selected",
-            actor="addon-router",
-            task_id=task_id,
-            status="context_injected" if addon_context_used else (
-                "selected_without_context" if selected_addons else "no_addon_needed"
-            ),
-            detail={
-                "context_injected": addon_context_used,
-                "addons": [item.get("id") for item in selected_addons[:3]],
-            },
-        )
-        self.store.audit(
             "task.skills_selected",
             actor="skills-router",
             task_id=task_id,
@@ -404,9 +393,14 @@ class Orchestrator:
             ),
             detail={
                 "context_injected": skill_context_used,
+                "selected_count": len(selected_skills),
                 "skills": [
-                    {"name": item.get("name"), "description": item.get("description"), "matched_terms": item.get("matched_terms", [])}
-                    for item in selected_skills[:3]
+                    {
+                        "name": skill.get("name"),
+                        "description": skill.get("description"),
+                        "matched_terms": skill.get("matched_terms", []),
+                    }
+                    for skill in selected_skills[:3]
                 ],
             },
         )
@@ -429,6 +423,31 @@ class Orchestrator:
                     "error": result.get("error"),
                 },
             )
+
+        self.store.audit(
+            "task.addons_selected",
+            actor="addon-router",
+            task_id=task_id,
+            status="context_injected" if addon_context_used else (
+                "selected_without_context" if selected_addons else "no_addon_needed"
+            ),
+            detail={
+                "context_injected": addon_context_used,
+                "selected_count": len(selected_addons),
+                "addons": [
+                    {
+                        "id": addon.get("id"),
+                        "name": addon.get("name"),
+                        "repository": addon.get("repository"),
+                        "kind": addon.get("kind"),
+                        "protocol": addon.get("protocol"),
+                        "installed": addon.get("installed"),
+                        "matched_terms": addon.get("matched_terms", []),
+                    }
+                    for addon in selected_addons
+                ],
+            },
+        )
 
         self._to(task_id, TaskState.POLICY_CHECK)
         decision = self.policy.evaluate_plan(
