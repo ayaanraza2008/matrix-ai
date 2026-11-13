@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import DEFAULT_SCOPES, Risk
-from matrix_ai.errors import ToolExecutionError, ToolUnavailable
+from matrix_ai.errors import ToolExecutionError, ToolUnavailable, ValidationFailure
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.github_tools import (
     GitHubCommentIssueTool,
@@ -136,11 +136,11 @@ def test_github_pull_request_returns_branch_and_merge_metadata(tmp_path, monkeyp
 
 
 def test_github_rejects_bad_repo_and_pagination(tmp_path):
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationFailure):
         GitHubGetRepositoryTool().validate({"repository": "owner/repo?per_page=100"})
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationFailure):
         GitHubListIssuesTool().validate({"repository": "owner/repo", "per_page": 100})
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationFailure):
         GitHubGetPullRequestTool().validate({"repository": "owner/repo?x=1", "number": 1})
 
 
