@@ -140,6 +140,8 @@ def test_github_rejects_bad_repo_and_pagination(tmp_path):
         GitHubGetRepositoryTool().validate({"repository": "owner/repo?per_page=100"})
     with pytest.raises(ValidationError):
         GitHubListIssuesTool().validate({"repository": "owner/repo", "per_page": 100})
+    with pytest.raises(ValidationError):
+        GitHubGetPullRequestTool().validate({"repository": "owner/repo?x=1", "number": 1})
 
 
 @pytest.mark.parametrize(
