@@ -118,6 +118,8 @@ def test_schema_v1_database_migrates_to_goal_linkage(tmp_path):
     assert upgraded.query_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='goals'"
     )
+    graph_node_columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goal_graph_nodes)")}
+    assert "retry_count" in graph_node_columns
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
 
@@ -480,7 +482,7 @@ def test_schema_v4_migrates_goal_graph_tables(tmp_path):
         row["name"]
         for row in upgraded.query("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    assert {"goal_graphs", "goal_graph_nodes"} <= tables
+    assert {"goal_graphs", "goal_graph_nodes", "goal_graph_node_attempts"} <= tables
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
 
@@ -504,3 +506,95 @@ async def test_goal_supervisor_enforces_total_graph_concurrency(runtime, monkeyp
     nodes = runtime.store.get_goal_graph(graph_id)["nodes"]
     assert sum(node["goal"]["state"] == "running" for node in nodes) == 2
     assert sum(node["goal"]["state"] == "queued" for node in nodes) == 1
+
+
+@pytest.mark.asyncio
+async def test_goal_graph_node_retry_is_bounded_and_preserves_attempt_history(client, runtime, monkeypatch):
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    graph_response = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Retry-safe node",
+            "nodes": [{"node_id": "root", "title": "Root", "success_criteria": "Root succeeds"}],
+        },
+    )
+    assert graph_response.status_code == 202, graph_response.text
+    graph_id = graph_response.json()["id"]
+
+    for expected_attempt in (2, 3):
+        graph = await client.get(f"/api/goal-graphs/{graph_id}")
+        node = graph.json()["nodes"][0]
+        task_id = node["goal"]["task_id"]
+        runtime.store.update_task(
+            task_id, state="FAILED", summary="No tool action succeeded", evidence_json='{"verified":false}'
+        )
+        runtime.store.sync_goal_for_task(task_id)
+        retried = await client.post(
+            f"/api/goal-graphs/{graph_id}/nodes/root/retry",
+            json={"reason": "Retry after reviewing the failure record."},
+        )
+        assert retried.status_code == 202, retried.text
+        refreshed = retried.json()["nodes"][0]
+        assert refreshed["retry_count"] == expected_attempt
+        assert len(refreshed["attempts"]) == expected_attempt
+
+    graph = await client.get(f"/api/goal-graphs/{graph_id}")
+    task_id = graph.json()["nodes"][0]["goal"]["task_id"]
+    runtime.store.update_task(
+        task_id, state="FAILED", summary="No tool action succeeded", evidence_json='{"verified":false}'
+    )
+    runtime.store.sync_goal_for_task(task_id)
+    exhausted = await client.post(
+        f"/api/goal-graphs/{graph_id}/nodes/root/retry",
+        json={"reason": "Attempt limit reached; retry one more time."},
+    )
+    assert exhausted.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_goal_graph_retry_refuses_previous_successful_tool_side_effects(client, runtime, monkeypatch):
+    from matrix_ai.core.models import CallStatus, Risk
+
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    graph_response = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Do not duplicate",
+            "nodes": [{"node_id": "root", "title": "Root", "success_criteria": "Root succeeds"}],
+        },
+    )
+    graph_id = graph_response.json()["id"]
+    node = graph_response.json()["nodes"][0]
+    task_id = node["goal"]["task_id"]
+    call_id = runtime.store.start_tool_call(
+        task_id=task_id,
+        step_idx=0,
+        tool_name="system.get_status",
+        arguments={},
+        risk=Risk.LOW,
+        permission_scope="system.read",
+    )
+    runtime.store.finish_tool_call(
+        call_id,
+        status=CallStatus.SUCCEEDED,
+        output={"status": "ok"},
+        evidence={"ok": True},
+        duration_ms=1.0,
+    )
+    runtime.store.update_task(
+        task_id, state="FAILED", summary="Later step failed", evidence_json='{"verified":false}'
+    )
+    runtime.store.sync_goal_for_task(task_id)
+
+    refused = await client.post(
+        f"/api/goal-graphs/{graph_id}/nodes/root/retry",
+        json={"reason": "I want to retry this failed node."},
+    )
+    assert refused.status_code == 409
+    assert "successful tool calls" in refused.json()["detail"]
