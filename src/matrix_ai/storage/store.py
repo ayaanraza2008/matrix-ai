@@ -194,6 +194,17 @@ class Store:
                 )
         return task_id
 
+    def get_idempotent_task_id(self, scope: str, key: str) -> str | None:
+        """Return the task previously created for an idempotency key, if any."""
+        row = self.db.query_one(
+            "SELECT result_json FROM idempotency WHERE scope=? AND key=?", (scope, key)
+        )
+        if row is None:
+            return None
+        result = json.loads(row["result_json"] or "{}")
+        task_id = result.get("task_id") if isinstance(result, dict) else None
+        return task_id if isinstance(task_id, str) and task_id else None
+
     def get_system_flag(self, name: str, default: str | None = None) -> str | None:
         """Read a small durable runtime cursor or setting."""
         row = self.db.query_one("SELECT value FROM system_flags WHERE name=?", (name,))
