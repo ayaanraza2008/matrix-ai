@@ -165,7 +165,9 @@ class SkillsManager:
         # Windows npm launchers are .cmd files and cannot be started with
         # shell=False. Invoke npm's bundled npx-cli.js through node instead.
         npx_cli = Path(node).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
-        launcher = [node, str(npx_cli)] if os.name == "nt" and npx_cli.is_file() else [npx]
+        if os.name == "nt" and not npx_cli.is_file():
+            raise SkillsError("Could not locate npm's npx-cli.js beside node.exe; repair the Node.js installation.")
+        launcher = [node, str(npx_cli)] if os.name == "nt" else [npx]
         destination = self.skills_dir / skill_name
         if destination.exists():
             return {"status": "already_installed", "name": skill_name, "source": source}
