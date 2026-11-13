@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -107,6 +107,29 @@ CREATE TABLE IF NOT EXISTS goals (
 );
 CREATE INDEX IF NOT EXISTS idx_goals_owner_created ON goals(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_goals_state ON goals(state);
+
+CREATE TABLE IF NOT EXISTS goal_graphs (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'queued',
+    deadline TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goal_graphs_owner ON goal_graphs(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goal_graphs_state ON goal_graphs(state);
+
+CREATE TABLE IF NOT EXISTS goal_graph_nodes (
+    graph_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL UNIQUE,
+    depends_on_json TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (graph_id, node_id),
+    FOREIGN KEY (graph_id) REFERENCES goal_graphs(id) ON DELETE CASCADE,
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS plan_steps (
     task_id TEXT NOT NULL,
