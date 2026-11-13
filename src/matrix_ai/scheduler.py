@@ -160,34 +160,70 @@ class Scheduler:
     def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
         if not self.config.telegram_bot_token or not self.config.telegram_chat_id:
             return
+        raw = self.store.get_flag("pending_health_notifications", "[]")
+        try:
+            pending = json.loads(raw or "[]")
+            if not isinstance(pending, list):
+                pending = [pending] if isinstance(pending, dict) else []
+        except (TypeError, ValueError):
+            pending = []
+        if len(pending) >= 25:
+            self.store.audit(
+                "notification.health_queue_full",
+                actor="health-monitor",
+                status="dropped",
+                detail={"new_state": state},
+            )
+            return
+        pending.append({"state": state, "components": components})
         self.store.set_flag(
-            "pending_health_notification",
-            json.dumps({"state": state, "components": components}, separators=(",", ":")),
+            "pending_health_notifications",
+            json.dumps(pending, separators=(",", ":")),
         )
 
     async def _flush_pending_health_notification(self) -> None:
-        raw = self.store.get_flag("pending_health_notification")
+        raw = self.store.get_flag("pending_health_notifications")
         if not raw:
             return
         try:
             pending = json.loads(raw)
-            state = pending["state"]
-            components = pending["components"]
-            if state not in {"healthy", "degraded"} or not isinstance(components, dict):
-                raise ValueError("invalid pending health notification")
-        except (TypeError, ValueError, KeyError):
-            self.store.set_flag("pending_health_notification", "")
+            if not isinstance(pending, list):
+                raise ValueError("notification queue must be a list")
+        except (TypeError, ValueError):
+            self.store.set_flag("pending_health_notifications", "")
             self.store.audit(
                 "notification.health_queue_invalid",
                 actor="health-monitor",
                 status="discarded",
             )
             return
-        # Degradation alerts (including emergency-stop state) always bypass quiet hours.
-        if state == "healthy" and self._quiet_hours_active():
-            return
-        if await self._send_health_notification(state, components):
-            self.store.set_flag("pending_health_notification", "")
+
+        while pending:
+            item = pending[0]
+            try:
+                state = item["state"]
+                components = item["components"]
+                if state not in {"healthy", "degraded"} or not isinstance(components, dict):
+                    raise ValueError("invalid queued health notification")
+            except (TypeError, ValueError, KeyError):
+                pending.pop(0)
+                self.store.audit(
+                    "notification.health_queue_invalid",
+                    actor="health-monitor",
+                    status="discarded",
+                )
+                continue
+            # Degradation alerts (including emergency-stop state) always bypass quiet hours.
+            if state == "healthy" and self._quiet_hours_active():
+                break
+            if not await self._send_health_notification(state, components):
+                break
+            pending.pop(0)
+
+        self.store.set_flag(
+            "pending_health_notifications",
+            json.dumps(pending, separators=(",", ":")) if pending else "",
+        )
 
     async def _send_health_notification(self, state: str, components: dict[str, str]) -> bool:
         token = self.config.telegram_bot_token
