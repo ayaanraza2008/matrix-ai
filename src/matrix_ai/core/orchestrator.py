@@ -100,6 +100,10 @@ class Orchestrator:
         deadline_seconds: float | None = None,
         source_update_id: str | None = None,
     ) -> str:
+        if source_update_id:
+            existing = self.store.task_for_source_update(source_update_id)
+            if existing is not None:
+                return existing
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
         self.store.ensure_user(user_id)
