@@ -68,6 +68,19 @@ reproducible demonstration — not when code exists.
 - [x] Execute only dependency-ready steps, including prerequisites that appear later in the plan.
 - [x] Block transitive descendants after a failed or unverified prerequisite.
 - [x] Continue independent branches after a step failure; final task outcome remains PARTIAL/FAILED when any required branch did not complete.
-- [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
-- [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
+- [x] Add persistent multi-task goal DAG records with bounded concurrency and restart-persistent scheduling state.
+- [x] Add advisory criteria review plus explicit owner confirmation; model output never marks a goal verified.
+- [ ] Add bounded owner-triggered retries/replanning for failed goal nodes and restart acceptance against a live graph.
 - Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.
+
+
+### M8 — Persistent multi-task goal supervisor
+
+- [x] Persist graph metadata and goal-node dependencies in SQLite.
+- [x] Dispatch only roots / dependency-ready nodes with a hard per-graph concurrency cap.
+- [x] Unlock descendants only after prerequisite owner confirmation.
+- [x] Block transitive descendants on failure while allowing independent branches to continue.
+- [x] Persist graph state and poll it after restart; reconcile ordinary tasks before graph dispatch begins.
+- [x] Expose owner-scoped create/list/read/cancel APIs.
+- [ ] Add bounded retry/replan endpoint for failed nodes with durable attempt history.
+- [ ] Run restart/recovery acceptance on a real multi-node graph and validate Telegram progress notifications.
