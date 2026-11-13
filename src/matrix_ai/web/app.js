@@ -270,6 +270,79 @@ function loadView(view) {
 /* ------------------------------------------------------------------ */
 /* dashboard                                                           */
 /* ------------------------------------------------------------------ */
+async function loadNotifications(unreadOnly = false) {
+  const result = await api('/notifications?limit=50&unread_only=' + String(unreadOnly));
+  $('#notification-unread').textContent = String(result.unread_count || 0) + ' unread';
+  const container = $('#notification-list');
+  clearNode(container);
+  const items = result.notifications || [];
+  if (!items.length) {
+    container.appendChild(el('div', 'empty', unreadOnly ? 'No unread notifications.' : 'No notifications yet.'));
+    return;
+  }
+  items.forEach((notification) => {
+    const item = el('div', 'item notification-item' + (notification.read ? ' is-read' : ''));
+    const main = el('div', 'item-main');
+    const heading = el('div', 'item-title');
+    heading.textContent = notification.title || 'MATRIX notification';
+    const severity = String(notification.severity || 'info');
+    heading.appendChild(pill(severity, severity === 'critical' || severity === 'warning' ? 'warn' : severity === 'success' ? 'ok' : ''));
+    main.appendChild(heading);
+    main.appendChild(el('div', 'item-sub', notification.message || ''));
+    main.appendChild(el('div', 'item-sub', (notification.event_type || 'system') + ' · ' + fmtDate(notification.created_at)));
+    item.appendChild(main);
+    if (!notification.read) {
+      const read = el('button', 'ghost small', 'Mark read');
+      read.addEventListener('click', async () => {
+        read.disabled = true;
+        try {
+          await api('/notifications/' + encodeURIComponent(notification.id) + '/read', { method: 'POST', body: {} });
+          await loadNotifications($('#notifications-filter').dataset.unread === 'true');
+        } catch (error) {
+          toast(error.message, 'error');
+          read.disabled = false;
+        }
+      });
+      const actions = el('div', 'item-actions');
+      actions.appendChild(read);
+      item.appendChild(actions);
+    }
+    container.appendChild(item);
+  });
+}
+
+async function loadNotificationPreferences() {
+  const preferences = await api('/notifications/preferences');
+  $('#pref-health-recovered').checked = Boolean(preferences.health_recovered);
+  $('#pref-daily-digest').checked = Boolean(preferences.daily_digest);
+}
+
+$('#notifications-refresh').addEventListener('click', () => {
+  loadNotifications($('#notifications-filter').dataset.unread === 'true').catch((error) => toast(error.message, 'error'));
+});
+$('#notifications-filter').addEventListener('click', () => {
+  const button = $('#notifications-filter');
+  const unread = button.dataset.unread !== 'true';
+  button.dataset.unread = String(unread);
+  button.textContent = unread ? 'Show all' : 'Unread only';
+  loadNotifications(unread).catch((error) => toast(error.message, 'error'));
+});
+$('#notification-preferences-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api('/notifications/preferences', {
+      method: 'PUT',
+      body: {
+        health_recovered: $('#pref-health-recovered').checked,
+        daily_digest: $('#pref-daily-digest').checked,
+      },
+    });
+    toast('Notification preferences saved', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+});
+
 async function loadDashboard() {
   try {
     const [health, status] = await Promise.all([api('/health'), api('/status')]);
@@ -280,6 +353,7 @@ async function loadDashboard() {
     renderHealthCards();
     renderRecentTasks(status.recent_tasks || []);
     renderHero();
+    await loadNotifications($('#notifications-filter').dataset.unread === 'true');
   } catch (error) {
     setLink('offline');
     throw error;
@@ -1283,6 +1357,7 @@ $('#engineering-coach-schedule').addEventListener('click', async () => {
 /* ------------------------------------------------------------------ */
 async function loadSettings() {
   const [settings, models] = await Promise.all([api('/settings'), api('/models')]);
+  await loadNotificationPreferences();
   STATE.settings = settings;
   STATE.models = models;
   $('#settings-json').textContent = pretty(settings);
@@ -1524,3 +1599,4 @@ async function boot() {
 initCore($('#core-canvas'));
 initCore($('#hero-canvas'), { hero: true });
 boot();
+
