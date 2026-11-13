@@ -60,7 +60,7 @@ def normalize_agent_record(
                     if isinstance(call_id, str) and tool_names_by_id is not None else None
                 )
                 event = _tool_event(
-                    block.get("name") or block.get("tool_name") or correlated_name,
+                    block.get("name") or block.get("tool_name") or correlated_name or "unknown_tool",
                     failed=bool(block.get("is_error")),
                     role="tool",
                     call_id=call_id,
