@@ -15,6 +15,10 @@ class FakeStore:
         self.audits = []
         self.db = SimpleNamespace(integrity_check=lambda: "ok")
         self.emergency_stop = False
+        self.notifications = []
+
+    def create_notification(self, **item):
+        self.notifications.append(item)
 
     def get_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -204,3 +208,33 @@ def test_public_settings_expose_routing_without_secrets(tmp_path):
         "urgent_degradation_bypasses_quiet_hours": True,
     }
     assert "secret-token" not in str(settings)
+
+
+@pytest.mark.asyncio
+async def test_health_transition_is_saved_to_local_inbox_without_push_configuration(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="working")
+    scheduler.config.telegram_bot_token = None
+    scheduler.config.telegram_chat_id = None
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
+
+    await scheduler.monitor_health()  # Establish baseline; no notification.
+    models.current_status = "degraded"
+    await scheduler.monitor_health()
+
+    assert len(store.notifications) == 1
+    assert store.notifications[0]["title"] == "MATRIX needs attention"
+    assert store.notifications[0]["severity"] == "warning"
+    assert store.notifications[0]["event_type"] == "health.degraded"
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_inbox_event_is_critical(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="working")
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: True)
+    await scheduler.monitor_health()
+    store.emergency_stop = True
+    await scheduler.monitor_health()
+
+    assert store.notifications[-1]["severity"] == "critical"
+    assert store.notifications[-1]["event_type"] == "health.degraded"
+    assert "Emergency stop: active" in store.notifications[-1]["message"]
