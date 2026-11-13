@@ -464,3 +464,19 @@ async def test_goal_criteria_assessor_cannot_verify_with_incomplete_node_coverag
     assert goal["state"] == "awaiting_verification"
     assert goal["criteria_status"] == "insufficient_evidence"
     assert goal["verification_status"] == "pending_owner_review"
+
+
+@pytest.mark.asyncio
+async def test_restart_recovers_a_goal_criteria_assessment_interrupted_mid_call(runtime):
+    goal_id = _complete_single_goal_node(runtime, goal_title="Interrupted assessment")
+    runtime.store.db.execute(
+        "UPDATE goals SET verification_status='criteria_assessing' WHERE id=?",
+        (goal_id,),
+    )
+
+    await runtime.orchestrator.recover_after_restart()
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "awaiting_verification"
+    assert goal["criteria_status"] == "insufficient_evidence"
+    assert goal["verification_status"] == "pending_owner_review"
