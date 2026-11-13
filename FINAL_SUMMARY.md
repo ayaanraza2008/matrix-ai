@@ -10,7 +10,7 @@
 
 - PR #82 removes the duplicate FreeLLMAPI model-provider implementation. PR #84 is the canonical FreeLLMAPI implementation and has its own 9 hermetic tests.
 - PR #84 exact-head CI run [#43485194295](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43485194295) passed 7/7 jobs. It is open and ready for human review; it is not merged.
-- GitHub's current comparison of the PR #82 branch against remote `main` reports **10 commits ahead, 0 behind**. The local OpenCode report recorded 2 commits ahead. Refresh local remote-tracking refs and reconcile this count before merging.
+- GitHub's current comparison reports the PR #82 branch ahead of remote `main` with **0 commits behind**; its ahead-count materially differs from the local report of 2 commits. Refresh local remote-tracking refs and compare the exact local/remote SHAs before merging.
 - No GitHub Actions workflow run was found for PR #82's handoff commit `29ab547`. The reported 7/7 local CI result on `67b75ef` is not evidence for the current PR #82 head.
 - Production certification remains **NOT CERTIFIED**.
 
