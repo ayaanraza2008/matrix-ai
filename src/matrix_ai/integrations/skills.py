@@ -45,10 +45,10 @@ def _tokens(value: str) -> set[str]:
 
 def _safe_search_query(value: str) -> str:
     """Send task intent, not raw user text, to the public skill search service."""
-    cleaned = re.sub(r"https?://\\S+|[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}", " ", value or "")
+    cleaned = re.sub(r"https?://\S+|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", " ", value or "")
     cleaned = re.sub(
-        r"(?i)\\b(password|token|secret|api[_ -]?key)\\b\\s*[:=]\\s*\\S+",
-        r"\\1",
+        r"(?i)\b(password|token|secret|api[_ -]?key)\b\s*[:=]\s*\S+",
+        r"\1",
         cleaned,
     )
     terms: list[str] = []
@@ -60,8 +60,6 @@ def _safe_search_query(value: str) -> str:
         if len(terms) >= 8:
             break
     return " ".join(terms)[:120]
-
-
 def _frontmatter(content: str) -> tuple[str, str]:
     if not content.startswith("---\n"):
         return "", ""
