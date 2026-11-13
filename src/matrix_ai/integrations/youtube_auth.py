@@ -6,6 +6,7 @@ file is created. Provider dependencies are imported lazily.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,7 @@ def load_youtube_credentials(config: MatrixConfig, required_scope: str):
         raise ToolExecutionError("Install MATRIX's optional YouTube dependencies: pip install -e '.[youtube]'.") from exc
 
     try:
-        credentials = Credentials.from_authorized_user_info(__import__("json").loads(payload))
+        credentials = Credentials.from_authorized_user_info(json.loads(payload))
     except (TypeError, ValueError) as exc:
         raise ToolExecutionError("The saved YouTube credentials in the OS credential manager are invalid.") from exc
 
