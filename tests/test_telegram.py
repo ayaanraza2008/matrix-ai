@@ -49,8 +49,8 @@ class FakeOrchestrator:
         return 2
 
 
-def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/help"):
-    return {"message": {
+def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/help", update_id=1):
+    return {"update_id": update_id, "message": {
         "chat": {"id": chat_id, "type": chat_type},
         "from": {"id": sender_id},
         "text": text,
@@ -91,6 +91,8 @@ async def test_telegram_submits_private_owner_message_to_orchestrator(tmp_path, 
     assert orchestrator.created[0]["request"] == "Open calculator"
     assert orchestrator.created[0]["user_id"] == "owner"
     assert orchestrator.created[0]["autonomy_level"] == bridge.config.autonomy_level
+    assert orchestrator.created[0]["idempotency_scope"] == "telegram"
+    assert orchestrator.created[0]["idempotency_key"] == "1"
     assert orchestrator.enqueued == ["task-123"]
     assert any("Received" in message for message in sent)
 
