@@ -201,7 +201,8 @@ class SkillsManager:
                     "npm_config_fund": "false"})
         try:
             result = subprocess.run(command, cwd=self.project, env=env, capture_output=True,
-                                    text=True, timeout=240, check=False, shell=False)
+                                    text=True, encoding="utf-8", errors="replace",
+                                    timeout=240, check=False, shell=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise SkillsError(f"Skills CLI could not complete: {type(exc).__name__}") from exc
         if result.returncode != 0 or not (destination / "SKILL.md").is_file():
@@ -228,10 +229,13 @@ class SkillsManager:
         if not node or not npx:
             raise SkillsError("node and npx were not found.")
         npx_cli = Path(node).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
-        launcher = [node, str(npx_cli)] if os.name == "nt" and npx_cli.is_file() else [npx]
+        if os.name == "nt" and not npx_cli.is_file():
+            raise SkillsError("Could not locate npm's npx-cli.js beside node.exe; repair the Node.js installation.")
+        launcher = [node, str(npx_cli)] if os.name == "nt" else [npx]
         command = [*launcher, "--yes", f"skills@{SKILLS_CLI_VERSION}", "update", "--yes"]
         try:
             result = subprocess.run(command, cwd=self.project, capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace",
                                     timeout=240, check=False, shell=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise SkillsError(f"Skills update failed: {type(exc).__name__}") from exc
