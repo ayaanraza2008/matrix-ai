@@ -220,3 +220,52 @@ def test_goal_cannot_attach_another_users_task(runtime):
     with pytest.raises(ValueError, match="owner does not match"):
         runtime.store.attach_goal_task(goal_id, task_id)
     assert runtime.store.get_goal(goal_id)["task_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_goal_requires_owner_confirmation_after_model_assessment(client, runtime):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Confirm verified outcome", success_criteria="The report exists."
+    )
+    runtime.store.db.execute(
+        "UPDATE goals SET state='awaiting_verification', verification_status='pending_owner_review', "
+        "criteria_status='verified_by_model', evidence_json=? WHERE id=?",
+        ('{"status":"verified","supporting_nodes":["report"]}', goal_id),
+    )
+
+    premature = await client.post(
+        f"/api/goals/{goal_id}/confirm",
+        json={"outcome": "met", "reason": "Evidence is still pending."},
+    )
+    assert premature.status_code == 200, premature.text
+    final = premature.json()
+    assert final["state"] == "completed"
+    assert final["verification_status"] == "owner_confirmed"
+    assert final["criteria_status"] == "owner_confirmed_met"
+    assert final["criteria_confirmed_by"] == "owner"
+    assert final["criteria_confirmation_reason"] == "Evidence is still pending."
+    assert final["criteria_confirmed_at"]
+
+
+@pytest.mark.asyncio
+async def test_goal_confirmation_is_owner_scoped_and_requires_review(runtime):
+    from matrix_ai.errors import NotFoundError
+
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Owner-only confirmation", success_criteria="Done"
+    )
+    with pytest.raises(ValueError, match="awaiting verification"):
+        runtime.store.confirm_goal_criteria(
+            goal_id, owner_id="owner", outcome="met", reason="I reviewed the evidence."
+        )
+
+    runtime.store.db.execute(
+        "UPDATE goals SET state='awaiting_verification', evidence_json='{}' WHERE id=?",
+        (goal_id,),
+    )
+    with pytest.raises(NotFoundError):
+        runtime.store.confirm_goal_criteria(
+            goal_id, owner_id="another-user", outcome="met", reason="I reviewed the evidence."
+        )
+
+
