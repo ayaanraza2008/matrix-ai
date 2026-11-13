@@ -230,6 +230,28 @@ class Store:
                 seen.add(task_id)
         return task_ids
 
+    def list_nonterminal_idempotent_task_ids(
+        self, scope: str, *, limit: int = 100
+    ) -> list[str]:
+        """List active tasks created in one idempotency scope, newest activity first."""
+        limit = max(1, min(int(limit), 500))
+        rows = self.db.query(
+            "SELECT t.id FROM tasks AS t "
+            "INNER JOIN idempotency AS i "
+            "ON i.result_json = '{\"task_id\":\"' || t.id || '\"}' "
+            "WHERE i.scope=? AND t.state NOT IN (?,?,?,?) "
+            "ORDER BY t.updated_at DESC, t.id DESC LIMIT ?",
+            (
+                scope,
+                TaskState.COMPLETE.value,
+                TaskState.PARTIAL.value,
+                TaskState.FAILED.value,
+                TaskState.CANCELLED.value,
+                limit,
+            ),
+        )
+        return [str(row["id"]) for row in rows]
+
     def get_system_flag(self, name: str, default: str | None = None) -> str | None:
         """Read a small durable runtime cursor or setting."""
         row = self.db.query_one("SELECT value FROM system_flags WHERE name=?", (name,))
