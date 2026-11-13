@@ -145,7 +145,7 @@ async def test_failed_degradation_is_not_lost_when_recovery_occurs_in_quiet_hour
 
     async def send(state, components, event_id, delivered_channels):
         sent.append(state)
-        return next(outcomes)
+        return set(delivered_channels) | ({"telegram"} if next(outcomes) else set())
 
     monkeypatch.setattr(scheduler, "_send_health_notification", send)
     monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: True)
