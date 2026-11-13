@@ -10,6 +10,7 @@ from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.weather_tools import OpenMeteoForecastInput, OpenMeteoForecastTool
 
+
 def context(tmp_path):
     return ToolContext(task_id="weather-test", config=MatrixConfig(home=tmp_path))
 
