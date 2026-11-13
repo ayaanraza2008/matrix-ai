@@ -130,7 +130,7 @@ class MatrixRuntime:
             ),
             telegram=TelegramChatBridge(
                 config=config, orchestrator=orchestrator, store=store,
-                rate_limiter=limiter, voice_manager=voice,
+                rate_limiter=limiter,
             ),
             skills_manager=skills_manager,
         )
