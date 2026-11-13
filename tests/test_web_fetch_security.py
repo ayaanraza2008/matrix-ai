@@ -31,10 +31,10 @@ class FakeSocket:
 
     def makefile(self, mode):
         return io.BytesIO(
-            b"HTTP/1.1 200 OK\\r\\n"
-            b"Content-Type: text/plain\\r\\n"
-            b"Content-Length: 5\\r\\n"
-            b"Connection: close\\r\\n\\r\\n"
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: 5\r\n"
+            b"Connection: close\r\n\r\n"
             b"hello"
         )
 
@@ -110,7 +110,7 @@ def test_pinned_fetch_never_resolves_hostname_again(monkeypatch):
 def test_redirect_is_returned_not_followed(monkeypatch):
     fake = FakeSocket("8.8.8.8")
     fake.makefile = lambda mode: io.BytesIO(
-        b"HTTP/1.1 302 Found\\r\\nLocation: https://127.0.0.1/\\r\\nContent-Length: 0\\r\\n\\r\\n"
+        b"HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1/\r\nContent-Length: 0\r\n\r\n"
     )
     monkeypatch.setattr(web_tools.socket, "socket", Mock(return_value=fake))
     status, headers, body, connected = web_tools.fetch_pinned("http://example.com/", ["8.8.8.8"])
