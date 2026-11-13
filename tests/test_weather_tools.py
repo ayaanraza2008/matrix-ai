@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import pytest
+
+from matrix_ai.tools.base import ToolContext
 from pydantic import ValidationError
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import DEFAULT_SCOPES, Risk
 from matrix_ai.errors import ToolExecutionError
-from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.weather_tools import OpenMeteoForecastInput, OpenMeteoForecastTool
 
 def context(tmp_path):
     return ToolContext(task_id="weather-test", config=MatrixConfig(home=tmp_path))
-
 
 def payload():
     return {
@@ -31,7 +31,6 @@ def payload():
         },
     }
 
-
 def test_weather_tool_is_registered_with_read_only_scope():
     tool = build_registry().get("weather_forecast")
     assert isinstance(tool, OpenMeteoForecastTool)
@@ -40,13 +39,11 @@ def test_weather_tool_is_registered_with_read_only_scope():
     assert tool.spec().idempotent is True
     assert "weather.read" in DEFAULT_SCOPES
 
-
 def test_weather_input_rejects_invalid_coordinates_and_unknown_fields():
     with pytest.raises(ValidationError):
         OpenMeteoForecastInput(latitude=91, longitude=0)
     with pytest.raises(ValidationError):
         OpenMeteoForecastInput(latitude=28, longitude=77, api_key="secret")
-
 
 def test_weather_tool_returns_bounded_forecast(tmp_path, monkeypatch):
     class Response:
@@ -74,7 +71,6 @@ def test_weather_tool_returns_bounded_forecast(tmp_path, monkeypatch):
     assert len(result["forecast"]) == 2
     assert tool.verify(args, result).ok is True
 
-
 def test_weather_tool_rejects_incomplete_provider_response(tmp_path, monkeypatch):
     class Response:
         def raise_for_status(self):
@@ -88,7 +84,6 @@ def test_weather_tool_rejects_incomplete_provider_response(tmp_path, monkeypatch
     args = tool.validate({"latitude": 28.98, "longitude": 77.71})
     with pytest.raises(ToolExecutionError):
         tool.run_sync(args, context(tmp_path))
-
 
 def test_weather_tool_wraps_network_errors(tmp_path, monkeypatch):
     def fail(*args, **kwargs):
