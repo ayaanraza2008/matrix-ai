@@ -196,6 +196,7 @@ async def test_telegram_voice_note_is_transcribed_and_submitted_as_owner_task(tm
 
     monkeypatch.setattr(bridge, "_transcribe_voice", transcribe)
     await bridge._handle_update({
+        "update_id": 702,
         "message": {
             "chat": {"id": 123456789, "type": "private"},
             "from": {"id": 123456789},
@@ -287,7 +288,7 @@ async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
 
 async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updates(tmp_path, monkeypatch):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
-    store.flags["telegram_update_offset"] = "55"
+    store.flags["telegram_update_offset"] = "54"
     observed_offsets = []
     second_poll = asyncio.Event()
 
