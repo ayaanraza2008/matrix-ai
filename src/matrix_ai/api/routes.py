@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
 from ..core.agents import agent_catalog, get_agency_agent, route_agency_agents, search_agency_agents
-from ..core.goal_verifier import review_goal_criteria
+from ..core.goal_graph import GoalGraph, GoalGraphError, GoalNode\nfrom ..core.goal_verifier import review_goal_criteria
 from ..core.models import (
     DEFAULT_SCOPES,
     AuditEventView,
@@ -124,6 +124,18 @@ class ApprovalDecisionBody(BaseModel):
 class GoalCriteriaConfirmationBody(BaseModel):
     outcome: str = Field(pattern="^(met|not_met)$")
     reason: str = Field(min_length=8, max_length=500)
+
+class GoalGraphNodeBody(BaseModel):
+    node_id: str = Field(min_length=1, max_length=64, pattern="^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    title: str = Field(min_length=1, max_length=2000)
+    success_criteria: str = Field(min_length=1, max_length=2000)
+    depends_on: list[str] = Field(default_factory=list, max_length=16)
+
+
+class GoalGraphCreateBody(BaseModel):
+    title: str = Field(min_length=1, max_length=2000)
+    nodes: list[GoalGraphNodeBody] = Field(min_length=1, max_length=64)
+    deadline_seconds: float = Field(default=3600.0, ge=1.0, le=86400.0)
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +424,75 @@ async def confirm_goal_criteria(
         status=body.outcome,
         detail={"goal_id": goal_id, "reason": body.reason[:500]},
     )
+    await runtime.goal_supervisor.tick()
     return goal
+
+
+# ---------------------------------------------------------------------------
+# multi-task goal graphs
+# ---------------------------------------------------------------------------
+@router.post("/goal-graphs", status_code=202, tags=["goals"])
+async def create_goal_graph(
+    body: GoalGraphCreateBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    try:
+        GoalGraph(GoalNode(node.node_id, tuple(node.depends_on)) for node in body.nodes)
+    except GoalGraphError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    graph_id = runtime.store.create_goal_graph(
+        owner_id=principal.user_id,
+        title=body.title,
+        nodes=[node.model_dump(mode="json") for node in body.nodes],
+        deadline_seconds=min(body.deadline_seconds, runtime.config.task_deadline_seconds),
+    )
+    runtime.store.audit(
+        "goal_graph.created",
+        actor=principal.user_id,
+        status="queued",
+        detail={"graph_id": graph_id, "node_count": len(body.nodes)},
+    )
+    await runtime.goal_supervisor.tick()
+    return runtime.store.get_goal_graph(graph_id)
+
+
+@router.get("/goal-graphs", tags=["goals"])
+async def list_goal_graphs(
+    principal: PrincipalDep, runtime: RuntimeDep,
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[dict[str, Any]]:
+    return runtime.store.list_goal_graphs(owner_id=principal.user_id, limit=limit)
+
+
+@router.get("/goal-graphs/{graph_id}", tags=["goals"])
+async def get_goal_graph(
+    graph_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    graph = runtime.store.get_goal_graph(graph_id)
+    if graph["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal graph {graph_id} not found")
+    return graph
+
+
+@router.post("/goal-graphs/{graph_id}/cancel", tags=["goals"])
+async def cancel_goal_graph(
+    graph_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    graph = runtime.store.get_goal_graph(graph_id)
+    if graph["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal graph {graph_id} not found")
+    for node in graph["nodes"]:
+        goal = node["goal"]
+        if goal["task_id"] and goal["state"] in {"queued", "running", "awaiting_verification"}:
+            await runtime.orchestrator.cancel(goal["task_id"])
+    runtime.store.cancel_goal_graph_nodes(graph_id)
+    runtime.store.update_goal_graph_state(graph_id, "cancelled")
+    runtime.store.audit(
+        "goal_graph.cancelled",
+        actor=principal.user_id,
+        status="cancelled",
+        detail={"graph_id": graph_id},
+    )
+    return runtime.store.get_goal_graph(graph_id)
 
 
 # ---------------------------------------------------------------------------
