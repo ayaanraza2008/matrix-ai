@@ -366,15 +366,16 @@ class Store:
         if row is None or row["goal_id"] != goal_id:
             raise NotFoundError(f"goal graph node {node_id} not found")
         attempt = int(row["retry_count"]) + 1
-        self.db.execute(
-            "INSERT INTO goal_graph_node_attempts(id, graph_id, node_id, goal_id, task_id, attempt, outcome, started_at) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (uuid.uuid4().hex, graph_id, node_id, goal_id, task_id, attempt, "running", iso()),
-        )
-        self.db.execute(
-            "UPDATE goal_graph_nodes SET retry_count=? WHERE graph_id=? AND node_id=?",
-            (attempt, graph_id, node_id),
-        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO goal_graph_node_attempts(id, graph_id, node_id, goal_id, task_id, attempt, outcome, started_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (uuid.uuid4().hex, graph_id, node_id, goal_id, task_id, attempt, "running", iso()),
+            )
+            conn.execute(
+                "UPDATE goal_graph_nodes SET retry_count=? WHERE graph_id=? AND node_id=?",
+                (attempt, graph_id, node_id),
+            )
         return attempt
 
     def retry_goal_graph_node(
@@ -407,15 +408,20 @@ class Store:
                 )
         if int(node["retry_count"]) >= max_attempts:
             raise ValueError(f"goal node reached its maximum of {max_attempts} attempts")
-        self.db.execute(
-            "UPDATE goals SET state='queued', task_id=NULL, result_summary=NULL, "
-            "verification_status='pending', criteria_status='not_evaluated', evidence_json=NULL, "
-            "criteria_review_json=NULL, criteria_reviewed_at=NULL, criteria_confirmed_at=NULL, "
-            "criteria_confirmed_by=NULL, criteria_confirmation_reason=NULL, updated_at=?, finished_at=NULL "
-            "WHERE id=?",
-            (iso(), goal["id"]),
-        )
-        self.update_goal_graph_state(graph_id, "queued")
+        now = iso()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goals SET state='queued', task_id=NULL, result_summary=NULL, "
+                "verification_status='pending', criteria_status='not_evaluated', evidence_json=NULL, "
+                "criteria_review_json=NULL, criteria_reviewed_at=NULL, criteria_confirmed_at=NULL, "
+                "criteria_confirmed_by=NULL, criteria_confirmation_reason=NULL, updated_at=?, finished_at=NULL "
+                "WHERE id=?",
+                (now, goal["id"]),
+            )
+            conn.execute(
+                "UPDATE goal_graphs SET state='queued', updated_at=?, finished_at=NULL WHERE id=?",
+                (now, graph_id),
+            )
         return self.get_goal(goal["id"])
 
     def cancel_goal_graph_nodes(self, graph_id: str) -> int:
