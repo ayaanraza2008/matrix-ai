@@ -20,7 +20,6 @@ from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError
 from .base import StrictModel, Tool, ToolContext
 
-
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 MAX_VIDEO_BYTES = 512 * 1024 * 1024
