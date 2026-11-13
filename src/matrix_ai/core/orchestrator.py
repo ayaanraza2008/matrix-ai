@@ -379,15 +379,27 @@ class Orchestrator:
                 or not 0.0 <= float(confidence) <= 1.0
             ):
                 decision, confidence = "uncertain", 0.0
-            if float(confidence) < 0.85:
+            supporting = verdict.get("evidence")
+            missing = verdict.get("missing")
+            valid_supporting = (
+                isinstance(supporting, list)
+                and bool(supporting)
+                and all(isinstance(item, str) and item.strip() for item in supporting)
+            )
+            valid_missing = isinstance(missing, list) and all(
+                isinstance(item, str) and item.strip() for item in missing
+            )
+            if float(confidence) < 0.85 or not valid_supporting or not valid_missing:
                 decision = "uncertain"
-            if decision == "met" and verdict.get("missing"):
+            if decision == "met" and missing:
+                decision = "uncertain"
+            if decision == "not_met" and not missing:
                 decision = "uncertain"
             result = {
                 "decision": decision,
                 "confidence": float(confidence),
-                "evidence": verdict.get("evidence", [])[:12] if isinstance(verdict.get("evidence"), list) else [],
-                "missing": verdict.get("missing", [])[:12] if isinstance(verdict.get("missing"), list) else [],
+                "evidence": supporting[:12] if valid_supporting else [],
+                "missing": missing[:12] if valid_missing else [],
                 "summary": str(verdict.get("summary") or "Criteria could not be conclusively evaluated.")[:1000],
                 "verifier": "independent_model_review",
                 "model": response.model,
