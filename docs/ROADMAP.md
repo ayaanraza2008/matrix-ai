@@ -59,7 +59,10 @@ reproducible demonstration — not when code exists.
 - [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
 - [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
-- [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+- [x] Add timezone-aware quiet hours, a bounded persistent in-app notification inbox and owner read acknowledgements.
+- [x] Add owner-controlled recovery/daily-digest preferences and a once-daily aggregate summary.
+- [x] Add signed HTTPS webhook health notifications with exact-host allowlisting, HMAC signatures and per-channel retry tracking.
+- [ ] Add further push providers and validate live webhook/Telegram delivery in the owner environment.
 
 ### M7 — Dependency-aware task plans
 
