@@ -182,15 +182,32 @@
             <div class="panel-head"><h3>Push-to-talk session</h3><span id="mic-indicator" class="pill">microphone idle</span></div>
             <div class="row wrap">
               <button id="voice-start">Start session</button>
+              <button id="voice-record" class="ghost">Start recording</button>
+              <button id="voice-finish" class="ghost" disabled>Finish &amp; transcribe</button>
+              <button id="voice-cancel-record" class="ghost" disabled>Discard recording</button>
               <button id="voice-mute" class="ghost">Mute mic</button>
               <button id="voice-unmute" class="ghost">Unmute mic</button>
               <button id="voice-barge" class="ghost">Barge in</button>
               <button id="voice-stop" class="danger">Stop session</button>
             </div>
-            <p class="hint" id="voice-detail">Microphone state is server-side. A muted session refuses audio capture with HTTP 409.</p>
+            <p class="hint" id="voice-detail">Start a session, then record a short voice message. Audio goes to the local Whisper engine and is not stored by MATRIX.</p>
+            <div class="stack">
+              <label for="voice-transcript">Latest transcript</label>
+              <textarea id="voice-transcript" rows="3" readonly placeholder="Your recognized words will appear here."></textarea>
+              <div class="row wrap">
+                <button id="voice-send-transcript" type="button" class="ghost" disabled>Send transcript to chat</button>
+              </div>
+            </div>
+            <label class="check"><input type="checkbox" id="voice-speak-replies"> Automatically speak final MATRIX replies</label>
+            <div class="row wrap">
+              <label for="voice-output-voice">Browser voice</label>
+              <select id="voice-output-voice" aria-label="Browser voice"><option value="">System default</option></select>
+              <button id="voice-stop-speech" type="button" class="ghost">Stop speech</button>
+            </div>
+            <p class="hint">Windows SAPI speaks locally through the PC's default audio device when MATRIX_TTS_PROVIDER=windows-sapi; otherwise MATRIX uses browser/OS speech where supported. MATRIX never uploads generated audio.</p>
             <form id="voice-speak-form" class="row">
-              <input id="voice-speak-text" placeholder="Text to speak (requires a local TTS engine)" maxlength="2000">
-              <button type="submit">Speak</button>
+              <input id="voice-speak-text" placeholder="Preview text with a local or browser voice" maxlength="2000">
+              <button type="submit">Preview speech</button>
             </form>
           </div>
         </section>
