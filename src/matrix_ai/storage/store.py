@@ -328,6 +328,46 @@ class Store:
             ),
         )
 
+    def finish_goal_criteria(
+        self, goal_id: str, *, decision: str, evidence: dict[str, Any]
+    ) -> None:
+        """Persist a separate criteria verdict without upgrading task-step evidence."""
+        if decision not in {"met", "not_met", "uncertain", "unavailable"}:
+            raise ValueError("invalid goal criteria decision")
+        goal = self.get_goal(goal_id)
+        if goal["state"] != "awaiting_verification":
+            return
+        if goal["verification_status"] != "task_steps_verified":
+            decision = "uncertain"
+        state = {
+            "met": "verified",
+            "not_met": "criteria_not_met",
+            "uncertain": "awaiting_verification",
+            "unavailable": "awaiting_verification",
+        }[decision]
+        status = {
+            "met": "criteria_verified",
+            "not_met": "criteria_not_met",
+            "uncertain": "criteria_uncertain",
+            "unavailable": "criteria_verifier_unavailable",
+        }[decision]
+        safe_evidence = redact_obj(evidence)
+        self.db.execute(
+            "UPDATE goals SET state=?, criteria_status=?, verification_status=?, "
+            "evidence_json=?, result_summary=?, updated_at=?, finished_at=? WHERE id=? "
+            "AND state='awaiting_verification'",
+            (
+                state,
+                status,
+                status,
+                json.dumps(safe_evidence, default=str)[:12000],
+                str(safe_evidence.get("summary") or goal["result_summary"] or "")[:1000],
+                iso(),
+                iso(),
+                goal_id,
+            ),
+        )
+
     # -- plans & steps ----------------------------------------------------
     def save_plan(self, task_id: str, plan: Plan) -> None:
         with self.db.transaction() as conn:
