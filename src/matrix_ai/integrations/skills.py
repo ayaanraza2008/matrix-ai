@@ -13,9 +13,9 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -158,15 +158,20 @@ class SkillsManager:
             raise SkillsError("Only validated public owner/repository and skill names can be installed.")
         if not self._node_ready():
             raise SkillsError("Vercel Skills requires Node.js 22.20.0 or newer; no compatible Node runtime was found.")
+        node = shutil.which("node")
         npx = shutil.which("npx") or shutil.which("npx.cmd")
-        if not npx:
-            raise SkillsError("npx was not found; install Node.js 22.20.0 or newer.")
+        if not node or not npx:
+            raise SkillsError("node and npx were not found; install Node.js 22.20.0 or newer.")
+        # Windows npm launchers are .cmd files and cannot be started with
+        # shell=False. Invoke npm's bundled npx-cli.js through node instead.
+        npx_cli = Path(node).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+        launcher = [node, str(npx_cli)] if os.name == "nt" and npx_cli.is_file() else [npx]
         destination = self.skills_dir / skill_name
         if destination.exists():
             return {"status": "already_installed", "name": skill_name, "source": source}
         self.project.mkdir(parents=True, exist_ok=True)
         command = [
-            npx, "--yes", f"skills@{SKILLS_CLI_VERSION}", "add", source,
+            *launcher, "--yes", f"skills@{SKILLS_CLI_VERSION}", "add", source,
             "--skill", skill_name, "--agent", "universal", "--copy", "--yes", "--json",
         ]
         # No shell, no model-controlled flags, no inherited secret-bearing environment.
@@ -199,10 +204,13 @@ class SkillsManager:
             return {"status": "empty", "updated": 0}
         if not self._node_ready():
             raise SkillsError("Node.js 22.20.0 or newer is required to update skills.")
+        node = shutil.which("node")
         npx = shutil.which("npx") or shutil.which("npx.cmd")
-        if not npx:
-            raise SkillsError("npx was not found.")
-        command = [npx, "--yes", f"skills@{SKILLS_CLI_VERSION}", "update", "--yes"]
+        if not node or not npx:
+            raise SkillsError("node and npx were not found.")
+        npx_cli = Path(node).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+        launcher = [node, str(npx_cli)] if os.name == "nt" and npx_cli.is_file() else [npx]
+        command = [*launcher, "--yes", f"skills@{SKILLS_CLI_VERSION}", "update", "--yes"]
         try:
             result = subprocess.run(command, cwd=self.project, capture_output=True, text=True,
                                     timeout=240, check=False, shell=False)
@@ -213,8 +221,26 @@ class SkillsManager:
         self._audit("skills.updated", {"cli_version": SKILLS_CLI_VERSION})
         return {"status": "updated", "cli_version": SKILLS_CLI_VERSION}
 
+    async def _maybe_auto_update(self) -> None:
+        if not self.auto_update:
+            return
+        marker = self.root / ".last-auto-update"
+        try:
+            if marker.is_file() and marker.stat().st_mtime > (time.time() - 86_400):
+                return
+        except OSError:
+            pass
+        try:
+            await asyncio.to_thread(self.update)
+            self.root.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+        except Exception as exc:
+            self._last_error = f"auto_update:{type(exc).__name__}"
+            log.warning("automatic skills update skipped: %s", type(exc).__name__)
+
     async def prepare_for_task(self, request: str) -> tuple[list[dict[str, Any]], str]:
         """Discover one relevant skill, install it if enabled, and return fenced context."""
+        await self._maybe_auto_update()
         if not self.auto_discover:
             return self._select_installed(request), self._context(self._select_installed(request))
         discovered = await self.search(request, limit=10)
