@@ -16,6 +16,7 @@ from pydantic import Field
 from ..core.models import Risk
 from ..errors import ValidationFailure
 from ..tools.base import StrictModel, Tool, ToolContext
+from .session_adapters import SUPPORTED_SESSION_FORMATS, normalize_agent_record
 
 MAX_SESSION_BYTES = 10 * 1024 * 1024
 MAX_SESSION_EVENTS = 50_000
@@ -70,11 +71,14 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
     previous_successful_tool: str | None = None
     roles: Counter[str] = Counter()
 
+    detected_formats: set[str] = set()
+    processed_lines = 0
     for line in raw.splitlines():
         if not line.strip():
             continue
-        if events + malformed >= MAX_SESSION_EVENTS:
+        if processed_lines >= MAX_SESSION_EVENTS:
             break
+        processed_lines += 1
         try:
             record = json.loads(line)
         except (json.JSONDecodeError, TypeError):
@@ -83,29 +87,33 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
         if not isinstance(record, dict):
             malformed += 1
             continue
-        events += 1
-        kind = _event_kind(record)
-        role = str(record.get("role") or kind).casefold()
-        if role in {"user", "assistant", "system"}:
-            roles[role] += 1
 
-        name = _tool_name(record)
-        is_tool_event = name is not None and (
-            "tool" in kind or "function" in kind or "action" in kind
-            or "tool_name" in record or isinstance(record.get("tool"), dict)
-        )
-        if not is_tool_event:
-            continue
-        tool_calls += 1
-        tool_counts[name] += 1
-        if _is_error(record):
-            tool_errors += 1
-            previous_successful_tool = None
-        else:
-            tool_successes[name] += 1
-            if previous_successful_tool and previous_successful_tool != name:
-                sequence_counts[(previous_successful_tool, name)] += 1
-            previous_successful_tool = name
+        format_name, normalized_records = normalize_agent_record(record)
+        detected_formats.add(format_name)
+        events += 1
+        for normalized in normalized_records:
+            kind = _event_kind(normalized)
+            role = str(normalized.get("role") or kind).casefold()
+            if role in {"user", "assistant", "system"}:
+                roles[role] += 1
+
+            name = _tool_name(normalized)
+            is_tool_event = name is not None and (
+                "tool" in kind or "function" in kind or "action" in kind
+                or "tool_name" in normalized or isinstance(normalized.get("tool"), dict)
+            )
+            if not is_tool_event:
+                continue
+            tool_calls += 1
+            tool_counts[name] += 1
+            if _is_error(normalized):
+                tool_errors += 1
+                previous_successful_tool = None
+            else:
+                tool_successes[name] += 1
+                if previous_successful_tool and previous_successful_tool != name:
+                    sequence_counts[(previous_successful_tool, name)] += 1
+                previous_successful_tool = name
 
     failure_rate = round(tool_errors / tool_calls, 4) if tool_calls else 0.0
     anti_patterns: list[dict[str, Any]] = []
@@ -149,7 +157,7 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
 
     return {
         "schema_version": "matrix.engineering_coach.v1",
-        "source": {"format": "jsonl", "bytes": size},
+        "source": {"format": sorted(detected_formats), "supported_formats": sorted(SUPPORTED_SESSION_FORMATS), "bytes": size},
         "metrics": {
             "events_analyzed": events,
             "malformed_lines": malformed,
