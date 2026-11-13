@@ -10,6 +10,7 @@ from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.social_tools import (
     InstagramListCommentsTool,
+    InstagramPublishImageTool,
     InstagramReplyCommentTool,
     LinkedInCreatePostTool,
     WhatsAppSendTextTool,
@@ -190,3 +191,35 @@ async def test_social_integrations_report_missing_and_configured_without_claimin
         result = await runtime.integrations.get(name).safe_check()
         assert result.status == "configured"
         assert "verified" in (result.detail or "")
+
+
+def test_instagram_image_publish_uses_container_then_publish_and_requires_confirmation(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_post(url, *, headers, data, timeout):
+        calls.append((url, data))
+        if url.endswith("/media"):
+            return response(payload={"id": "container-123"}, url=url)
+        return response(payload={"id": "published-456"}, url=url)
+
+    monkeypatch.setattr("matrix_ai.tools.social_tools.httpx.post", fake_post)
+    ctx = make_context(tmp_path)
+    ctx.config.instagram_user_id = "123456789"
+    tool = InstagramPublishImageTool()
+    args = tool.validate({
+        "image_url": "https://cdn.example.test/matrix.jpg",
+        "caption": "MATRIX update",
+    })
+    result = tool.run_sync(args, ctx)
+
+    assert calls[0][0].endswith("/123456789/media")
+    assert calls[0][1]["image_url"] == "https://cdn.example.test/matrix.jpg"
+    assert calls[1][0].endswith("/123456789/media_publish")
+    assert calls[1][1] == {"creation_id": "container-123"}
+    assert result["media_id"] == "published-456"
+    assert tool.verify(args, result).ok
+
+
+def test_instagram_publish_requires_https_image_url():
+    with pytest.raises(ValidationFailure):
+        InstagramPublishImageTool().validate({"image_url": "http://example.com/photo.jpg"})
