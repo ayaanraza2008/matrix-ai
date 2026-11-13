@@ -242,17 +242,15 @@ class TelegramChatBridge:
                 await self._send(
                     f"Recovered previously accepted MATRIX task: {existing_task_id}"
                 )
-                report = asyncio.create_task(
-                    self._report_task(existing_task_id),
-                    name=f"telegram-task-{existing_task_id}",
-                )
-                self._report_tasks.add(report)
-                report.add_done_callback(self._report_tasks.discard)
             else:
                 await self._send(
                     f"Already accepted. MATRIX task: {existing_task_id} "
                     f"({existing_view.state.value})."
                 )
+            # Reattach the result watcher after a MATRIX restart for any
+            # non-terminal task, not only tasks that still need enqueueing.
+            if existing_view.state not in TERMINAL_TASK_STATES:
+                self._ensure_report_task(existing_task_id)
             return
 
         try:
@@ -299,11 +297,15 @@ class TelegramChatBridge:
             result = view.summary or view.error or f"Task finished: {view.state.value}"
             await self._send(f"MATRIX {view.state.value}:\\n{result}")
         else:
-            reporter_name = f"telegram-task-{task_id}"
-            if not any(task.get_name() == reporter_name for task in self._report_tasks):
-                report = asyncio.create_task(self._report_task(task_id), name=reporter_name)
-                self._report_tasks.add(report)
-                report.add_done_callback(self._report_tasks.discard)
+            self._ensure_report_task(task_id)
+
+    def _ensure_report_task(self, task_id: str) -> None:
+        reporter_name = f"telegram-task-{task_id}"
+        if any(task.get_name() == reporter_name and not task.done() for task in self._report_tasks):
+            return
+        report = asyncio.create_task(self._report_task(task_id), name=reporter_name)
+        self._report_tasks.add(report)
+        report.add_done_callback(self._report_tasks.discard)
 
     async def _transcribe_voice(self, voice: dict[str, Any]) -> str:
         """Download a bounded Telegram voice note and transcribe it locally in memory."""
