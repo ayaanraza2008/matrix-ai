@@ -23,6 +23,7 @@ from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
 from .integrations.addons import AddonManager
+from .integrations.engineering_coach import EngineeringCoachAnalyzeTool
 from .integrations.registry import IntegrationRegistry
 from .integrations.skills import SkillsManager
 from .integrations.youtube_automation import build_youtube_tools
@@ -72,6 +73,7 @@ class MatrixRuntime:
         registry = build_registry()
         for youtube_tool in build_youtube_tools(config):
             registry.register(youtube_tool)
+        registry.register(EngineeringCoachAnalyzeTool())
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
