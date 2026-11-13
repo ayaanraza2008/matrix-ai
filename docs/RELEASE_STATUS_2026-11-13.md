@@ -45,7 +45,7 @@ The source and CI integration are complete; the following cannot be honestly mar
 | Provider integrations | OAuth/least-privilege setup and read/write smoke tests per enabled provider | Pending owner accounts |
 | WhatsApp inbound | Public HTTPS callback, HMAC verification, sender allowlist and replay test | Pending public endpoint + Meta app |
 | Operations | Backup/restore rehearsal, audit retention, monitoring, incident recovery and rollback rehearsal | Pending deployment |
-| Security review | Review residual DNS-rebinding/TOCTOU risk in public web fetch, data-at-rest protection and release supply-chain posture | Follow-up required |
+| Security review | Review residual DNS-rebinding/TOCTOU ([tracked in issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74)) risk in public web fetch, data-at-rest protection and release supply-chain posture | Follow-up required |
 
 ## Security follow-up applied
 
