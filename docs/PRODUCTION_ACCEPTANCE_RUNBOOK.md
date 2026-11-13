@@ -25,6 +25,28 @@ python -m matrix_ai.security.secret_scan .
 
 **Pass:** clean install, all tests/lint/secret scan pass, health reports accurately, dashboard authenticates.
 
+## 1A. Local model configuration and benchmark
+
+If the deployment requires natural-language planning/autonomous task routing, install a local inference runtime and a model that fits the target PC. The repository CI does not install model weights or prove target-PC model quality.
+
+Example using Ollama on Windows:
+
+```powershell
+# Install Ollama separately, then:
+ollama pull qwen2.5:0.5b-instruct-q4_K_M
+$env:MATRIX_MODEL_PROVIDER = "ollama"
+$env:MATRIX_MODEL_NAME = "qwen2.5:0.5b-instruct-q4_K_M"
+$env:MATRIX_MODEL_RAM_BUDGET_MB = "2500"
+matrix serve
+```
+
+- Verify `GET /api/models` reports the provider/model as working.
+- Run `matrix benchmark-model` and retain schema-valid plan rate, tool-selection accuracy, p50/p90 latency and observed memory.
+- Confirm the chosen model remains within the machine's memory budget during concurrent MATRIX work.
+- Keep cloud inference disabled unless the owner explicitly approves the provider, data handling and cost.
+
+**Pass:** a local model is working and benchmark evidence is acceptable for the target PC, or the deployment explicitly scopes itself to deterministic/offline functions without claiming model-driven autonomy.
+
 ## 2. Windows startup, restart and recovery
 
 ```powershell
