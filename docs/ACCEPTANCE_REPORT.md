@@ -1,90 +1,65 @@
 # MATRIX AI — Production Acceptance Report
 
-**Report Date:** 2026-11-14  
-**Current Commit:** de8ed2651509501c77a26b1f8b4a315c9a613fcb  
-**Branch:** opencode/final-production-acceptance-2026-11-13 (2 commits ahead of origin/main)  
-**Merged PRs:** #72, #75, #76, #77, #78, #79  
+**Snapshot date:** 2026-11-14  
+**Repository:** https://github.com/ayaanraza2008/matrix-ai  
+**Feature branch:** `opencode/final-production-acceptance-2026-11-13`  
+**Handoff commit reviewed:** [`29ab5477aef9690d49c82ce77a287b6aab08ab01`](https://github.com/ayaanraza2008/matrix-ai/commit/29ab5477aef9690d49c82ce77a287b6aab08ab01)  
+**Main snapshot used by GitHub comparison:** `44e7f9247f1fada840708cdace75e1c186aaf832`  
+**Pull requests:** [#82](https://github.com/ayaanraza2008/matrix-ai/pull/82) (draft handoff), [#84](https://github.com/ayaanraza2008/matrix-ai/pull/84) (FreeLLMAPI)
 
----
+> **Evidence rule:** Local test results below are recorded from the OpenCode handoff and have not been independently re-run in this GitHub review. GitHub CI claims are tied only to the exact commit/run named. No production gate is certified by documentation alone.
 
-## 1. Engineering Status
+## 1. Repository and pull-request status
 
-| Category | Status | Evidence |
+- Commit `29ab5477aef9690d49c82ce77a287b6aab08ab01` removes the obsolete FreeLLMAPI implementation from PR #82, updates the provider-boundary test file, and corrects the earlier future-dated report snapshot.
+- PR #82 remains a **draft** and is **not merged**.
+- At the time of this GitHub review, GitHub's compare API reports the PR #82 branch as **10 commits ahead and 0 behind** current remote `main`. The local handoff's `git rev-list` reported 2 commits ahead. These counts do not agree; refresh local remote-tracking refs and reconcile the discrepancy before merging. Do not use the local count as the remote comparison result.
+- No GitHub Actions workflow run was returned for handoff commit `29ab547`. The local report's CI result on `67b75ef` is historical and must not be attributed to this commit.
+- PR #84 contains the separate FreeLLMAPI implementation. Its exact-head run [#43485194295](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43485194295) completed **7/7 jobs successfully**. PR #84 is ready for human review but is not merged.
+
+## 2. Local verification reported by OpenCode
+
+| Check | Reported result | Qualification |
 |---|---|---|
-| Core tests | PARTIAL | 153/153 core tests pass locally (2 pre-existing failures: `test_manager_wires_stt_engine` — SAPI file lock on Windows; `test_discovery_endpoint_reports_reachable_runtimes` — missing `/api/models/discover` endpoint, both unrelated to gate work). GitHub CI 7/7 green on `67b75ef`. |
-| Web fetch security | PASS | 15/15 tests pass with `MATRIX_ALLOW_WEB_FETCH=false` (local verification). |
-| Lint (ruff) | PASS | 1 F401 fix applied (unused import in tts.py). 3 pre-existing test errors remain. |
-| Secret scan | CLEAN | No secrets detected in any output. |
-| CI workflow | PASS | 7/7 jobs green on final commit `67b75ef` (GitHub Actions). |
-| Model providers | IMPLEMENTED | `FreeLLMAPIProvider` with hard `MATRIX_ALLOW_CLOUD_MODELS` boundary. Provider factory registration verified. |
-| Integrations adapters | IMPLEMENTED | GitHub, YouTube, Instagram/Meta, LinkedIn, WhatsApp, Telegram, FreeLLM. All report `missing_credentials` when not configured. |
+| Core tests | 153 passed | Filtered run excludes the two named failures below; this is not a fully green unfiltered suite |
+| Windows SAPI test | Known failure | `test_manager_wires_stt_engine`: reported Windows SAPI file-lock issue |
+| Discovery endpoint test | Known failure | `test_discovery_endpoint_reports_reachable_runtimes`: reported missing `/api/models/discover` endpoint |
+| Web-fetch security | 15 passed | Local test result with `MATRIX_ALLOW_WEB_FETCH=false` |
+| Telegram preflight | 22 passed | Hermetic local tests |
+| Telegram reliability | 10 passed | Hermetic local tests |
+| Ruff | 2 pre-existing findings reported | UTF-8 handling in `telegram_pr78.py`; blind exception in `test_a26_free_voice.py` |
+| Secret scan | Clean | Reported by OpenCode; no secret values included in this report |
 
-### Engineering Additions This Session
-- Fixed F401 unused import in `src/matrix_ai/voice/tts.py`
-- Updated `config.py`: added `freellmapi_api_key` and `freellmapi_url` fields; updated `model_provider` validation to include `freellmapi`
-- Created `docs/SECURITY_REVIEW_WEB_FETCH.md` — 15-checklist, threat model, sign-off template
-- Created `TELEGRAM_SETUP_GUIDE.md` — BotFather setup, chat ID retrieval, preflight command
-- Created `OWNER_ACTION_PACKET.md` — minimal owner action packets for all 6 gates
-- Updated `docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md`
-- Verified and tested all provider integrations in `src/matrix_ai/integrations/adapters.py`
-- Verified `FreeLLMAPIProvider` implementation in `src/matrix_ai/models/base.py`
+The reported CI result of **7/7 on `67b75ef`** is not a CI result for handoff commit `29ab547`. Current PR #82 head has no workflow run verified in this review. PR #84's separate 7/7 run is linked above.
 
-No secrets, tokens, or private data exposed in any output.
+## 3. Current model-provider boundary
 
----
+- Current PR #82 branch config supports `none`, `ollama`, and `openai`.
+- The FreeLLMAPI provider class and configuration were removed from PR #82 to avoid duplicate implementations.
+- FreeLLMAPI code, its 9 hermetic tests and setup instructions are maintained separately in PR #84. It is not merged into `main` at this snapshot.
+- The provider-connection acceptance gate remains blocked until owner-authorized credentials and read-only live smoke tests exist.
 
-## 2. Security Status
+## 4. Six mandatory live acceptance gates
 
-| Gate | Status | Evidence |
+| Gate | Status | Evidence required to pass |
 |---|---|---|
-| 1 — Independent Security Review | **BLOCKED** | Review package `docs/SECURITY_REVIEW_WEB_FETCH.md` complete with 15-checklist, threat model, and sign-off template. Review request posted on issue #73. No independent reviewer reachable through connected tools (single collaborator; Copilot unavailable on repo plan — enabling requires paid subscription). `MATRIX_ALLOW_WEB_FETCH=false` enforced until genuine independent sign-off. |
-| 2 — Telegram Live | **BLOCKED** | Bridge implementation complete (`src/matrix_ai/telegram.py`) with 22 hermetic preflight tests + 10 reliability tests. `matrix telegram-preflight` command fully functional. No bot credentials configured (`MATRIX_TELEGRAM_BOT_TOKEN` and `MATRIX_TELEGRAM_CHAT_ID` both `None`). Owner action required: configure via BotFather per `TELEGRAM_SETUP_GUIDE.md`. |
-| 3 — Windows Host | **BLOCKED** | `docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md` §1–§2, §5 complete. `matrix doctor` and `matrix startup health` functional with comprehensive sanitized health reports. Physical Windows PC required for host acceptance — not available in connected execution environment. |
-| 4 — Tailscale | **BLOCKED** | Serve-only tooling + runbook §3 complete. No authorized tailnet access in connected execution environment. Code-side work complete (runbook §3); preparation complete for when tailnet is available. |
-| 5 — Android + Signing | **BLOCKED** | Debug APK build validated via CI; release signing requires owner-controlled keys + physical handset. No physical handset + no signing keys in connected environment. |
-| 6 — Provider Connections | **BLOCKED** | Adapters fully implemented in `integrations/adapters.py`: GitHub, YouTube, Instagram/Meta, LinkedIn, WhatsApp, Telegram, FreeLLM API. All report `missing_credentials` when not configured. Per-provider connection requirements documented. |
+| 1 — Independent security review | **BLOCKED** | Qualified reviewer who did not author the DNS-pinning change records identity/date, decision and findings in the review package or issue #73 |
+| 2 — Telegram live acceptance | **BLOCKED** | Owner configures bot token/chat ID locally, runs `matrix telegram-preflight --send-test`, and tests bridge commands and harmless task delivery |
+| 3 — Windows host acceptance | **BLOCKED** | Intended PC completes clean install, startup/restart, sleep/wake, upgrade/rollback, local model and microphone/speaker/voice tests |
+| 4 — Tailscale acceptance | **BLOCKED** | Authorized owner tailnet, Serve connectivity, least-privilege ACL, unauthorized-device denial and revocation evidence |
+| 5 — Android device and signing | **BLOCKED** | Physical handset pairing/reconnect/session revocation plus release APK signed and verified with owner-controlled keys |
+| 6 — Provider connections | **BLOCKED** | Owner-authorized least-privilege credentials/OAuth and read-only smoke tests for providers intended for deployment |
 
----
+## 5. Security and release controls
 
-## 3. Required Owner Actions
+- Keep `MATRIX_ALLOW_WEB_FETCH=false` until a qualified independent security reviewer records a decision. Internal review and passing security tests do not replace independent sign-off.
+- Never put bot tokens, OAuth secrets, signing keys, private messages or personal data in GitHub issues, commits, logs or acceptance evidence.
+- Do not expose a public MATRIX API, enable Tailscale Funnel or bypass owner authentication as a shortcut for acceptance.
+- Cross-gate backup/recovery tests may be reported as in-repository test evidence; live backup/restore rehearsal on the intended host remains part of Windows acceptance.
+- The Android release artifact remains unsigned until owner-controlled signing and physical installation verification are completed.
 
-| Gate | Required Action | Why It Unblocks |
-|---|---|---|
-| 1 | Obtain independent security reviewer sign-off per review request on issue #73 | Clears the `MATRIX_ALLOW_WEB_FETCH=false` fail-closed gate |
-| 2 | Configure Telegram bot via BotFather and set `MATRIX_TELEGRAM_BOT_TOKEN` + `MATRIX_TELEGRAM_CHAT_ID` | Enables live preflight and bridge acceptance |
-| 3 | Execute `docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md` §1–§2, §5 on target Windows PC | Physical host acceptance cannot be remote-substitute |
-| 4 | Enroll in authorized tailnet and test access/revocation via `matrix remote-access` | Tailscale private-access and revocation tests |
-| 5 | Deploy debug APK to physical handset and sign release APK with owner-controlled keys | Physical Android acceptance + signing verification |
-| 6 | Configure OAuth accounts for each provider (GitHub, YouTube, Instagram/Meta, LinkedIn) | Provider authenticated smoke tests |
+## 6. Final verdict
 
----
+**ENGINEERING PREPARATION COMPLETE; PRODUCTION CERTIFICATION NOT GRANTED.**
 
-## 4. Final Verdict
-
-**ENGINEERING COMPLETE — LIVE ACCEPTANCE REMAINS.**
-
-All engineering work is complete. Six gates remain blocked by owner-dependent requirements:
-- Credentials (Telegram, OAuth accounts)
-- Physical devices (Windows PC, Android handset)
-- Independent human reviewer (security sign-off)
-- Authorized tailnet access (Tailscale)
-
-No gate can pass on documentation alone. No gate can pass on simulated external access. Issue #73 stays open until all 6 gates produce real-world evidence.
-
----
-
-## 5. Key Files
-
-- `docs/SECURITY_REVIEW_WEB_FETCH.md` — Gate 1 independent review package (15-checklist, threat model, sign-off template)
-- `TELEGRAM_SETUP_GUIDE.md` — Gate 2 owner Telegram setup guide (BotFather, chat ID, preflight command)
-- `OWNER_ACTION_PACKET.md` — Minimal owner action packets for all 6 gates
-- `docs/PRODUCTION_ACCEPTANCE_RUNBOOK.md` — Gates 3–5 acceptance runbook
-- `src/matrix_ai/models/base.py` — `FreeLLMAPIProvider` with hard cloud opt-in boundary
-- `src/matrix_ai/integrations/adapters.py` — All provider adapters (GitHub, YouTube, Instagram/Meta, LinkedIn, WhatsApp, Telegram, FreeLLM)
-- `tests/test_web_fetch_security.py` — 15 security tests (all pass with `MATRIX_ALLOW_WEB_FETCH=false`)
-- `tests/test_telegram_preflight.py` — 22 hermetic preflight tests
-- `tests/test_telegram_reliability.py` — 10 reliability tests
-- `FINAL_SUMMARY.md` — Concise final execution summary
-
-Repository: https://github.com/ayaanraza2008/matrix-ai
-Production tracker: https://github.com/ayaanraza2008/matrix-ai/issues/73
+The report records local engineering/test results and remote PR/CI evidence with their distinct scopes. Six live gates remain blocked on an independent reviewer, owner credentials/accounts, authorized tailnet access and physical devices. Keep issue [#73](https://github.com/ayaanraza2008/matrix-ai/issues/73) open until each applicable gate has real-world evidence.
