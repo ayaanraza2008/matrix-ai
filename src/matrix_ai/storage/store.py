@@ -646,9 +646,34 @@ class Store:
         )
 
     def set_job_enabled(self, job_id: str, enabled: bool) -> None:
+        self.update_job(job_id, enabled=enabled)
+
+    def update_job(self, job_id: str, **fields: Any) -> None:
+        allowed = {"name", "prompt", "interval_seconds", "autonomy_level", "enabled"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"unknown job fields: {sorted(unknown)}")
+        if not fields:
+            raise ValueError("at least one job field must be supplied")
+        row = self.db.query_one("SELECT id, interval_seconds FROM scheduled_jobs WHERE id=?", (job_id,))
+        if row is None:
+            raise NotFoundError(f"job {job_id} not found")
+        updates = dict(fields)
+        if "enabled" in updates:
+            updates["enabled"] = 1 if updates["enabled"] else 0
+        if "interval_seconds" in updates or updates.get("enabled") == 1:
+            interval = int(updates.get("interval_seconds", row["interval_seconds"]))
+            updates["next_run_at"] = iso(utcnow() + timedelta(seconds=interval))
+        assignments = ", ".join(f"{column}=?" for column in updates)
         self.db.execute(
-            "UPDATE scheduled_jobs SET enabled=? WHERE id=?", (1 if enabled else 0, job_id)
+            f"UPDATE scheduled_jobs SET {assignments} WHERE id=?",  # noqa: S608 - columns are whitelisted
+            (*updates.values(), job_id),
         )
+
+    def delete_job(self, job_id: str) -> None:
+        cursor = self.db.execute("DELETE FROM scheduled_jobs WHERE id=?", (job_id,))
+        if cursor.rowcount == 0:
+            raise NotFoundError(f"job {job_id} not found")
 
     # -- idempotency ------------------------------------------------------
     def remember_idempotent(self, scope: str, key: str, result: dict[str, Any]) -> None:

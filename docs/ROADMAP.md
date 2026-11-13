@@ -12,7 +12,7 @@ reproducible demonstration — not when code exists.
 | 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — sessions + OCR adapter; Tesseract/MediaPipe/camera missing |
 | 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — files/apps/shell/system done; pywinauto + Playwright pending |
 | 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; not built |
-| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — owner-created recurring goals respect the global autonomy ceiling; quiet hours, alert routing and deeper goal lifecycle pending |
+| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — recurring goals now have update/pause/resume/delete lifecycle in review; quiet hours and richer alert routing pending |
 | 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial** — adapters and status implemented; credentials unconfigured |
 | 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — docs/CI/acceptance plus opt-in private Tailscale access and Windows logon startup; installer, signed build and physical-device E2E pending |
 
@@ -57,4 +57,5 @@ reproducible demonstration — not when code exists.
 - [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
 - [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
 - [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
-- [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+- [x] Add persistent owner-goal update, pause/resume and deletion operations with audit records; keep autonomy bounded by the global ceiling.
+- [ ] Add quiet hours and richer notification routing before broader proactive behavior.

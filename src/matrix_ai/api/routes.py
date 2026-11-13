@@ -24,6 +24,7 @@ from ..core.models import (
     HealthView,
     IntegrationView,
     JobCreate,
+    JobUpdate,
     JobView,
     MemoryCreate,
     MemoryView,
@@ -669,6 +670,34 @@ async def create_job(body: JobCreate, principal: PrincipalDep, runtime: RuntimeD
     return jobs[0]
 
 
+@router.put("/jobs/{job_id}", response_model=JobView, tags=["automation"])
+async def update_job(
+    job_id: str, body: JobUpdate, principal: PrincipalDep, runtime: RuntimeDep
+) -> JobView:
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise ValueError("provide at least one field to update")
+    runtime.store.update_job(job_id, **updates)
+    runtime.store.audit(
+        "scheduler.job_updated",
+        actor=principal.user_id,
+        status="ok",
+        detail={"job_id": job_id, "fields": sorted(updates)},
+    )
+    return next(job for job in runtime.store.list_jobs() if job.id == job_id)
+
+
+@router.delete("/jobs/{job_id}", status_code=204, tags=["automation"])
+async def delete_job(job_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> None:
+    runtime.store.delete_job(job_id)
+    runtime.store.audit(
+        "scheduler.job_deleted",
+        actor=principal.user_id,
+        status="deleted",
+        detail={"job_id": job_id},
+    )
+
+
 @router.post("/jobs/{job_id}/run", status_code=202, tags=["automation"])
 async def run_job(job_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
     jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
@@ -678,7 +707,7 @@ async def run_job(job_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> 
     task_id = runtime.orchestrator.create_task(
         request=job.prompt,
         user_id=principal.user_id,
-        autonomy_level=min(int(job.autonomy_level), 1),
+        autonomy_level=min(int(job.autonomy_level), int(runtime.config.autonomy_level), 2),
         kind="job",
     )
     await runtime.orchestrator.enqueue(task_id)
@@ -691,6 +720,12 @@ async def toggle_job(
     job_id: str, body: JobToggleBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> JobView:
     runtime.store.set_job_enabled(job_id, body.enabled)
+    runtime.store.audit(
+        "scheduler.job_resumed" if body.enabled else "scheduler.job_paused",
+        actor=principal.user_id,
+        status="enabled" if body.enabled else "paused",
+        detail={"job_id": job_id},
+    )
     jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
     if not jobs:
         raise NotFoundError(f"job {job_id} not found")
