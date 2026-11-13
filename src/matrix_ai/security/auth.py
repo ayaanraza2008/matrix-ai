@@ -97,7 +97,7 @@ class AuthService:
         self.store.db.execute(
             "INSERT INTO sessions(token_hash, user_id, device_id, scope, created_at, expires_at) "
             "VALUES(?,?,?,?,?,?)",
-            (hash_secret(token), user_id, device_id, "owner", iso(), expires),
+            (hash_secret(token), user_id, device_id, "device" if device_id else "owner", iso(), expires),
         )
         return token, expires
 
