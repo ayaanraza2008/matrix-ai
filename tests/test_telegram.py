@@ -14,6 +14,13 @@ class FakeStore:
     def __init__(self):
         self.audits = []
         self.stopped = False
+        self.flags = {}
+
+    def get_flag(self, name, default=None):
+        return self.flags.get(name, default)
+
+    def set_flag(self, name, value):
+        self.flags[name] = value
 
     def audit(self, *args, **kwargs):
         self.audits.append((args, kwargs))
@@ -42,7 +49,7 @@ class FakeOrchestrator:
 
 
 def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/help"):
-    return {"message": {
+    return {"update_id": 123, "message": {
         "chat": {"id": chat_id, "type": chat_type},
         "from": {"id": sender_id},
         "text": text,
@@ -83,6 +90,7 @@ async def test_telegram_submits_private_owner_message_to_orchestrator(tmp_path, 
     assert orchestrator.created[0]["request"] == "Open calculator"
     assert orchestrator.created[0]["user_id"] == "owner"
     assert orchestrator.created[0]["autonomy_level"] == bridge.config.autonomy_level
+    assert orchestrator.created[0]["source_update_id"] == "telegram:123"
     assert orchestrator.enqueued == ["task-123"]
     assert any("Received" in message for message in sent)
 
@@ -143,25 +151,14 @@ async def test_telegram_unknown_commands_do_not_become_tasks(tmp_path):
     assert sent == ["Unknown command. Send /help for available commands."]
 
 
-async def test_startup_drain_advances_offset_between_full_batches(tmp_path):
+async def test_telegram_restores_persisted_update_offset_instead_of_draining_queue(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
-    payloads = []
+    store.flags["telegram_update_offset"] = "100"
 
-    async def fake_api(method, payload):
-        assert method == "getUpdates"
-        payloads.append(dict(payload))
-        if len(payloads) == 1:
-            return {"result": [{"update_id": i} for i in range(100)]}
-        return {"result": [{"update_id": 100}]}
+    bridge._restore_offset()
 
-    bridge._api = fake_api
-    await bridge._discard_pending_updates()
-
-    assert payloads == [
-        {"timeout": 0, "limit": 100},
-        {"timeout": 0, "limit": 100, "offset": 100},
-    ]
     assert bridge._offset == 101
+    assert store.flags["telegram_update_offset"] == "100"
 
 
 async def test_telegram_task_submission_uses_shared_rate_limiter(tmp_path, monkeypatch):
@@ -190,3 +187,25 @@ async def test_telegram_emergency_stop_is_not_blocked_by_task_rate_limit(tmp_pat
     assert store.stopped is True
     assert sent == ["Emergency stop activated. Cancelled tasks: 2."]
 
+async def test_task_creation_deduplicates_replayed_telegram_update(runtime):
+    kwargs = {
+        "request": "Open calculator",
+        "user_id": "owner",
+        "kind": "chat",
+        "source_update_id": "telegram:987654",
+    }
+    first = runtime.orchestrator.create_task(**kwargs)
+    second = runtime.orchestrator.create_task(**kwargs)
+
+    assert first == second
+    rows = runtime.db.query(
+        "SELECT id FROM tasks WHERE source_update_id=?", ("telegram:987654",)
+    )
+    assert len(rows) == 1
+
+
+async def test_database_migrates_telegram_source_update_key(runtime):
+    columns = {
+        row["name"] for row in runtime.db.query("PRAGMA table_info(tasks)")
+    }
+    assert "source_update_id" in columns
