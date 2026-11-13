@@ -20,6 +20,7 @@ from matrix_ai.tools.social_tools import (
     WhatsAppSendTextTool,
 )
 
+
 def make_context(tmp_path):
     config = MatrixConfig(
         home=tmp_path,
