@@ -6,12 +6,15 @@ metadata. Nothing here runs during startup, and no adapter sends user content.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 import httpx
 
 from ..config import MatrixConfig
+from ..errors import ToolExecutionError
+from ..tools.youtube_tools import YouTubeClient
 from .base import (
     STATUS_CONFIGURED,
     STATUS_DEGRADED,
@@ -102,6 +105,45 @@ class GoogleWorkspaceIntegration(Integration):
             "OAuth client present. Gmail/Calendar scopes and the consent flow are a manual setup step.",
         )
 
+
+
+class YouTubeIntegration(Integration):
+    name = "youtube"
+    description = "Read the authenticated YouTube channel through the official YouTube Data API."
+    category = "social"
+    required_settings = (
+        "MATRIX_GOOGLE_CLIENT_ID",
+        "MATRIX_GOOGLE_CLIENT_SECRET",
+        "MATRIX_GOOGLE_REFRESH_TOKEN",
+    )
+
+    @property
+    def configured(self) -> bool:
+        return bool(
+            self.config.google_client_id
+            and self.config.google_client_secret
+            and self.config.google_refresh_token
+        )
+
+    async def check(self) -> IntegrationResult:
+        client = YouTubeClient(self.config)
+        try:
+            payload = await asyncio.to_thread(
+                client.request,
+                "GET",
+                "channels",
+                params={"part": "snippet", "mine": "true"},
+            )
+        except ToolExecutionError as exc:
+            detail = str(exc)
+            if "HTTP 401" in detail:
+                return IntegrationResult(STATUS_DENIED, "Google OAuth rejected the refresh token.")
+            return IntegrationResult(STATUS_DEGRADED, "YouTube API check failed; verify OAuth scopes and quota.")
+        items = payload.get("items") or []
+        if not items:
+            return IntegrationResult(STATUS_DEGRADED, "OAuth succeeded, but no YouTube channel was returned.")
+        title = str((items[0].get("snippet") or {}).get("title") or "authenticated channel")[:100]
+        return IntegrationResult(STATUS_OK, f"Authenticated to YouTube channel: {title}.")
 
 class HomeAssistantIntegration(Integration):
     name = "home_assistant"
@@ -201,6 +243,7 @@ def build_integrations(config: MatrixConfig) -> list[Integration]:
         GitHubIntegration(config),
         TelegramIntegration(config),
         GoogleWorkspaceIntegration(config),
+        YouTubeIntegration(config),
         HomeAssistantIntegration(config),
         WeatherIntegration(config),
         FirebasePushIntegration(config),
@@ -218,5 +261,6 @@ __all__ = [
     "TelegramIntegration",
     "TelephonyIntegration",
     "WeatherIntegration",
+    "YouTubeIntegration",
     "build_integrations",
 ]
