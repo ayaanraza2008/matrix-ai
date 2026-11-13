@@ -384,6 +384,8 @@ class Store:
         graph = self.get_goal_graph(graph_id)
         if graph["owner_id"] != owner_id:
             raise NotFoundError(f"goal graph {graph_id} not found")
+        if graph["state"] == "cancelled":
+            raise ValueError("cancelled goal graphs cannot be resumed; create a new graph")
         graph_deadline = parse_dt(graph.get("deadline"))
         if graph_deadline is not None and graph_deadline <= utcnow():
             raise ValueError("goal graph deadline has expired; create a new graph to continue")
@@ -433,7 +435,7 @@ class Store:
         for row in rows:
             cursor = self.db.execute(
                 "UPDATE goals SET state='cancelled', result_summary='Goal graph cancelled by owner', "
-                "updated_at=?, finished_at=? WHERE id=? AND state='queued' AND task_id IS NULL",
+                "updated_at=?, finished_at=? WHERE id=? AND ((state='queued' AND task_id IS NULL) OR state='awaiting_verification')",
                 (iso(), iso(), row["goal_id"]),
             )
             changed += int(cursor.rowcount)
