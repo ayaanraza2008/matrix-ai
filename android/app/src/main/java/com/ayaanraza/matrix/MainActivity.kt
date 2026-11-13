@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,12 +50,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MatrixApp() {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val tokenVault = remember(context) { TokenVault(context.applicationContext) }
     val client = remember { MatrixClient("") }
 
-    var baseUrl by rememberSaveable { mutableStateOf("http://10.0.2.2:8765") }
+    var baseUrl by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
-    var token by remember { mutableStateOf<String?>(null) }
+    var token by remember { mutableStateOf(tokenVault.load()) }
     var lastTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf("Not connected. Start MATRIX on the PC and run: matrix pair-code") }
     var busy by remember { mutableStateOf(false) }
@@ -78,6 +81,7 @@ fun MatrixApp() {
         client.baseUrl = baseUrl
         val response = client.pair(code.trim(), "Android companion")
         val newToken = response.optString("token")
+        tokenVault.save(newToken)
         token = newToken
         client.token = newToken
         "Paired. device_id=${response.optString("device_id")} (expires ${response.optString("expires_at")})"
@@ -127,19 +131,18 @@ fun MatrixApp() {
         Button(onClick = { pairDevice() }, enabled = !busy && code.isNotBlank()) {
             Text(if (token == null) "Pair device" else "Re-pair device")
         }
-
-        if (token != null) {
-            Button(
-                onClick = {
-                    client.token = null
+        Button(
+            onClick = {
+                perform {
+                    tokenVault.clear()
                     token = null
-                    lastTaskId = null
-                    output = "Local session cleared. Pair again to reconnect."
-                },
-                enabled = !busy,
-            ) {
-                Text("Clear local session")
-            }
+                    client.token = null
+                    "Local token cleared. Revoke the device from the PC dashboard to invalidate its server-side session."
+                }
+            },
+            enabled = !busy && token != null,
+        ) {
+            Text("Clear local session")
         }
 
         HorizontalDivider()
