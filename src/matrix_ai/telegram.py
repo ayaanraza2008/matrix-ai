@@ -223,9 +223,15 @@ class TelegramChatBridge:
             await self._send(f"I heard: {text[:500]}")
 
         try:
+            update_id = update.get("update_id")
+            idempotency = (
+                {"idempotency_scope": "telegram", "idempotency_key": str(update_id)}
+                if isinstance(update_id, int) and update_id >= 0 else {}
+            )
             task_id = self.orchestrator.create_task(
                 request=text[:8000], user_id="owner",
                 autonomy_level=self.config.autonomy_level, kind="chat",
+                **idempotency,
             )
             await self.orchestrator.enqueue(task_id)
             await self._send(f"Received. MATRIX task: {task_id}")
