@@ -397,9 +397,9 @@ async def test_goal_criteria_verification_fails_closed_without_model(runtime):
 
 @pytest.mark.asyncio
 async def test_goal_criteria_verification_requires_evidence_for_every_node(runtime, monkeypatch):
+    import json
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    import json
 
     goal_id = _complete_single_goal_node(runtime)
     monkeypatch.setattr(type(runtime.models), "configured", property(lambda self: True))
@@ -422,9 +422,9 @@ async def test_goal_criteria_verification_requires_evidence_for_every_node(runti
 
 @pytest.mark.asyncio
 async def test_goal_criteria_assessor_cannot_verify_with_incomplete_node_coverage(runtime, monkeypatch):
+    import json
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    import json
 
     goal_id = runtime.store.create_goal(
         owner_id="owner", title="Two-node goal", success_criteria="Both outcomes are complete."
