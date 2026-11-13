@@ -41,20 +41,26 @@ if [ "$INSTALL" -eq 0 ]; then
   exit 0
 fi
 
-command -v python3.12 >/dev/null || { echo "Python 3.12 is required for the Nemotron setup." >&2; exit 1; }
+command -v python3.12 >/dev/null || { echo "Python 3.12 is required for the documented setup." >&2; exit 1; }
 command -v uv >/dev/null || { echo "Install uv first: https://docs.astral.sh/uv/getting-started/installation/" >&2; exit 1; }
+command -v pkg-config >/dev/null || { echo "pkg-config is required; install it with your OS package manager." >&2; exit 1; }
 
 if ! pkg-config --exists opus 2>/dev/null; then
   echo "Missing Opus development library. Install with: sudo apt-get update && sudo apt-get install -y libopus-dev"
   exit 1
 fi
 
-# PersonaPlex uses a dedicated venv; GPU-enabled PyTorch must match the host CUDA driver.
-python3.12 -m venv "$ROOT/personaplex/.venv"
-"$ROOT/personaplex/.venv/bin/python" -m pip install --upgrade pip
-"$ROOT/personaplex/.venv/bin/pip" install "$ROOT/personaplex/moshi/"
+# PersonaPlex uses its own Python 3.12 venv. Do not reuse MATRIX's environment.
+PERSONAPLEX_PY="$ROOT/personaplex/.venv/bin/python"
+if [ -x "$PERSONAPLEX_PY" ]; then
+  "$PERSONAPLEX_PY" -c 'import sys; assert sys.version_info[:2] == (3, 12), "PersonaPlex venv must use Python 3.12"'
+else
+  python3.12 -m venv "$ROOT/personaplex/.venv"
+fi
+"$PERSONAPLEX_PY" -m pip install --upgrade pip
+"$PERSONAPLEX_PY" -m pip install "$ROOT/personaplex/moshi/"
 
-# Nemotron owns its uv-managed workspace; do not mix it with the PersonaPlex or MATRIX venv.
+# Nemotron manages its own uv workspace and per-stage environments.
 (
   cd "$ROOT/Nemotron"
   uv sync --python 3.12
@@ -66,6 +72,9 @@ Next steps:
   1. Accept the PersonaPlex model licence on its Hugging Face model page.
   2. Export HF_TOKEN in the shell that launches PersonaPlex (never commit it).
   3. Confirm a supported NVIDIA GPU, driver, CUDA/PyTorch compatibility and VRAM.
-  4. Review Nemotron's recipe-specific GPU/storage requirements before running a pipeline.
-This script does not download model weights, start servers, expose ports, or change MATRIX configuration.
+  4. Choose a specific Nemotron checkpoint and follow its usage cookbook.
+  5. Configure MATRIX's existing OpenAI-compatible provider to the selected
+     local inference server; keep MATRIX_ALLOW_CLOUD_MODELS=false.
+This script does not download model weights, start servers, expose ports, or
+change MATRIX configuration. It does not install a PersonaPlex audio bridge.
 EOF
