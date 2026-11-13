@@ -152,6 +152,22 @@ A model can propose a plan; it cannot mark work complete. `COMPLETE` is only rea
 
 ---
 
+## Astryx Studio (optional React dashboard)
+
+MATRIX includes an optional React 19 + Meta Astryx frontend alongside the classic dashboard. The existing dashboard remains at `/`; Astryx Studio is served at `/studio/` after its frontend build is generated.
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+matrix serve
+```
+
+Open `http://127.0.0.1:8765/studio/`. The studio reuses the existing local bearer token and authenticated MATRIX API. It is a separate presentation layer: orchestration, tools, approvals, memory, and security remain in the Python backend. See [Astryx Studio integration notes](docs/ASTRYX_STUDIO.md).
+
+---
+
 ## Repository layout
 
 ```text
@@ -201,3 +217,13 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Third-party model weights (Qwen, Whisper, Piper voices) carry their own licenses; check before redistribution.
+
+
+### Free local voice
+
+Install the optional offline speech stack with `pip install -e ".[voice]"`. MATRIX uses
+faster-whisper on CPU/INT8 for speech-to-text and Piper for local text-to-speech. Download a
+Piper ONNX voice separately and set `MATRIX_PIPER_MODEL`; see
+[`docs/VOICE_AND_TELEPHONY.md`](docs/VOICE_AND_TELEPHONY.md). The first Whisper model load may
+download weights into the local cache. Speech clips are temporary and are not stored in MATRIX's
+database. Phone/PSTN calls remain an optional transport and carrier charges are not free.
