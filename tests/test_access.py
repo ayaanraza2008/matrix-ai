@@ -115,3 +115,26 @@ async def test_api_exposes_authenticated_autonomy_and_remote_access_status(clien
     assert remote.status_code == 200
     assert remote.json()["scope"] == "tailnet_only"
     assert remote.json()["public_funnel_enabled_by_matrix"] is False
+
+
+
+def test_paired_device_session_never_receives_owner_scope(runtime):
+    owner = runtime.auth.verify_token(runtime.config.owner_token)
+    pairing = runtime.auth.issue_pairing_code(owner)
+    paired = runtime.auth.pair(
+        code=pairing.code,
+        device_name="test-android",
+        platform="android",
+    )
+
+    device_principal = runtime.auth.verify_token(paired.token)
+    assert device_principal.scope == "device"
+    assert device_principal.is_owner is False
+    assert owner.scope == "owner"
+    assert owner.is_owner is True
+
+    from matrix_ai.api.routes import _require_owner
+    from matrix_ai.errors import PermissionDenied
+
+    with pytest.raises(PermissionDenied, match="Only the MATRIX owner"):
+        _require_owner(device_principal)
