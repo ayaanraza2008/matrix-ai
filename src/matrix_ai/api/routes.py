@@ -122,6 +122,7 @@ class GoalCreateBody(BaseModel):
 class ApprovalDecisionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
+
 class GoalCriteriaConfirmationBody(BaseModel):
     outcome: str = Field(pattern="^(met|not_met)$")
     reason: str = Field(min_length=8, max_length=500)
@@ -362,6 +363,7 @@ async def cancel_goal(
     if goal["task_id"] and goal["state"] in {"queued", "running"}:
         await runtime.orchestrator.cancel(goal["task_id"])
     return runtime.store.get_goal(goal_id)
+
 
 @router.post("/goals/{goal_id}/evaluate", tags=["goals"])
 async def evaluate_goal_criteria(
