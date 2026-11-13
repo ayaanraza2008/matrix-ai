@@ -18,8 +18,8 @@ import sys
 from dataclasses import dataclass, field
 from datetime import time as datetime_time
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import ConfigError
 
