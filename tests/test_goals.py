@@ -195,14 +195,14 @@ def test_schema_v2_goals_migrate_verification_metadata(tmp_path):
 
     path = tmp_path / "schema-v2.sqlite"
     initial = Database(path)
-    for column in ("deadline", "verification_status", "criteria_status", "evidence_json"):
+    for column in ("deadline", "verification_status", "criteria_status", "evidence_json", "criteria_confirmed_at", "criteria_confirmed_by", "criteria_confirmation_reason"):
         initial.execute(f"ALTER TABLE goals DROP COLUMN {column}")
     initial.execute("PRAGMA user_version=2")
     initial.close()
 
     upgraded = Database(path)
     columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goals)")}
-    assert {"deadline", "verification_status", "criteria_status", "evidence_json"} <= columns
+    assert {"deadline", "verification_status", "criteria_status", "evidence_json", "criteria_confirmed_at", "criteria_confirmed_by", "criteria_confirmation_reason"} <= columns
     assert upgraded.integrity_check() == "ok"
     upgraded.close()
 
@@ -233,17 +233,17 @@ async def test_goal_requires_owner_confirmation_after_model_assessment(client, r
         ('{"status":"verified","supporting_nodes":["report"]}', goal_id),
     )
 
-    premature = await client.post(
+    confirmed = await client.post(
         f"/api/goals/{goal_id}/confirm",
-        json={"outcome": "met", "reason": "Evidence is still pending."},
+        json={"outcome": "met", "reason": "I reviewed the evidence and confirm it."},
     )
-    assert premature.status_code == 200, premature.text
-    final = premature.json()
+    assert confirmed.status_code == 200, confirmed.text
+    final = confirmed.json()
     assert final["state"] == "completed"
     assert final["verification_status"] == "owner_confirmed"
     assert final["criteria_status"] == "owner_confirmed_met"
     assert final["criteria_confirmed_by"] == "owner"
-    assert final["criteria_confirmation_reason"] == "Evidence is still pending."
+    assert final["criteria_confirmation_reason"] == "I reviewed the evidence and confirm it."
     assert final["criteria_confirmed_at"]
 
 
