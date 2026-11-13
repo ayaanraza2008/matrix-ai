@@ -121,6 +121,23 @@ integration credentials. If Telegram is not configured, health transitions are
 still persisted and audited locally. A failed Telegram delivery is audited and
 does not stop the scheduler. Do not commit bot credentials to the repository.
 
+Optional timezone-aware quiet hours apply only to routine recovery notifications.
+Set both variables to enable the window; times use 24-hour `HH:MM` format:
+
+```powershell
+$env:MATRIX_NOTIFICATION_QUIET_HOURS_START = "22:00"
+$env:MATRIX_NOTIFICATION_QUIET_HOURS_END = "07:00"
+$env:MATRIX_NOTIFICATION_TIMEZONE = "Asia/Kolkata"
+```
+
+The quiet window supports overnight ranges. Degraded-state alerts and a newly
+activated emergency stop bypass quiet hours. Recovery messages are queued until
+quiet hours end; failed deliveries remain queued and are retried on later health
+checks. Pending state is stored locally in SQLite. The authenticated
+`GET /api/automation/status` response reports the active routing configuration
+without exposing the bot token or chat credentials. Quiet hours are disabled by
+default.
+
 This monitor cannot send an alert while the host is powered off, asleep, offline,
 or MATRIX is not running. It currently checks core service health; it does not
 claim to monitor Windows hardware, Tailscale reachability, or every third-party
