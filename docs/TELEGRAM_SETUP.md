@@ -19,7 +19,11 @@ Do not paste the bot token into chat, source control, issue comments or screensh
 - `/help` lists the supported commands.
 - `/stop` activates the emergency stop and cancels active tasks.
 
-The bridge accepts only a private chat whose chat ID and sender ID both match the configured owner ID. It ignores stale updates during startup, shares the runtime rate limiter, audits failures without storing message content, and cannot approve HIGH/CRITICAL actions. Approvals must be confirmed in the authenticated MATRIX dashboard.
+The bridge accepts only a private chat whose chat ID and sender ID both match the configured owner ID. It shares the runtime rate limiter, audits failures without storing message content, and cannot approve HIGH/CRITICAL actions. Approvals must be confirmed in the authenticated MATRIX dashboard.
+
+### Restart and delivery behavior
+
+The bridge persists the last successfully handled Telegram update ID in the local database and resumes polling from the next ID after restart. It does not deliberately discard pending owner messages at startup. If handling an update fails, the bridge does not advance the watermark, so Telegram can deliver that update again. Task creation is idempotent by Telegram update ID: a replay reuses the existing task rather than creating a duplicate. Delivery is **at-least-once**, not exactly-once; a crash around an external side effect can still require operator review. See [TELEGRAM_RELIABILITY.md](TELEGRAM_RELIABILITY.md).
 
 ## Voice and calling limits
 
