@@ -87,50 +87,71 @@ class TelegramChatBridge:
                 "disable_web_page_preview": True,
             })
 
-    async def _discard_pending_updates(self) -> None:
-        """Advance Telegram's offset while draining every pre-startup update batch."""
-        while True:
-            payload: dict[str, Any] = {"timeout": 0, "limit": 100}
-            if self._offset is not None:
-                payload["offset"] = self._offset
-            initial = await self._api("getUpdates", payload)
-            updates = initial.get("result", [])
-            if updates:
-                self._offset = max(item["update_id"] for item in updates) + 1
-            if len(updates) < 100:
-                return
+    def _restore_offset(self) -> None:
+        """Resume polling after the last update successfully handled and persisted."""
+        saved = self.store.get_flag("telegram_update_offset")
+        if saved is None:
+            self._offset = None
+            return
+        try:
+            self._offset = int(saved) + 1
+        except (TypeError, ValueError):
+            self.store.audit(
+                "telegram.offset_invalid",
+                actor="telegram",
+                status="degraded",
+                detail={"value_type": type(saved).__name__},
+            )
+            self._offset = None
 
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
+        self._restore_offset()
         try:
             while True:
                 try:
                     if not announced:
-                        # Drop old updates at startup so queued commands are not replayed.
-                        await self._discard_pending_updates()
+                        # Do not drain the queue: fresh owner messages may arrive while MATRIX restarts.
                         await self._send(
                             "MATRIX Telegram bridge is online. Send a message to create a task. "
                             "Use /status, /stop, or /help."
                         )
                         announced = True
 
-                    data = await self._api("getUpdates", {
-                        "timeout": 25, "limit": 20, "offset": self._offset,
+                    payload: dict[str, Any] = {
+                        "timeout": 25,
+                        "limit": 20,
                         "allowed_updates": ["message"],
-                    })
+                    }
+                    if self._offset is not None:
+                        payload["offset"] = self._offset
+                    data = await self._api("getUpdates", payload)
                     for update in data.get("result", []):
-                        self._offset = update["update_id"] + 1
+                        update_id = update.get("update_id")
+                        if not isinstance(update_id, int):
+                            self.store.audit(
+                                "telegram.update_invalid",
+                                actor="telegram",
+                                status="failed",
+                                detail={"reason": "missing_update_id"},
+                            )
+                            break
                         try:
                             await self._handle_update(update)
                         except asyncio.CancelledError:
                             raise
-                        except Exception as exc:  # noqa: BLE001 - isolate malformed updates
+                        except Exception as exc:  # noqa: BLE001 - retry this update before advancing
                             self.store.audit(
                                 "telegram.update_failed", actor="telegram", status="failed",
-                                detail={"error": type(exc).__name__},
+                                detail={"error": type(exc).__name__, "update_id": update_id},
                             )
                             log.warning("Telegram update failed: %s", type(exc).__name__)
+                            break
+                        # Persist only after successful handling. On restart Telegram will
+                        # replay any update newer than this durable watermark.
+                        self._offset = update_id + 1
+                        self.store.set_flag("telegram_update_offset", str(update_id))
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - transient network/API errors retry
