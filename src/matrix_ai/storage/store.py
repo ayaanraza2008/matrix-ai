@@ -169,6 +169,20 @@ class Store:
         )
         return task_id
 
+    def claim_idempotency(self, scope: str, key: str) -> bool:
+        """Atomically claim an external delivery ID so webhook retries do not duplicate tasks."""
+        if not scope or not key or len(scope) > 100 or len(key) > 512:
+            raise ValueError("idempotency scope and key must be non-empty and bounded")
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO idempotency(scope, key, result_json, created_at) VALUES(?,?,?,?)",
+                (scope, key, "{}", iso()),
+            )
+            return cursor.rowcount == 1
+
+    def release_idempotency(self, scope: str, key: str) -> None:
+        self.db.execute("DELETE FROM idempotency WHERE scope=? AND key=?", (scope, key))
+
     def get_task_row(self, task_id: str):
         row = self.db.query_one("SELECT * FROM tasks WHERE id=?", (task_id,))
         if row is None:

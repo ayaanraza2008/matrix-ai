@@ -34,8 +34,9 @@ Configure:
 - `MATRIX_WHATSAPP_ACCESS_TOKEN`
 - `MATRIX_WHATSAPP_PHONE_NUMBER_ID`
 - `MATRIX_META_GRAPH_VERSION`
+- For inbound text messages: `MATRIX_WHATSAPP_APP_SECRET`, `MATRIX_WHATSAPP_WEBHOOK_VERIFY_TOKEN`, and `MATRIX_WHATSAPP_ALLOWED_SENDERS` (semicolon-separated E.164 numbers without the plus sign).
 
-Tool: `whatsapp_send_text`. It sends one text message to an E.164 recipient and requires `MATRIX_EXTRA_SCOPES=whatsapp.write` plus exact owner approval. Recipients must have opted in. Free-form messages are subject to WhatsApp's customer-service window and policy; approved templates may be required outside it. Meta's business messaging pricing and account limits apply.
+Tools: `whatsapp_send_text` sends one text message to an E.164 recipient and requires `MATRIX_EXTRA_SCOPES=whatsapp.write` plus exact owner approval. The signed inbound webhook is available at `GET/POST /api/webhooks/whatsapp`; it verifies the GET challenge and POST `X-Hub-Signature-256`, accepts text messages only from the explicit sender allowlist, deduplicates provider message IDs, and submits them as ordinary owner tasks. It never auto-approves tool actions or sends an automatic reply. Recipients must have opted in. Free-form messages are subject to WhatsApp's customer-service window and policy; approved templates may be required outside it. Meta's business messaging pricing and account limits apply.
 
 Official guide: https://developers.facebook.com/documentation/business-messaging/whatsapp/overview
 
@@ -44,6 +45,6 @@ Official guide: https://developers.facebook.com/documentation/business-messaging
 - All public/social sends and replies are high-risk, non-idempotent actions; MATRIX requires per-action approval and never blindly retries them.
 - Provider responses must return a post/reply/message ID before MATRIX records success.
 - Tokens are read from local environment configuration and never returned in tool outputs or audit logs.
-- This PR does not implement Instagram media publishing, LinkedIn image/video uploads, WhatsApp inbound webhooks, WhatsApp template management, DMs on Instagram, or phone/PSTN calls.
-- WhatsApp inbound messages require a publicly reachable HTTPS webhook with Meta verification/signature checks. A private Tailscale-only listener is not reachable by Meta; do not expose it without a deliberate deployment and security review.
+- This PR does not implement Instagram Reels/Stories, LinkedIn image/video uploads, WhatsApp template management, DMs on Instagram, or phone/PSTN calls.
+- WhatsApp inbound messages require a publicly reachable HTTPS webhook. A private Tailscale-only listener is not reachable by Meta; use a deliberately configured HTTPS reverse proxy/tunnel and protect the host. Webhook POSTs are authenticated with the Meta app secret; sender allowlisting is mandatory.
 - Live acceptance requires owner-supplied app credentials, approved permissions and test accounts. API quotas, business eligibility and provider charges may apply.
