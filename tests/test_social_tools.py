@@ -6,10 +6,11 @@ import hmac
 import httpx
 import pytest
 
+from matrix_ai.tools.base import ToolContext
+
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import DEFAULT_SCOPES, Risk
 from matrix_ai.errors import ToolExecutionError, ToolUnavailable, ValidationFailure
-from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.social_tools import (
     InstagramListCommentsTool,
@@ -34,7 +35,6 @@ def make_context(tmp_path):
     )
     return ToolContext(task_id="social-test", config=config)
 
-
 def response(status=200, payload=None, headers=None, url="https://example.test"):
     return httpx.Response(
         status,
@@ -42,7 +42,6 @@ def response(status=200, payload=None, headers=None, url="https://example.test")
         headers=headers,
         request=httpx.Request("POST", url),
     )
-
 
 def test_social_tools_are_registered_and_writes_are_approval_gated():
     registry = build_registry()
@@ -69,7 +68,6 @@ def test_social_tools_are_registered_and_writes_are_approval_gated():
     assert "instagram.publish" not in DEFAULT_SCOPES
     assert "whatsapp.write" not in DEFAULT_SCOPES
 
-
 def test_linkedin_create_post_uses_current_posts_api_and_requires_provider_id(tmp_path, monkeypatch):
     calls = {}
 
@@ -94,7 +92,6 @@ def test_linkedin_create_post_uses_current_posts_api_and_requires_provider_id(tm
     assert result["post_id"] == "urn:li:share:98765"
     assert tool.verify(args, result).ok
 
-
 def test_linkedin_rejects_bad_author_urn(tmp_path):
     ctx = make_context(tmp_path)
     ctx.config.linkedin_author_urn = "https://linkedin.com/in/not-a-urn"
@@ -102,7 +99,6 @@ def test_linkedin_rejects_bad_author_urn(tmp_path):
         LinkedInCreatePostTool().run_sync(
             LinkedInCreatePostTool().validate({"text": "test"}), ctx
         )
-
 
 def test_instagram_lists_bounded_comment_metadata(tmp_path, monkeypatch):
     calls = {}
@@ -125,7 +121,6 @@ def test_instagram_lists_bounded_comment_metadata(tmp_path, monkeypatch):
     assert result["comments"][0]["username"] == "viewer"
     assert tool.verify(args, result).ok
 
-
 def test_instagram_reply_is_a_write_and_returns_reply_id(tmp_path, monkeypatch):
     calls = {}
 
@@ -142,7 +137,6 @@ def test_instagram_reply_is_a_write_and_returns_reply_id(tmp_path, monkeypatch):
     assert calls["data"] == {"message": "Thanks for watching!"}
     assert result["reply_id"] == "reply-12345"
     assert tool.verify(args, result).ok
-
 
 def test_whatsapp_sends_text_with_cloud_api_and_provider_message_id(tmp_path, monkeypatch):
     calls = {}
@@ -165,7 +159,6 @@ def test_whatsapp_sends_text_with_cloud_api_and_provider_message_id(tmp_path, mo
     assert result["message_id"] == "wamid.test-message"
     assert tool.verify(args, result).ok
 
-
 def test_social_tools_fail_safely_on_provider_auth_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "matrix_ai.tools.social_tools.httpx.post",
@@ -176,11 +169,9 @@ def test_social_tools_fail_safely_on_provider_auth_errors(tmp_path, monkeypatch)
             LinkedInCreatePostTool().validate({"text": "test"}), make_context(tmp_path)
         )
 
-
 def test_whatsapp_rejects_non_e164_recipient():
     with pytest.raises(ValidationFailure):
         WhatsAppSendTextTool().validate({"recipient": "123", "text": "Hello"})
-
 
 @pytest.mark.asyncio
 async def test_social_integrations_report_missing_and_configured_without_claiming_live_access(runtime):
@@ -200,7 +191,6 @@ async def test_social_integrations_report_missing_and_configured_without_claimin
         result = await runtime.integrations.get(name).safe_check()
         assert result.status == "configured"
         assert "verified" in (result.detail or "")
-
 
 def test_instagram_image_publish_uses_container_then_publish_and_requires_confirmation(tmp_path, monkeypatch):
     calls = []
@@ -228,11 +218,9 @@ def test_instagram_image_publish_uses_container_then_publish_and_requires_confir
     assert result["media_id"] == "published-456"
     assert tool.verify(args, result).ok
 
-
 def test_instagram_publish_requires_https_image_url():
     with pytest.raises(ValidationFailure):
         InstagramPublishImageTool().validate({"image_url": "http://example.com/photo.jpg"})
-
 
 @pytest.mark.asyncio
 async def test_whatsapp_webhook_verifies_challenge_and_hmac_signature(client, runtime):
@@ -278,7 +266,6 @@ async def test_whatsapp_webhook_verifies_challenge_and_hmac_signature(client, ru
     assert duplicate.status_code == 200
     assert duplicate.json()["duplicates"] == 1
 
-
 @pytest.mark.asyncio
 async def test_whatsapp_webhook_rejects_bad_signature_and_unallowlisted_sender(client, runtime):
     runtime.config.whatsapp_verify_token = "test-verify-token"
@@ -307,7 +294,6 @@ async def test_whatsapp_webhook_rejects_bad_signature_and_unallowlisted_sender(c
     assert ignored.json()["accepted"] == 0
     assert ignored.json()["ignored"] == 1
 
-
 def test_whatsapp_sends_approved_template_with_bounded_body_parameters(tmp_path, monkeypatch):
     calls = {}
 
@@ -330,7 +316,6 @@ def test_whatsapp_sends_approved_template_with_bounded_body_parameters(tmp_path,
     assert calls["json"]["template"]["components"][0]["parameters"][0]["text"] == "A-123"
     assert result["message_id"] == "wamid.template-123"
     assert tool.verify(args, result).ok
-
 
 def test_whatsapp_template_rejects_unbounded_parameters():
     with pytest.raises(ValidationFailure):
