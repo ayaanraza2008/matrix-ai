@@ -325,7 +325,7 @@ async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updat
     monkeypatch.setattr("matrix_ai.telegram.httpx.AsyncClient", lambda **_kwargs: FakeClient())
 
     async def fake_api(method, payload):
-        if method == "sendMessage":
+        if method in {"sendMessage", "setMyCommands"}:
             return {"ok": True}
         assert method == "getUpdates"
         observed_offsets.append(payload.get("offset"))
