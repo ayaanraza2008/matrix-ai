@@ -508,6 +508,14 @@ class Orchestrator:
                     "goal.recovery_error", actor="scheduler", status="failed",
                     detail={"goal_id": goal_id, "error": f"{type(exc).__name__}: {exc}"[:500]},
                 )
+        # A process may stop after claiming an assessment but before persisting
+        # its result. Reclaim that interrupted assessment on the next startup.
+        self.store.db.execute(
+            "UPDATE goals SET verification_status='task_steps_verified', updated_at=? "
+            "WHERE task_id IS NULL AND state='awaiting_verification' "
+            "AND criteria_status='not_evaluated' AND verification_status='criteria_assessing'",
+            (iso(),),
+        )
         pending_verification = self.store.db.query(
             "SELECT id FROM goals WHERE task_id IS NULL AND state='awaiting_verification' "
             "AND criteria_status='not_evaluated' ORDER BY updated_at"
