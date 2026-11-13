@@ -20,6 +20,8 @@ The recorded GitHub Actions run [#43424775584](https://github.com/ayaanraza2008/
 
 The run published `matrix-python-sbom` and `matrix-android-apks` artifacts. The APK artifact expires 2026-11-20; the SBOM artifact expires 2026-12-13. The release APK is unsigned and is not distributable.
 
+A subsequent `main` push fixed a Ruff import-order issue in `tests/test_web_and_providers.py`. Its exact run [#43437775032](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43437775032), commit `54e36d64c19276c3e1d00d0e594d4f3ebc171af8`, completed successfully with **7/7 jobs passing** across Windows/Ubuntu Python 3.11/3.12, Android debug/release assembly, Astryx frontend and dependency audit. The README web-fetch default was also corrected to `false` in a later documentation-only commit; that commit's own CI run must be checked separately before treating it as validated.
+
 Integrated repository capabilities include:
 - Private Tailscale Serve and current-user Windows logon startup (opt-in)
 - Owner-paired private Telegram chat, persistent update cursor, idempotent task creation, shared rate limits and emergency stop
