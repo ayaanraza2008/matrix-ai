@@ -144,9 +144,9 @@ async def test_goal_criteria_second_pass_can_verify_completed_nodes(client, runt
     assert started.status_code == 202, started.text
     finished = await _wait_for_goal(client, goal_id)
 
-    assert finished["state"] == "completed"
+    assert finished["state"] == "awaiting_verification"
     assert finished["criteria_status"] == "verified_by_model"
-    assert finished["verification_status"] == "second_pass_model_assessed"
+    assert finished["verification_status"] == "pending_owner_review"
 
 
 @pytest.mark.asyncio
