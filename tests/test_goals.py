@@ -274,7 +274,7 @@ async def test_model_criteria_review_is_only_a_candidate_until_owner_confirms(cl
 
 
 @pytest.mark.asyncio
-async def test_goal_criteria_confirmation_requires_review_and_is_owner_scoped(client, runtime):
+async def test_goal_criteria_can_be_owner_confirmed_without_a_model_review(client, runtime):
     goal_id = runtime.store.create_goal(
         owner_id="owner", title="Private goal", success_criteria="Complete the task"
     )
@@ -285,20 +285,13 @@ async def test_goal_criteria_confirmation_requires_review_and_is_owner_scoped(cl
     runtime.store.update_task(task_id, state="COMPLETE", evidence_json='{"verified":true}')
     runtime.store.sync_goal_for_task(task_id)
 
-    premature = await client.post(
+    confirmed = await client.post(
         f"/api/goals/{goal_id}/confirm",
-        json={"outcome": "met", "reason": "I checked it carefully."},
+        json={"outcome": "not_met", "reason": "The required output is missing."},
     )
-    assert premature.status_code == 409
-
-    runtime.store.save_goal_criteria_review(
-        goal_id,
-        {"outcome": "unclear", "confidence": 0.4, "rationale": "Insufficient detail", "evidence": [], "missing_evidence": ["specific output"]},
-    )
-    runtime.store.confirm_goal_criteria(
-        goal_id, owner_id="owner", outcome="not_met", reason="The required output is missing."
-    )
-    assert runtime.store.get_goal(goal_id)["state"] == "needs_attention"
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["state"] == "needs_attention"
+    assert confirmed.json()["criteria_review"]["outcome"] == "owner_manual"
 
     with pytest.raises(NotFoundError):
         runtime.store.confirm_goal_criteria(
