@@ -277,6 +277,78 @@ class WhatsAppSendTextInput(StrictModel):
     text: str = Field(min_length=1, max_length=4096)
 
 
+class WhatsAppSendTemplateInput(StrictModel):
+    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\+?[1-9][0-9]{7,14}$")
+    template_name: str = Field(min_length=1, max_length=512, pattern=r"^[a-z0-9_]+$")
+    language_code: str = Field(default="en_US", pattern=r"^[a-z]{2}_[A-Z]{2}$")
+    body_parameters: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("body_parameters")
+    @classmethod
+    def _bound_template_parameters(cls, values: list[str]) -> list[str]:
+        if any(len(value) > 1024 for value in values):
+            raise ValueError("template body parameters must be at most 1024 characters")
+        return values
+
+
+class WhatsAppSendTemplateTool(Tool):
+    name = "whatsapp_send_template"
+    description = "Send an approved WhatsApp Business message template to an opted-in recipient. Requires exact owner approval."
+    permission_scope = "whatsapp.write"
+    risk = Risk.HIGH
+    idempotent = False
+    timeout_seconds = 25
+    input_model = WhatsAppSendTemplateInput
+
+    def run_sync(self, args: WhatsAppSendTemplateInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
+        token = ctx.config.whatsapp_access_token
+        phone_id = ctx.config.whatsapp_phone_number_id
+        version = ctx.config.meta_graph_version
+        if not token or not phone_id or not version:
+            raise ToolUnavailable(
+                "WhatsApp Cloud API is not configured. Set MATRIX_WHATSAPP_ACCESS_TOKEN, "
+                "MATRIX_WHATSAPP_PHONE_NUMBER_ID and MATRIX_META_GRAPH_VERSION."
+            )
+        if not _META_ID.fullmatch(phone_id) or not _GRAPH_VERSION.fullmatch(version):
+            raise ToolExecutionError("WhatsApp phone-number ID or Meta Graph API version is invalid.")
+        template: dict[str, Any] = {
+            "name": args.template_name,
+            "language": {"code": args.language_code},
+        }
+        if args.body_parameters:
+            template["components"] = [{
+                "type": "body",
+                "parameters": [{"type": "text", "text": value} for value in args.body_parameters],
+            }]
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": args.recipient.lstrip("+"),
+            "type": "template",
+            "template": template,
+        }
+        try:
+            response = httpx.post(
+                f"https://graph.facebook.com/{version}/{phone_id}/messages",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("WhatsApp", exc) from exc
+        result = _response_json(response, "WhatsApp")
+        messages = result.get("messages")
+        message_id = messages[0].get("id") if isinstance(messages, list) and messages and isinstance(messages[0], dict) else None
+        if not message_id:
+            raise ToolExecutionError("WhatsApp did not confirm a template message ID.")
+        return {"message_id": str(message_id), "recipient": args.recipient.lstrip("+"), "template": args.template_name}
+
+    def verify(self, args: WhatsAppSendTemplateInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = bool(output.get("message_id") and output.get("recipient") == args.recipient.lstrip("+"))
+        return VerificationEvidence(ok=ok, confidence=0.98 if ok else 0.0, checks=["whatsapp_template_message_id_returned"])
+
+
 class WhatsAppSendTextTool(Tool):
     name = "whatsapp_send_text"
     description = "Send a WhatsApp Business Platform text message to an opted-in recipient. Requires exact owner approval."

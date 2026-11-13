@@ -16,6 +16,7 @@ from matrix_ai.tools.social_tools import (
     InstagramPublishImageTool,
     InstagramReplyCommentTool,
     LinkedInCreatePostTool,
+    WhatsAppSendTemplateTool,
     WhatsAppSendTextTool,
 )
 
@@ -305,3 +306,36 @@ async def test_whatsapp_webhook_rejects_bad_signature_and_unallowlisted_sender(c
     assert ignored.status_code == 200
     assert ignored.json()["accepted"] == 0
     assert ignored.json()["ignored"] == 1
+
+
+def test_whatsapp_sends_approved_template_with_bounded_body_parameters(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.update(url=url, json=json)
+        return response(payload={"messages": [{"id": "wamid.template-123"}]}, url=url)
+
+    monkeypatch.setattr("matrix_ai.tools.social_tools.httpx.post", fake_post)
+    tool = WhatsAppSendTemplateTool()
+    args = tool.validate({
+        "recipient": "+919876543210",
+        "template_name": "order_update",
+        "language_code": "en_US",
+        "body_parameters": ["A-123", "shipped"],
+    })
+    result = tool.run_sync(args, make_context(tmp_path))
+
+    assert calls["json"]["type"] == "template"
+    assert calls["json"]["template"]["name"] == "order_update"
+    assert calls["json"]["template"]["components"][0]["parameters"][0]["text"] == "A-123"
+    assert result["message_id"] == "wamid.template-123"
+    assert tool.verify(args, result).ok
+
+
+def test_whatsapp_template_rejects_unbounded_parameters():
+    with pytest.raises(ValidationFailure):
+        WhatsAppSendTemplateTool().validate({
+            "recipient": "+919876543210",
+            "template_name": "order_update",
+            "body_parameters": ["x" * 1025],
+        })

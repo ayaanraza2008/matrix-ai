@@ -263,3 +263,32 @@ def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
 
     auth._persist_credentials(runtime.config, Credentials())
     assert auth.has_youtube_credentials(runtime.config)
+
+
+def test_public_config_reports_youtube_keyring_state_not_legacy_file(runtime, monkeypatch):
+    import matrix_ai.integrations.youtube_auth as auth
+
+    class SecureKeyring:
+        __module__ = "keyring.backends.Windows"
+        priority = 1
+        values = {}
+
+        @classmethod
+        def get_password(cls, service, username):
+            return cls.values.get((service, username))
+
+        @classmethod
+        def set_password(cls, service, username, value):
+            cls.values[(service, username)] = value
+
+    class FakeKeyringModule:
+        @staticmethod
+        def get_keyring():
+            return SecureKeyring()
+
+        get_password = SecureKeyring.get_password
+        set_password = SecureKeyring.set_password
+
+    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
+    SecureKeyring.values[(auth._KEYRING_SERVICE, auth._credential_user(runtime.config))] = '{"token":"test"}'
+    assert runtime.config.public_dict()["integrations_configured"]["youtube"] is True
