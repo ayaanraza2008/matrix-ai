@@ -110,6 +110,13 @@ class JobToggleBody(BaseModel):
     enabled: bool
 
 
+class GoalCreateBody(BaseModel):
+    title: str = Field(min_length=1, max_length=2000)
+    success_criteria: str = Field(default="Complete the goal and verify the outcome.", min_length=1, max_length=2000)
+    autonomy_level: int | None = Field(default=None, ge=0, le=4)
+    deadline_seconds: float = Field(default=900.0, ge=1.0, le=86400.0)
+
+
 class ApprovalDecisionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
@@ -269,6 +276,74 @@ async def deny_action(
         detail={"approval_id": approval_id, "reason": (body.reason if body else None)},
     )
     return view
+
+
+# ---------------------------------------------------------------------------
+# durable goals
+# ---------------------------------------------------------------------------
+@router.post("/goals", status_code=202, tags=["goals"])
+async def create_goal(
+    body: GoalCreateBody, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal_id = runtime.store.create_goal(
+        owner_id=principal.user_id,
+        title=body.title,
+        success_criteria=body.success_criteria,
+        deadline_seconds=min(body.deadline_seconds, runtime.config.task_deadline_seconds),
+    )
+    try:
+        task_id = runtime.orchestrator.create_task(
+            request=f"Goal: {body.title}\nSuccess criteria: {body.success_criteria}",
+            user_id=principal.user_id,
+            autonomy_level=body.autonomy_level,
+            kind="goal",
+            goal_id=goal_id,
+            deadline_seconds=body.deadline_seconds,
+        )
+        runtime.store.attach_goal_task(goal_id, task_id)
+        await runtime.orchestrator.enqueue(task_id)
+    except Exception:
+        runtime.store.fail_goal_start(goal_id, "MATRIX could not start this goal; inspect system health and retry.")
+        runtime.store.audit(
+            "goal.start_failed", actor=principal.user_id, status="failed",
+            detail={"goal_id": goal_id},
+        )
+        raise
+    runtime.store.audit(
+        "goal.created", actor=principal.user_id, task_id=task_id, status="running",
+        detail={"goal_id": goal_id},
+    )
+    return runtime.store.get_goal(goal_id)
+
+
+@router.get("/goals", tags=["goals"])
+async def list_goals(
+    principal: PrincipalDep, runtime: RuntimeDep,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[dict[str, Any]]:
+    return runtime.store.list_goals(owner_id=principal.user_id, limit=limit)
+
+
+@router.get("/goals/{goal_id}", tags=["goals"])
+async def get_goal(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    return goal
+
+
+@router.post("/goals/{goal_id}/cancel", tags=["goals"])
+async def cancel_goal(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    if goal["task_id"] and goal["state"] in {"queued", "running"}:
+        await runtime.orchestrator.cancel(goal["task_id"])
+    return runtime.store.get_goal(goal_id)
 
 
 # ---------------------------------------------------------------------------
