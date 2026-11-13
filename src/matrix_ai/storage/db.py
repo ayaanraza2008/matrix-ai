@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     summary TEXT,
     error TEXT,
     evidence_json TEXT,
+    criteria_review_json TEXT,
+    criteria_reviewed_at TEXT,
+    criteria_confirmed_at TEXT,
+    criteria_confirmed_by TEXT,
+    criteria_confirmation_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deadline TEXT,
@@ -260,6 +265,16 @@ class Database:
                         self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {declaration}")
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id)")
                 self._ensure_fts()
+                goal_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()}
+                for name, declaration in (
+                    ("criteria_review_json", "TEXT"),
+                    ("criteria_reviewed_at", "TEXT"),
+                    ("criteria_confirmed_at", "TEXT"),
+                    ("criteria_confirmed_by", "TEXT"),
+                    ("criteria_confirmation_reason", "TEXT"),
+                ):
+                    if name not in goal_columns:
+                        self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {declaration}")
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def _ensure_fts(self) -> None:
