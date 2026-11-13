@@ -299,6 +299,35 @@ class Store:
         result["task"] = self._task_summary(self.get_task_row(row["task_id"])) if row["task_id"] else None
         return result
 
+    def confirm_goal_criteria(
+        self, goal_id: str, *, owner_id: str, outcome: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist the owner's final decision; model assessment is never final authority."""
+        goal = self.get_goal(goal_id)
+        if goal["owner_id"] != owner_id:
+            raise NotFoundError(f"goal {goal_id} not found")
+        if goal["state"] != "awaiting_verification":
+            raise ValueError("only goals awaiting verification can be owner-confirmed")
+        if outcome not in {"met", "not_met"}:
+            raise ValueError("outcome must be met or not_met")
+        if len(reason.strip()) < 8:
+            raise ValueError("confirmation reason must contain at least 8 characters")
+        final_state = "completed" if outcome == "met" else "partial"
+        criteria_status = "owner_confirmed_met" if outcome == "met" else "owner_confirmed_not_met"
+        cursor = self.db.execute(
+            "UPDATE goals SET state=?, verification_status='owner_confirmed', criteria_status=?, "
+            "criteria_confirmed_at=?, criteria_confirmed_by=?, criteria_confirmation_reason=?, "
+            "updated_at=?, finished_at=? "
+            "WHERE id=? AND owner_id=? AND state='awaiting_verification'",
+            (
+                final_state, criteria_status, iso(), owner_id, reason.strip()[:500],
+                iso(), iso(), goal_id, owner_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("goal changed before confirmation; reload and retry")
+        return self.get_goal(goal_id)
+
     def list_goals(self, *, owner_id: str, limit: int = 50) -> list[dict[str, Any]]:
         limit = max(1, min(limit, 200))
         rows = self.db.query(
