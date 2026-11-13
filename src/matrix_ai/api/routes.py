@@ -46,6 +46,12 @@ from ..runtime import MatrixRuntime
 router = APIRouter(prefix="/api")
 
 
+class NotificationPreferencesUpdate(BaseModel):
+    health_recovered: bool | None = None
+    daily_digest: bool | None = None
+
+
+
 # ---------------------------------------------------------------------------
 # dependencies
 # ---------------------------------------------------------------------------
@@ -497,6 +503,26 @@ async def list_notifications(
 ) -> dict[str, Any]:
     items = runtime.store.list_notifications(limit=limit, unread_only=unread_only)
     return {"notifications": items, "unread_count": sum(not item.get("read", False) for item in runtime.store.list_notifications(limit=100))}
+
+
+@router.get("/notifications/preferences", tags=["notifications"])
+async def get_notification_preferences(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, bool]:
+    return runtime.store.notification_preferences()
+
+
+@router.put("/notifications/preferences", tags=["notifications"])
+async def update_notification_preferences(
+    body: NotificationPreferencesUpdate, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, bool]:
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise ValueError("at least one notification preference must be supplied")
+    preferences = runtime.store.set_notification_preferences(updates)
+    runtime.store.audit(
+        "notification.preferences_updated", actor=principal.user_id, status="updated",
+        detail={"preferences": preferences},
+    )
+    return preferences
 
 
 @router.post("/notifications/{notification_id}/read", tags=["notifications"])
