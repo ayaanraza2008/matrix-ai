@@ -244,12 +244,38 @@ class TelegramChatBridge:
             )
         return restored
 
+    async def _register_commands(self) -> None:
+        """Publish the supported owner-chat command menu in Telegram clients."""
+        commands = [
+            {"command": "start", "description": "Connect to MATRIX"},
+            {"command": "help", "description": "Show Telegram controls"},
+            {"command": "status", "description": "Show system and task status"},
+            {"command": "tasks", "description": "List recent Telegram tasks"},
+            {"command": "task", "description": "Inspect a task by ID"},
+            {"command": "cancel", "description": "Cancel a Telegram task by ID"},
+            {"command": "stop", "description": "Activate emergency stop"},
+            {"command": "resume", "description": "Clear emergency stop"},
+        ]
+        try:
+            await self._api("setMyCommands", {"commands": commands})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - command menu is useful but not required for polling
+            self.store.audit(
+                "telegram.command_menu_failed",
+                actor="telegram",
+                status="degraded",
+                detail={"error": type(exc).__name__},
+            )
+            log.warning("Telegram command menu could not be registered: %s", type(exc).__name__)
+
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
         try:
             self._restore_offset()
             self._restore_pending_reports()
+            await self._register_commands()
             while True:
                 try:
                     if not announced:
