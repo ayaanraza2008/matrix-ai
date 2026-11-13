@@ -50,7 +50,7 @@ This is strong repository/CI evidence. It is not a substitute for a fresh instal
 | Provider OAuth | Least-privilege consent and live read/write tests for each provider actually enabled | Owner accounts and credentials required |
 | WhatsApp inbound | Public HTTPS callback, Meta verification, HMAC, sender allowlist and replay test | Public endpoint and Meta app required |
 | Operations | Backup/restore, audit retention, monitoring, incident response and rollback rehearsal | Deployment environment required |
-| Security | Close or explicitly accept documented DNS-rebinding/TOCTOU risk; review local DB encryption, token storage and supply-chain posture | Security sign-off required |
+| Security | Close or explicitly accept documented DNS-rebinding/TOCTOU ([tracked in issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74)) risk; review local DB encryption, token storage and supply-chain posture | Security sign-off required |
 
 ## Important limitations
 
