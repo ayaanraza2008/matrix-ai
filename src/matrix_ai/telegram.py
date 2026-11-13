@@ -129,16 +129,8 @@ class TelegramChatBridge:
                     data = await self._api("getUpdates", payload)
                     for update in data.get("result", []):
                         update_id = update.get("update_id")
-                        if not isinstance(update_id, int):
-                            self.store.audit(
-                                "telegram.update_invalid",
-                                actor="telegram",
-                                status="failed",
-                                detail={"reason": "missing_update_id"},
-                            )
-                            break
                         try:
-                            await self._handle_update(update)
+                            await self._process_update(update)
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:  # noqa: BLE001 - retry this update before advancing
@@ -148,10 +140,6 @@ class TelegramChatBridge:
                             )
                             log.warning("Telegram update failed: %s", type(exc).__name__)
                             break
-                        # Persist only after successful handling. On restart Telegram will
-                        # replay any update newer than this durable watermark.
-                        self._offset = update_id + 1
-                        self.store.set_flag("telegram_update_offset", str(update_id))
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - transient network/API errors retry
@@ -165,6 +153,15 @@ class TelegramChatBridge:
             if self._client:
                 await self._client.aclose()
                 self._client = None
+
+    async def _process_update(self, update: dict[str, Any]) -> None:
+        """Handle one update, then persist its watermark only after success."""
+        update_id = update.get("update_id")
+        if not isinstance(update_id, int):
+            raise ValueError("Telegram update is missing a valid update_id")
+        await self._handle_update(update)
+        self._offset = update_id + 1
+        self.store.set_flag("telegram_update_offset", str(update_id))
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message") or {}
