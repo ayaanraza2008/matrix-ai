@@ -198,9 +198,11 @@ async def test_task_creation_deduplicates_replayed_telegram_update(runtime):
         "source_update_id": "telegram:987654",
     }
     first = runtime.orchestrator.create_task(**kwargs)
+    runtime.store.set_emergency_stop(True)
     second = runtime.orchestrator.create_task(**kwargs)
 
     assert first == second
+    runtime.store.set_emergency_stop(False)
     rows = runtime.db.query(
         "SELECT id FROM tasks WHERE source_update_id=?", ("telegram:987654",)
     )
