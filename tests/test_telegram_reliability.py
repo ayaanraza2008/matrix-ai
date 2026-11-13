@@ -166,3 +166,28 @@ async def test_replayed_running_task_restarts_telegram_result_reporting():
     await asyncio.sleep(0)
 
     assert reports == ["existing-task"]
+
+
+
+def test_telegram_task_index_is_scoped_and_bounded(runtime):
+    telegram_kwargs = {
+        "request": "Telegram task",
+        "user_id": "owner",
+        "kind": "chat",
+        "idempotency_scope": "telegram.update",
+        "idempotency_key": "update-telegram-1",
+    }
+    dashboard_kwargs = {
+        "request": "Dashboard task",
+        "user_id": "owner",
+        "kind": "chat",
+    }
+
+    telegram_task = runtime.orchestrator.create_task(**telegram_kwargs)
+    dashboard_task = runtime.orchestrator.create_task(**dashboard_kwargs)
+
+    assert runtime.store.is_idempotent_task("telegram.update", telegram_task)
+    assert not runtime.store.is_idempotent_task("telegram.update", dashboard_task)
+    assert not runtime.store.is_idempotent_task("other.scope", telegram_task)
+    assert telegram_task in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
+    assert dashboard_task not in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
