@@ -288,12 +288,22 @@ class Orchestrator:
             ):
                 defer(f"node_{node['node_id']}_lacks_verified_task_evidence")
                 return
+            calls = self.store.tool_calls_for(str(node["task_id"]))
             evidence.append({
                 "node_id": str(node["node_id"]),
                 "node_title": str(node["title"])[:300],
                 "task_state": task["state"],
                 "task_summary": str(task["summary"] or "")[:1000],
                 "task_evidence": task_evidence,
+                "tool_checks": [
+                    {
+                        "tool": call.tool_name,
+                        "status": call.status.value,
+                        "checks": call.evidence.checks if call.evidence else [],
+                        "confidence": call.evidence.confidence if call.evidence else 0,
+                    }
+                    for call in calls
+                ],
             })
 
         messages = [
