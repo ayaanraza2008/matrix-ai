@@ -108,7 +108,7 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_HEXSTRIKE_ALLOWED_TARGETS` | empty | Exact owner-approved hosts/IPs; HexStrike target tools are blocked until set |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
-| `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool (SSRF-guarded) |
+| `MATRIX_ALLOW_WEB_FETCH` | `false` | Public-page research tool; disabled by default until PR #75 receives independent security review and is merged |
 | `MATRIX_GITHUB_TOKEN`, `MATRIX_TELEGRAM_*`, `MATRIX_HOME_ASSISTANT_*`, `MATRIX_TWILIO_*` | unset | Optional integrations |
 
 ---
