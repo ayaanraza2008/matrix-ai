@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+
 import httpx
 import pytest
 
@@ -252,9 +255,6 @@ async def test_whatsapp_webhook_verifies_challenge_and_hmac_signature(client, ru
         b'"value":{"messages":[{"from":"919876543210","id":"wamid.test-1","type":"text",'
         b'"text":{"body":"Check my task status"}}]}}]}]}'
     )
-    import hashlib
-    import hmac
-
     signature = "sha256=" + hmac.new(b"test-app-secret", raw, hashlib.sha256).hexdigest()
     received = await client.post(
         "/api/webhooks/whatsapp",
