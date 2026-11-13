@@ -159,6 +159,20 @@ class Scheduler:
         return local_now >= quiet_start or local_now < quiet_end
 
     def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
+        # Keep a local, authenticated inbox even when no push channel is configured.
+        if hasattr(self.store, "create_notification"):
+            urgent = state == "degraded"
+            title = "MATRIX needs attention" if urgent else "MATRIX recovered"
+            message = (
+                f"Database: {components['database']}; Local model: {components['model']}; "
+                f"Emergency stop: {components['emergency_stop']}"
+            )
+            self.store.create_notification(
+                title=title,
+                message=message,
+                severity="critical" if components.get("emergency_stop") == "active" else ("warning" if urgent else "success"),
+                event_type="health.degraded" if urgent else "health.recovered",
+            )
         if not self.config.telegram_bot_token or not self.config.telegram_chat_id:
             return
         raw = self.store.get_flag("pending_health_notifications", "[]")
