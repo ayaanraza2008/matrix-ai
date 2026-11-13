@@ -33,10 +33,10 @@ ALLOWED_CONTENT_TYPES = (
     "application/json",
     "application/xml",
 )
-_SCRIPT_BLOCKS = re.compile(r"(?is)<(script|style|noscript|svg|iframe)[^>]*>.*?</\\1>")
+_SCRIPT_BLOCKS = re.compile(r"(?is)<(script|style|noscript|svg|iframe)[^>]*>.*?</\1>")
 _TAGS = re.compile(r"(?s)<[^>]+>")
 _TITLE = re.compile(r"(?is)<title[^>]*>(.*?)</title>")
-_BLANKS = re.compile(r"\\n{3,}")
+_BLANKS = re.compile(r"\n{3,}")
 
 Resolver = Callable[..., list]
 
@@ -129,12 +129,12 @@ def _fetch_from_pinned_address(
         if port != (443 if parsed.scheme == "https" else 80):
             host_header = f"{host_header}:{port}"
         request = (
-            f"GET {path} HTTP/1.1\\r\\n"
-            f"Host: {host_header}\\r\\n"
-            "User-Agent: MATRIX/0.1 (+local-first assistant)\\r\\n"
-            "Accept: text/html,text/plain\\r\\n"
-            "Accept-Encoding: identity\\r\\n"
-            "Connection: close\\r\\n\\r\\n"
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host_header}\r\n"
+            "User-Agent: MATRIX/0.1 (+local-first assistant)\r\n"
+            "Accept: text/html,text/plain\r\n"
+            "Accept-Encoding: identity\r\n"
+            "Connection: close\r\n\r\n"
         ).encode("ascii")
         sock.sendall(request)
         response = http.client.HTTPResponse(sock)
@@ -177,10 +177,10 @@ def fetch_pinned(
 
 def html_to_text(raw: str) -> str:
     without_scripts = _SCRIPT_BLOCKS.sub(" ", raw)
-    replaced = re.sub(r"(?i)<(br|/p|/div|/li|/h[1-6])[^>]*>", "\\n", without_scripts)
+    replaced = re.sub(r"(?i)<(br|/p|/div|/li|/h[1-6])[^>]*>", "\n", without_scripts)
     text = _TAGS.sub(" ", replaced)
     text = html_module.unescape(text)
-    return _BLANKS.sub("\\n\\n", text).strip()
+    return _BLANKS.sub("\n\n", text).strip()
 
 
 def extract_title(raw: str) -> str | None:
