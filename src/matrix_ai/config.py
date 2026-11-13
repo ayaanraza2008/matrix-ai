@@ -173,6 +173,9 @@ class MatrixConfig:
     instagram_user_id: str | None = None
     whatsapp_access_token: str | None = None
     whatsapp_phone_number_id: str | None = None
+    whatsapp_app_secret: str | None = None
+    whatsapp_verify_token: str | None = None
+    whatsapp_allowed_senders: tuple[str, ...] = ()
     meta_graph_version: str | None = None
 
     def __post_init__(self) -> None:
@@ -193,6 +196,11 @@ class MatrixConfig:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
         self.additional_scopes = tuple(sorted(set(self.additional_scopes)))
+        self.whatsapp_allowed_senders = tuple(
+            sorted({sender.strip().lstrip("+") for sender in self.whatsapp_allowed_senders if sender.strip()})
+        )
+        if any(not re.fullmatch(r"[1-9][0-9]{7,14}", sender) for sender in self.whatsapp_allowed_senders):
+            raise ConfigError("MATRIX_WHATSAPP_ALLOWED_SENDERS must contain E.164 numbers separated by semicolons")
         if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
             raise ConfigError("MATRIX_EXTRA_SCOPES entries must use domain.action format; wildcard is not allowed")
         if self.youtube_token_path is None:
@@ -328,5 +336,12 @@ class MatrixConfig:
             instagram_user_id=_env("MATRIX_INSTAGRAM_USER_ID"),
             whatsapp_access_token=_env("MATRIX_WHATSAPP_ACCESS_TOKEN"),
             whatsapp_phone_number_id=_env("MATRIX_WHATSAPP_PHONE_NUMBER_ID"),
+            whatsapp_app_secret=_env("MATRIX_WHATSAPP_APP_SECRET"),
+            whatsapp_verify_token=_env("MATRIX_WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
+            whatsapp_allowed_senders=tuple(
+                part.strip().lstrip("+")
+                for part in (_env("MATRIX_WHATSAPP_ALLOWED_SENDERS", "") or "").split(";")
+                if part.strip()
+            ),
             meta_graph_version=_env("MATRIX_META_GRAPH_VERSION"),
         )
