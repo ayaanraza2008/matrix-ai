@@ -384,6 +384,40 @@ class Store:
             (iso(), goal_id),
         )
 
+    def pause_goal_graph(self, goal_id: str) -> bool:
+        """Atomically close the dispatch gate without interrupting active node tasks."""
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT state, task_id FROM goals WHERE id=?", (goal_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"goal {goal_id} not found")
+            if row["task_id"] is not None or row["state"] not in {"planned", "running"}:
+                return False
+            cursor = conn.execute(
+                "UPDATE goals SET state='paused', updated_at=? "
+                "WHERE id=? AND task_id IS NULL AND state IN ('planned','running')",
+                (iso(), goal_id),
+            )
+            return cursor.rowcount == 1
+
+    def resume_goal_graph(self, goal_id: str) -> bool:
+        """Re-open dispatch only for a goal explicitly paused by its owner."""
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT state, task_id FROM goals WHERE id=?", (goal_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"goal {goal_id} not found")
+            if row["task_id"] is not None or row["state"] != "paused":
+                return False
+            cursor = conn.execute(
+                "UPDATE goals SET state='running', updated_at=? "
+                "WHERE id=? AND task_id IS NULL AND state='paused'",
+                (iso(), goal_id),
+            )
+            return cursor.rowcount == 1
+
     def claim_goal_node(self, goal_id: str, node_id: str, *, limit: int = 4) -> bool:
         """Atomically reserve one dependency-ready node within the per-goal concurrency bound."""
         from ..core.goal_graph import MAX_PARALLEL_READY
@@ -552,7 +586,7 @@ class Store:
         with self.db.transaction() as conn:
             conn.execute(
                 "UPDATE goals SET state='cancelling', updated_at=? "
-                "WHERE id=? AND state IN ('planned','running') AND task_id IS NULL",
+                "WHERE id=? AND state IN ('planned','running','paused') AND task_id IS NULL",
                 (iso(), goal_id),
             )
             conn.execute(
