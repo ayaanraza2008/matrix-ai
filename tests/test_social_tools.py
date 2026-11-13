@@ -228,3 +228,75 @@ def test_instagram_image_publish_uses_container_then_publish_and_requires_confir
 def test_instagram_publish_requires_https_image_url():
     with pytest.raises(ValidationFailure):
         InstagramPublishImageTool().validate({"image_url": "http://example.com/photo.jpg"})
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_webhook_verifies_challenge_and_hmac_signature(client, runtime):
+    runtime.config.whatsapp_verify_token = "test-verify-token"
+    runtime.config.whatsapp_app_secret = "test-app-secret"
+    runtime.config.whatsapp_allowed_senders = ("919876543210",)
+
+    handshake = await client.get(
+        "/api/webhooks/whatsapp",
+        params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "test-verify-token",
+            "hub.challenge": "challenge-123",
+        },
+    )
+    assert handshake.status_code == 200
+    assert handshake.text == "challenge-123"
+
+    raw = (
+        b'{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages",'
+        b'"value":{"messages":[{"from":"919876543210","id":"wamid.test-1","type":"text",'
+        b'"text":{"body":"Check my task status"}}]}}]}]}'
+    )
+    import hashlib
+    import hmac
+
+    signature = "sha256=" + hmac.new(b"test-app-secret", raw, hashlib.sha256).hexdigest()
+    received = await client.post(
+        "/api/webhooks/whatsapp",
+        content=raw,
+        headers={"X-Hub-Signature-256": signature, "Content-Type": "application/json"},
+    )
+    assert received.status_code == 200, received.text
+    assert received.json()["accepted"] == 1
+
+    duplicate = await client.post(
+        "/api/webhooks/whatsapp",
+        content=raw,
+        headers={"X-Hub-Signature-256": signature, "Content-Type": "application/json"},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicates"] == 1
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_webhook_rejects_bad_signature_and_unallowlisted_sender(client, runtime):
+    runtime.config.whatsapp_verify_token = "test-verify-token"
+    runtime.config.whatsapp_app_secret = "test-app-secret"
+    runtime.config.whatsapp_allowed_senders = ("919876543210",)
+    raw = b'{"object":"whatsapp_business_account","entry":[]}'
+    bad = await client.post(
+        "/api/webhooks/whatsapp",
+        content=raw,
+        headers={"X-Hub-Signature-256": "sha256=invalid"},
+    )
+    assert bad.status_code == 401
+
+    other = (
+        b'{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages",'
+        b'"value":{"messages":[{"from":"14155552671","id":"wamid.other","type":"text",'
+        b'"text":{"body":"do something"}}]}}]}]}'
+    )
+    signature = "sha256=" + hmac.new(b"test-app-secret", other, hashlib.sha256).hexdigest()
+    ignored = await client.post(
+        "/api/webhooks/whatsapp",
+        content=other,
+        headers={"X-Hub-Signature-256": signature},
+    )
+    assert ignored.status_code == 200
+    assert ignored.json()["accepted"] == 0
+    assert ignored.json()["ignored"] == 1
