@@ -205,6 +205,31 @@ class Store:
         task_id = result.get("task_id") if isinstance(result, dict) else None
         return task_id if isinstance(task_id, str) and task_id else None
 
+    def is_idempotent_task(self, scope: str, task_id: str) -> bool:
+        """Return whether a task belongs to a specific idempotency scope."""
+        row = self.db.query_one(
+            "SELECT 1 FROM idempotency WHERE scope=? AND result_json=? LIMIT 1",
+            (scope, canonical_json({"task_id": task_id})),
+        )
+        return row is not None
+
+    def list_idempotent_task_ids(self, scope: str, *, limit: int = 20) -> list[str]:
+        """List recent task IDs created through one idempotency scope."""
+        limit = max(1, min(int(limit), 500))
+        rows = self.db.query(
+            "SELECT result_json FROM idempotency WHERE scope=? ORDER BY created_at DESC LIMIT ?",
+            (scope, limit),
+        )
+        task_ids: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            result = _json_load(row["result_json"], {})
+            task_id = result.get("task_id") if isinstance(result, dict) else None
+            if isinstance(task_id, str) and task_id and task_id not in seen:
+                task_ids.append(task_id)
+                seen.add(task_id)
+        return task_ids
+
     def get_system_flag(self, name: str, default: str | None = None) -> str | None:
         """Read a small durable runtime cursor or setting."""
         row = self.db.query_one("SELECT value FROM system_flags WHERE name=?", (name,))
