@@ -15,7 +15,7 @@ import socket
 import ssl
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from pydantic import Field
 
@@ -102,6 +102,7 @@ def _fetch_from_pinned_address(
     family = socket.AF_INET6 if ip.version == 6 else socket.AF_INET
     raw_sock = socket.socket(family, socket.SOCK_STREAM)
     response: http.client.HTTPResponse | None = None
+    connected_sock: socket.socket = raw_sock
     try:
         raw_sock.settimeout(timeout)
         target = (str(ip), port, 0, 0) if ip.version == 6 else (str(ip), port)
@@ -117,9 +118,16 @@ def _fetch_from_pinned_address(
             # the original hostname preserves SNI and certificate identity checks.
             context = ssl.create_default_context()
             sock = context.wrap_socket(raw_sock, server_hostname=host)
+            connected_sock = sock
+        path = quote(parsed.path or "/", safe="/%:@!            sock = context.wrap_socket(raw_sock, server_hostname=host)
         path = parsed.path or "/"
         if parsed.query:
-            path += "?" + parsed.query
+            path += "?" + parsed.query'()*+,;=-._~")
+        if parsed.query:
+            path += "?" + quote(parsed.query, safe="/?%:@!            sock = context.wrap_socket(raw_sock, server_hostname=host)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query'()*+,;=-._~")
         try:
             host_header = host.encode("idna").decode("ascii")
         except UnicodeError as exc:
@@ -147,7 +155,7 @@ def _fetch_from_pinned_address(
     finally:
         if response is not None:
             response.close()
-        raw_sock.close()
+        connected_sock.close()
 
 
 def fetch_pinned(
