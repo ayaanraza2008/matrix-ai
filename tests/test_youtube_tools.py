@@ -15,6 +15,7 @@ from matrix_ai.errors import ToolExecutionError
 from matrix_ai.integrations.youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service, connect_youtube
 from matrix_ai.tools.base import ToolContext
 
+
 class FakeRequest:
     def __init__(self, payload):
         self.payload = payload
