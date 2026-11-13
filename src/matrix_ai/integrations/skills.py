@@ -43,6 +43,25 @@ def _tokens(value: str) -> set[str]:
             if len(item) > 2 and item.casefold() not in _STOP}
 
 
+def _safe_search_query(value: str) -> str:
+    """Send task intent, not raw user text, to the public skill search service."""
+    cleaned = re.sub(r"https?://\\S+|[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}", " ", value or "")
+    cleaned = re.sub(
+        r"(?i)\\b(password|token|secret|api[_ -]?key)\\b\\s*[:=]\\s*\\S+",
+        r"\\1",
+        cleaned,
+    )
+    terms: list[str] = []
+    for item in _TOKEN.findall(cleaned):
+        word = item.casefold()
+        if len(word) <= 2 or len(word) > 24 or word in _STOP or word.isdigit() or word in terms:
+            continue
+        terms.append(word)
+        if len(terms) >= 8:
+            break
+    return " ".join(terms)[:120]
+
+
 def _frontmatter(content: str) -> tuple[str, str]:
     if not content.startswith("---\n"):
         return "", ""
@@ -111,7 +130,7 @@ class SkillsManager:
         return items[:500]
 
     async def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        query = " ".join((query or "").split())[:120]
+        query = _safe_search_query(query)
         if len(query) < 2:
             return []
         try:
