@@ -8,6 +8,14 @@ from ..core.models import Risk, ToolSpec
 from ..errors import ToolNotFound
 from .app_tools import CloseAppTool, OpenAppTool
 from .base import Tool, ToolContext
+from .github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
+)
 from .file_tools import (
     DeleteFileTool,
     ListFilesTool,
@@ -17,10 +25,20 @@ from .file_tools import (
     WriteTextTool,
 )
 from .memory_tools import MemorySaveTool, MemorySearchTool
+from .social_tools import (
+    InstagramListCommentsTool,
+    InstagramPublishImageTool,
+    InstagramReplyCommentTool,
+    LinkedInCreatePostTool,
+    WhatsAppSendTemplateTool,
+    WhatsAppSendTextTool,
+)
 from .shell_tools import RunAllowedCommandTool
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
+from .weather_tools import OpenMeteoForecastTool
 from .web_tools import FetchPublicUrlTool
+from .youtube_tools import build_youtube_tools
 
 
 class ToolRegistry:
@@ -84,5 +102,19 @@ def build_registry() -> ToolRegistry:
             MemorySaveTool(),
             FetchPublicUrlTool(),
             OcrImageTool(),
+            OpenMeteoForecastTool(),
+            *build_youtube_tools(),
+            LinkedInCreatePostTool(),
+            InstagramListCommentsTool(),
+            InstagramPublishImageTool(),
+            InstagramReplyCommentTool(),
+            WhatsAppSendTextTool(),
+            WhatsAppSendTemplateTool(),
+            GitHubWhoAmITool(),
+            GitHubGetRepositoryTool(),
+            GitHubListIssuesTool(),
+            GitHubGetPullRequestTool(),
+            GitHubCreateIssueTool(),
+            GitHubCommentIssueTool(),
         ]
     )
