@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -126,9 +126,26 @@ CREATE TABLE IF NOT EXISTS goal_graph_nodes (
     node_id TEXT NOT NULL,
     goal_id TEXT NOT NULL UNIQUE,
     depends_on_json TEXT NOT NULL DEFAULT '[]',
+    retry_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (graph_id, node_id),
     FOREIGN KEY (graph_id) REFERENCES goal_graphs(id) ON DELETE CASCADE,
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS goal_graph_node_attempts (
+    id TEXT PRIMARY KEY,
+    graph_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL,
+    task_id TEXT NOT NULL UNIQUE,
+    attempt INTEGER NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'running',
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (graph_id, node_id) REFERENCES goal_graph_nodes(graph_id, node_id) ON DELETE CASCADE,
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE(graph_id, node_id, attempt)
 );
 
 CREATE TABLE IF NOT EXISTS plan_steps (
@@ -298,6 +315,13 @@ class Database:
                 ):
                     if name not in goal_columns:
                         self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {declaration}")
+                graph_node_columns = {
+                    row[1] for row in self._conn.execute("PRAGMA table_info(goal_graph_nodes)").fetchall()
+                }
+                if "retry_count" not in graph_node_columns:
+                    self._conn.execute(
+                        "ALTER TABLE goal_graph_nodes ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
+                    )
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def _ensure_fts(self) -> None:
@@ -354,7 +378,7 @@ class Database:
         return destination
 
     def table_counts(self) -> dict[str, int]:
-        tables = ("goals", "goal_graphs", "goal_graph_nodes", "tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
+        tables = ("goals", "goal_graphs", "goal_graph_nodes", "goal_graph_node_attempts", "tasks", "tool_calls", "audit_events", "memory_items", "devices", "approvals")
         counts: dict[str, int] = {}
         for table in tables:
             row = self.query_one(f"SELECT COUNT(*) AS c FROM {table}")  # noqa: S608 - static names
