@@ -39,7 +39,7 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError
+from ..errors import AuthenticationError, NotFoundError, PermissionDenied
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
@@ -514,6 +514,8 @@ async def get_notification_preferences(principal: PrincipalDep, runtime: Runtime
 async def update_notification_preferences(
     body: NotificationPreferencesUpdate, principal: PrincipalDep, runtime: RuntimeDep
 ) -> dict[str, bool]:
+    if not principal.is_owner:
+        raise PermissionDenied("Only the owner can change notification preferences.")
     updates = body.model_dump(exclude_none=True)
     if not updates:
         return runtime.store.notification_preferences()
