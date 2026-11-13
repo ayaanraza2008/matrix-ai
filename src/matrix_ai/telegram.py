@@ -232,11 +232,25 @@ class TelegramChatBridge:
                 idempotency_scope="telegram.update",
                 idempotency_key=str(update["update_id"]),
             )
-            await self.orchestrator.enqueue(task_id)
+            # Replayed updates can resolve to an existing task after a crash
+            # between task creation and cursor persistence. Only enqueue untouched
+            # RECEIVED tasks; never restart a running or terminal task on replay.
+            view = self.store.task_view(task_id)
+            if view.state is TaskState.RECEIVED:
+                await self.orchestrator.enqueue(task_id)
             await self._send(f"Received. MATRIX task: {task_id}")
-            report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
-            self._report_tasks.add(report)
-            report.add_done_callback(self._report_tasks.discard)
+            if view.state in TERMINAL_TASK_STATES:
+                result = view.summary or view.error or f"Task finished: {view.state.value}"
+                await self._send(f"MATRIX {view.state.value}:\\n{result}")
+            elif view.state is not TaskState.RECEIVED:
+                await self._send(
+                    f"Task {task_id} already exists and is {view.state.value}; "
+                    "MATRIX will not start it again."
+                )
+            else:
+                report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
+                self._report_tasks.add(report)
+                report.add_done_callback(self._report_tasks.discard)
         except Exception as exc:  # noqa: BLE001
             self.store.audit(
                 "telegram.task_submission_failed", actor="telegram", status="failed",
