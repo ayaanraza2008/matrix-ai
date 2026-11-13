@@ -41,8 +41,7 @@ class GitHubIssuesInput(GitHubRepositoryInput):
     per_page: int = Field(default=10, ge=1, le=30)
 
 
-class GitHubPullRequestInput(StrictModel):
-    repository: str = Field(min_length=3, max_length=201, description="owner/repository")
+class GitHubPullRequestInput(GitHubRepositoryInput):
     number: int = Field(ge=1)
 
 
