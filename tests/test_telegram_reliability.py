@@ -191,3 +191,31 @@ def test_telegram_task_index_is_scoped_and_bounded(runtime):
     assert not runtime.store.is_idempotent_task("other.scope", telegram_task)
     assert telegram_task in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
     assert dashboard_task not in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
+
+
+
+def test_active_telegram_task_recovery_is_not_limited_by_recent_terminal_history(runtime):
+    active_kwargs = {
+        "request": "Older active Telegram task",
+        "user_id": "owner",
+        "kind": "chat",
+        "idempotency_scope": "telegram.update",
+        "idempotency_key": "update-active-old",
+    }
+    active_task = runtime.orchestrator.create_task(**active_kwargs)
+
+    for index in range(105):
+        task_id = runtime.orchestrator.create_task(
+            request=f"Completed Telegram task {index}",
+            user_id="owner",
+            kind="chat",
+            idempotency_scope="telegram.update",
+            idempotency_key=f"update-terminal-{index}",
+        )
+        runtime.store.update_task(task_id, state=TaskState.FAILED.value)
+
+    recovered = runtime.store.list_nonterminal_idempotent_task_ids(
+        "telegram.update", limit=100
+    )
+
+    assert recovered == [active_task]
