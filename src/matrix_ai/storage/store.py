@@ -441,6 +441,26 @@ class Store:
             (now, now, goal_id),
         )
 
+    def pause_goal_plan(self, goal_id: str) -> None:
+        """Pause future DAG dispatch without interrupting already-running side effects."""
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE goals SET state='paused', updated_at=? WHERE id=? AND state='running'",
+                (iso(), goal_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("only a running goal can be paused")
+
+    def resume_goal_plan(self, goal_id: str) -> None:
+        """Resume dispatch only from an explicitly paused goal."""
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE goals SET state='running', updated_at=? WHERE id=? AND state='paused'",
+                (iso(), goal_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("only a paused goal can be resumed")
+
     def get_goal_node_task(self, goal_id: str, node_id: str):
         return self.db.query_one(
             "SELECT * FROM tasks WHERE goal_id=? AND goal_node_id=?",
