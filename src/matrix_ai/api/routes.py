@@ -607,7 +607,7 @@ async def engineering_coach_schedule(
     job_id = runtime.store.create_job(
         name="Engineering Coach session analysis",
         prompt=(
-            f"Analyze the explicitly approved session export at {body.path} using "
+            f"Analyze the explicitly approved session export at {json.dumps(body.path)} using "
             "engineering_coach.analyze_session. Report only aggregate metrics, "
             "repeated failures, and skill candidates. Never include raw prompts, "
             "tool arguments, or session content."
