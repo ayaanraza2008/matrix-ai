@@ -137,6 +137,11 @@ class GoalPlanCreateBody(BaseModel):
 class ApprovalDecisionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
+class GoalCriteriaConfirmationBody(BaseModel):
+    outcome: str = Field(pattern="^(met|not_met)$")
+    reason: str = Field(min_length=8, max_length=500)
+
+
 
 # ---------------------------------------------------------------------------
 # signed WhatsApp Cloud API webhook (public HTTPS deployment required)
@@ -560,6 +565,31 @@ async def get_goal(
     goal = runtime.store.get_goal(goal_id)
     if goal["owner_id"] != principal.user_id:
         raise NotFoundError(f"goal {goal_id} not found")
+    return goal
+
+
+@router.post("/goals/{goal_id}/confirm", tags=["goals"])
+async def confirm_goal_criteria(
+    goal_id: str, body: GoalCriteriaConfirmationBody,
+    principal: PrincipalDep, runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Record the authenticated owner's explicit final criteria decision."""
+    try:
+        goal = runtime.store.confirm_goal_criteria(
+            goal_id,
+            owner_id=principal.user_id,
+            outcome=body.outcome,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runtime.store.audit(
+        "goal.criteria_owner_confirmed",
+        actor=principal.user_id,
+        task_id=goal.get("task_id"),
+        status=body.outcome,
+        detail={"goal_id": goal_id, "reason": body.reason[:500]},
+    )
     return goal
 
 
