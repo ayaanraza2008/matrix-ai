@@ -96,6 +96,8 @@ class Orchestrator:
         autonomy_level: int | None = None,
         scopes: list[str] | None = None,
         kind: str = "chat",
+        goal_id: str | None = None,
+        deadline_seconds: float | None = None,
     ) -> str:
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
@@ -109,7 +111,8 @@ class Orchestrator:
             autonomy_level=effective_autonomy,
             scopes=granted,
             kind=kind,
-            deadline_seconds=self.config.task_deadline_seconds,
+            deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
+            goal_id=goal_id,
         )
         self.store.audit(
             "task.created",
@@ -118,6 +121,7 @@ class Orchestrator:
             status="received",
             detail={
                 "kind": kind,
+                "goal_id": goal_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
@@ -873,6 +877,11 @@ class Orchestrator:
         runner = self._runners.get(task_id)
         if runner is not None and not runner.done():
             runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+            # A runner can be cancelled before its coroutine starts. Reconcile
+            # explicitly so callers never observe a permanently nonterminal task.
+            if not TaskStateMachine.is_terminal(self.store.get_task_row(task_id)["state"]):
+                self._mark_cancelled(task_id)
         else:
             self._mark_cancelled(task_id)
         return self.store.task_view(task_id)
@@ -1003,6 +1012,8 @@ class Orchestrator:
             return
         if TaskStateMachine.can_transition(current, target):
             self.store.transition(task_id, target)
+            if TaskStateMachine.is_terminal(target):
+                self.store.sync_goal_for_task(task_id)
             return
         if TaskStateMachine.is_terminal(current):
             return
@@ -1017,6 +1028,7 @@ class Orchestrator:
             self.store.transition(task_id, TaskState.FAILED)
         except IllegalTransition:  # pragma: no cover - impossible with current graph
             self.store.update_task(task_id, state=target.value)
+        self.store.sync_goal_for_task(task_id)
 
     # ------------------------------------------------------------------
     # summaries and helpers

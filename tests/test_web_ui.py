@@ -27,7 +27,8 @@ async def test_dashboard_assets_are_served(anon_client):
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
     assert "function api(" in script.text
-    assert "localStorage" in script.text
+    assert "localStorage" not in script.text
+    assert "Keep the bearer token only in memory" in script.text
 
     styles = await anon_client.get("/assets/styles.css")
     assert styles.status_code == 200

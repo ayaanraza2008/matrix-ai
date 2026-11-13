@@ -15,16 +15,23 @@ import httpx
 from .config import MatrixConfig
 from .core.models import TERMINAL_TASK_STATES, TaskState
 from .core.orchestrator import Orchestrator
+from .errors import RateLimited
+from .security.ratelimit import RateLimiter
 from .storage.store import Store
 
 log = logging.getLogger("matrix.telegram")
 
 
 class TelegramChatBridge:
-    def __init__(self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store) -> None:
+    def __init__(
+        self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
+        rate_limiter: RateLimiter | None = None,
+    ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
+        # Share the runtime limiter so Telegram cannot bypass API task throttling.
+        self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
         self._task: asyncio.Task | None = None
         self._offset: int | None = None
         self._client: httpx.AsyncClient | None = None
@@ -80,6 +87,19 @@ class TelegramChatBridge:
                 "disable_web_page_preview": True,
             })
 
+    async def _discard_pending_updates(self) -> None:
+        """Advance Telegram's offset while draining every pre-startup update batch."""
+        while True:
+            payload: dict[str, Any] = {"timeout": 0, "limit": 100}
+            if self._offset is not None:
+                payload["offset"] = self._offset
+            initial = await self._api("getUpdates", payload)
+            updates = initial.get("result", [])
+            if updates:
+                self._offset = max(item["update_id"] for item in updates) + 1
+            if len(updates) < 100:
+                return
+
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
@@ -88,13 +108,7 @@ class TelegramChatBridge:
                 try:
                     if not announced:
                         # Drop old updates at startup so queued commands are not replayed.
-                        while True:
-                            initial = await self._api("getUpdates", {"timeout": 0, "limit": 100})
-                            updates = initial.get("result", [])
-                            if updates:
-                                self._offset = max(item["update_id"] for item in updates) + 1
-                            if len(updates) < 100:
-                                break
+                        await self._discard_pending_updates()
                         await self._send(
                             "MATRIX Telegram bridge is online. Send a message to create a task. "
                             "Use /status, /stop, or /help."
@@ -175,6 +189,21 @@ class TelegramChatBridge:
             return
 
         try:
+            self.rate_limiter.check(f"telegram:{allowed_id}")
+        except RateLimited as exc:
+            retry_after = int(exc.detail.get("retry_after_seconds", 60))
+            self.store.audit(
+                "telegram.rate_limited",
+                actor="telegram",
+                status="blocked",
+                detail={"retry_after_seconds": retry_after},
+            )
+            await self._send(
+                f"Task rate limit reached. Please try again in about {retry_after} seconds."
+            )
+            return
+
+        try:
             task_id = self.orchestrator.create_task(
                 request=text[:8000], user_id="owner",
                 autonomy_level=self.config.autonomy_level, kind="chat",
@@ -193,21 +222,24 @@ class TelegramChatBridge:
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
+        approval_notified = False
         try:
             for _ in range(180):
                 await asyncio.sleep(5)
                 view = self.store.task_view(task_id)
-                # The orchestrator moves APPROVAL_REQUIRED to WAITING_FOR_USER
-                # immediately after creating the pending approval record.
+                # Notify once, but keep watching so the owner receives the result
+                # after approving or denying the action in the MATRIX dashboard.
                 if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
-                    await self._send(
-                        f"Task {task_id} needs owner approval for a protected action. "
-                        "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
-                    )
-                    return
+                    if not approval_notified:
+                        await self._send(
+                            f"Task {task_id} needs owner approval for a protected action. "
+                            "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
+                        )
+                        approval_notified = True
+                    continue
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
-                    await self._send(f"MATRIX {view.state.value}:\\n{result}")
+                    await self._send(f"MATRIX {view.state.value}:\n{result}")
                     return
             await self._send(
                 f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."

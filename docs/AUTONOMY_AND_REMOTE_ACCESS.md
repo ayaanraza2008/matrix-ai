@@ -35,7 +35,9 @@ matrix remote-access enable
 matrix remote-access status
 ```
 
-The helper configures only `tailscale serve --bg 127.0.0.1:8765`. MATRIX remains
+The helper configures only `tailscale serve --bg 127.0.0.1:<MATRIX_PORT>` (default
+`127.0.0.1:8765`). It reads the same configured port as the MATRIX server, so a
+custom `MATRIX_PORT` does not proxy an unrelated local service. MATRIX remains
 bound to loopback; Tailscale terminates HTTPS and proxies to the local API. The
 result is available within the tailnet only. MATRIX never invokes Tailscale
 Funnel and refuses to overwrite a different existing Serve route. Disable its

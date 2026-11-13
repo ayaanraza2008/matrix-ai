@@ -115,3 +115,40 @@ async def test_api_exposes_authenticated_autonomy_and_remote_access_status(clien
     assert remote.status_code == 200
     assert remote.json()["scope"] == "tailnet_only"
     assert remote.json()["public_funnel_enabled_by_matrix"] is False
+
+
+def test_remote_access_uses_configured_loopback_port(monkeypatch):
+    calls = []
+    configured = {"serve": False}
+    monkeypatch.setattr("matrix_ai.access.shutil.which", lambda _name: "tailscale")
+    manager = RemoteAccessManager(port=9123)
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1:] == ["status", "--json"]:
+            return completed(json.dumps({"BackendState": "Running", "Self": {"HostName": "matrix-pc"}}))
+        if argv[1:] == ["serve", "status"]:
+            return completed(
+                "https://matrix-pc.example.ts.net -> http://127.0.0.1:9123"
+                if configured["serve"] else "No serve config"
+            )
+        if argv[1:] == ["serve", "--bg", "127.0.0.1:9123"]:
+            configured["serve"] = True
+            return completed("Available within your tailnet: https://matrix-pc.example.ts.net")
+        raise AssertionError(f"unexpected command: {argv}")
+
+    monkeypatch.setattr("matrix_ai.access._run", fake_run)
+    result = manager.enable()
+
+    assert manager.target == "127.0.0.1:9123"
+    assert result["serve_enabled"] is True
+    assert ["tailscale", "serve", "--bg", "127.0.0.1:9123"] in calls
+    assert all("funnel" not in part.lower() for call in calls for part in call)
+
+
+def test_remote_access_rejects_invalid_configured_ports():
+    with pytest.raises(ValueError, match="between 1 and 65535"):
+        RemoteAccessManager(port=0)
+    with pytest.raises(ValueError, match="between 1 and 65535"):
+        RemoteAccessManager(port=65536)
+
