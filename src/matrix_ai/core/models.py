@@ -424,7 +424,7 @@ class JobUpdate(BaseModel):
     @field_validator("name", "prompt", mode="before")
     @classmethod
     def _strip_job_text(cls, value: str | None) -> str | None:
-        return value.strip() if value is not None else None
+        return value.strip() if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def _require_non_null_update(self):
