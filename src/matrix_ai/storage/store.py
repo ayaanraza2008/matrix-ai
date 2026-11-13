@@ -144,29 +144,54 @@ class Store:
         deadline_seconds: float | None = None,
         goal_id: str | None = None,
         goal_node_id: str | None = None,
+        idempotency_scope: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
+        if bool(idempotency_scope) != bool(idempotency_key):
+            raise ValueError("idempotency scope and key must be supplied together")
+        if idempotency_scope and (
+            len(idempotency_scope) > 100 or len(idempotency_key or "") > 512
+        ):
+            raise ValueError("idempotency scope and key exceed their limits")
         task_id = uuid.uuid4().hex
         now = iso()
         deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
-        self.db.execute(
-            "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, goal_node_id, state, original_request, autonomy_level, "
-            "scopes_json, created_at, updated_at, deadline) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                task_id,
-                user_id,
-                device_id,
-                kind,
-                goal_id,
-                goal_node_id,
-                TaskState.RECEIVED.value,
-                original_request,
-                int(autonomy_level),
-                canonical_json(scopes or []),
-                now,
-                now,
-                deadline,
-            ),
-        )
+        with self.db.transaction() as conn:
+            if idempotency_scope and idempotency_key:
+                existing = conn.execute(
+                    "SELECT result_json FROM idempotency WHERE scope=? AND key=?",
+                    (idempotency_scope, idempotency_key),
+                ).fetchone()
+                if existing is not None:
+                    result = json.loads(existing["result_json"] or "{}")
+                    existing_task_id = result.get("task_id") if isinstance(result, dict) else None
+                    if not isinstance(existing_task_id, str) or not existing_task_id:
+                        raise ValueError("stored idempotency result is invalid")
+                    return existing_task_id
+            conn.execute(
+                "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, goal_node_id, state, original_request, autonomy_level, "
+                "scopes_json, created_at, updated_at, deadline) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    task_id,
+                    user_id,
+                    device_id,
+                    kind,
+                    goal_id,
+                    goal_node_id,
+                    TaskState.RECEIVED.value,
+                    original_request,
+                    int(autonomy_level),
+                    canonical_json(scopes or []),
+                    now,
+                    now,
+                    deadline,
+                ),
+            )
+            if idempotency_scope and idempotency_key:
+                conn.execute(
+                    "INSERT INTO idempotency(scope, key, result_json, created_at) VALUES(?,?,?,?)",
+                    (idempotency_scope, idempotency_key, canonical_json({"task_id": task_id}), now),
+                )
         return task_id
 
     def get_system_flag(self, name: str, default: str | None = None) -> str | None:
