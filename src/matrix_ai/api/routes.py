@@ -521,6 +521,7 @@ async def cancel_goal_graph(
         status="cancelled",
         detail={"graph_id": graph_id},
     )
+    await runtime.goal_supervisor.notify_graph(graph_id)
     return runtime.store.get_goal_graph(graph_id)
 
 
