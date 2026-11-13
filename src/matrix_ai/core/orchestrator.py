@@ -102,6 +102,10 @@ class Orchestrator:
         idempotency_scope: str | None = None,
         idempotency_key: str | None = None,
     ) -> str:
+        if idempotency_scope and idempotency_key:
+            existing_task_id = self.store.get_idempotent_task_id(idempotency_scope, idempotency_key)
+            if existing_task_id is not None:
+                return existing_task_id
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
         self.store.ensure_user(user_id)
