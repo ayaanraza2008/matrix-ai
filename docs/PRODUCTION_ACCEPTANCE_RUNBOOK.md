@@ -87,8 +87,11 @@ matrix remote-access status
 - Create a fresh bot using Telegram's official BotFather flow.
 - Configure the bot token and numeric private chat ID only in the local MATRIX process environment/secret store. Never put either value in source control, issue comments or ChatGPT messages.
 - Start the bridge and verify only the configured private owner chat is accepted.
-- Test ordinary task request/result, `/status`, `/help` and `/stop`.
-- Send a harmless task, restart MATRIX while updates are pending, and verify the durable update cursor resumes without creating duplicate tasks.
+- Test ordinary task request/result, `/status`, `/help`, and the Telegram command menu (registered by MATRIX at startup).
+- Send a harmless task, retain its full task ID, and verify `/tasks` lists it and `/task <task-id>` reports its state/result.
+- Cancel a separate harmless long-running task with `/cancel <task-id>`; verify unrelated dashboard-created task IDs are rejected by Telegram task lookup/cancellation.
+- Verify `/stop` cancels active tasks and blocks new work; `/resume` clears the stop for new work but does not restart tasks cancelled by `/stop`.
+- Send a harmless task, restart MATRIX while it is pending, and verify both the durable update cursor and task-result notification watcher recover without creating duplicate tasks.
 - Send a message from an unauthorized account and verify it is ignored.
 - Verify Telegram cannot approve HIGH/CRITICAL actions and that emergency stop still blocks new work.
 - Test bot token rotation/revocation and confirm no credential appears in logs/audit/dashboard.
