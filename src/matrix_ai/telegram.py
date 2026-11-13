@@ -110,8 +110,19 @@ class TelegramChatBridge:
             while True:
                 try:
                     if not announced:
-                        # Drop old updates at startup so queued commands are not replayed.
-                        await self._discard_pending_updates()
+                        # Resume from the last successfully handled update. Never drain
+                        # the startup queue: it may contain a legitimate owner command
+                        # sent while MATRIX was restarting.
+                        saved_offset = self.store.get_system_flag("telegram.update_offset")
+                        if saved_offset is not None:
+                            try:
+                                self._offset = max(0, int(saved_offset))
+                            except (TypeError, ValueError):
+                                self.store.audit(
+                                    "telegram.offset_invalid", actor="system", status="degraded",
+                                    detail={"value_length": len(saved_offset)},
+                                )
+                                self._offset = None
                         await self._send(
                             "MATRIX Telegram bridge is online. Send a message to create a task. "
                             "Use /status, /stop, or /help."
@@ -123,17 +134,22 @@ class TelegramChatBridge:
                         "allowed_updates": ["message"],
                     })
                     for update in data.get("result", []):
-                        self._offset = update["update_id"] + 1
                         try:
                             await self._handle_update(update)
+                            # Telegram confirms/forgets updates only after a subsequent
+                            # getUpdates call with this offset. Persist after handling so
+                            # a restart replays updates that were not fully processed.
+                            self._offset = int(update["update_id"]) + 1
+                            self.store.set_system_flag("telegram.update_offset", str(self._offset))
                         except asyncio.CancelledError:
                             raise
-                        except Exception as exc:  # noqa: BLE001 - isolate malformed updates
+                        except Exception as exc:  # noqa: BLE001 - retry this update after backoff
                             self.store.audit(
                                 "telegram.update_failed", actor="telegram", status="failed",
                                 detail={"error": type(exc).__name__},
                             )
-                            log.warning("Telegram update failed: %s", type(exc).__name__)
+                            log.warning("Telegram update failed; retaining offset for retry: %s", type(exc).__name__)
+                            raise
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - transient network/API errors retry
