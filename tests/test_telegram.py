@@ -18,6 +18,11 @@ class FakeStore:
         self.audits = []
         self.stopped = False
         self.flags = {}
+        self.source_tasks = {}
+        self.task_views = {}
+
+    def task_for_source_update(self, source_update_id):
+        return self.source_tasks.get(source_update_id)
 
     def get_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -32,6 +37,8 @@ class FakeStore:
         self.stopped = active
 
     def task_view(self, task_id):
+        if task_id in self.task_views:
+            return self.task_views[task_id]
         raise AssertionError("task polling is tested separately")
 
 
@@ -263,3 +270,42 @@ def test_database_v3_migrates_telegram_source_update_key(tmp_path):
         assert migrated.query_one("PRAGMA user_version")[0] == 4
     finally:
         migrated.close()
+
+
+
+async def test_telegram_enqueue_failure_does_not_acknowledge_update(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def fail_enqueue(_task_id):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(orchestrator, "enqueue", fail_enqueue)
+
+    with pytest.raises(RuntimeError, match="queue unavailable"):
+        await bridge._process_update(update(update_id=700, text="Run a task"))
+
+    assert len(orchestrator.created) == 1
+    assert store.flags.get("telegram_update_offset") is None
+    assert bridge._offset is None
+    assert any(args[0] == "telegram.task_submission_failed" for args, _ in store.audits)
+
+
+async def test_telegram_replay_recovers_received_task_before_rate_limit(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    source_update_id = "telegram:701"
+    store.source_tasks[source_update_id] = "existing-task"
+    store.task_views["existing-task"] = SimpleNamespace(state=TaskState.RECEIVED)
+    bridge.rate_limiter = RateLimiter(1)
+    bridge.rate_limiter.check("telegram:123456789")
+
+    async def report(_task_id):
+        return None
+
+    monkeypatch.setattr(bridge, "_report_task", report)
+
+    await bridge._process_update(update(update_id=701, text="Run a task"))
+
+    assert orchestrator.created == []
+    assert orchestrator.enqueued == ["existing-task"]
+    assert store.flags["telegram_update_offset"] == "701"
+    assert any("Recovered previously accepted" in message for message in sent)
