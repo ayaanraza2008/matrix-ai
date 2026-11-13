@@ -10,6 +10,7 @@ from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.social_tools import (
     InstagramListCommentsTool,
+    InstagramPublishImageTool,
     InstagramReplyCommentTool,
     LinkedInCreatePostTool,
     WhatsAppSendTextTool,
@@ -50,14 +51,18 @@ def test_social_tools_are_registered_and_writes_are_approval_gated():
     assert linkedin.risk is Risk.HIGH and not linkedin.spec().idempotent
     assert instagram_read.permission_scope == "instagram.read"
     assert instagram_read.risk is Risk.LOW
+    instagram_publish = registry.get("instagram_publish_image")
     assert instagram_write.permission_scope == "instagram.write"
     assert instagram_write.risk is Risk.HIGH and not instagram_write.spec().idempotent
+    assert instagram_publish.permission_scope == "instagram.publish"
+    assert instagram_publish.risk is Risk.CRITICAL and not instagram_publish.spec().idempotent
     assert whatsapp.permission_scope == "whatsapp.write"
     assert whatsapp.risk is Risk.HIGH and not whatsapp.spec().idempotent
 
     assert "linkedin.write" not in DEFAULT_SCOPES
     assert "instagram.read" not in DEFAULT_SCOPES
     assert "instagram.write" not in DEFAULT_SCOPES
+    assert "instagram.publish" not in DEFAULT_SCOPES
     assert "whatsapp.write" not in DEFAULT_SCOPES
 
 
@@ -182,6 +187,7 @@ async def test_social_integrations_report_missing_and_configured_without_claimin
     runtime.config.linkedin_access_token = "configured-token"
     runtime.config.linkedin_author_urn = "urn:li:person:123"
     runtime.config.instagram_access_token = "configured-token"
+    runtime.config.instagram_user_id = "123456789"
     runtime.config.meta_graph_version = "v24.0"
     runtime.config.whatsapp_access_token = "configured-token"
     runtime.config.whatsapp_phone_number_id = "123456789012345"
@@ -190,3 +196,35 @@ async def test_social_integrations_report_missing_and_configured_without_claimin
         result = await runtime.integrations.get(name).safe_check()
         assert result.status == "configured"
         assert "verified" in (result.detail or "")
+
+
+def test_instagram_image_publish_uses_container_then_publish_and_requires_confirmation(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_post(url, *, headers, data, timeout):
+        calls.append((url, data))
+        if url.endswith("/media"):
+            return response(payload={"id": "container-123"}, url=url)
+        return response(payload={"id": "published-456"}, url=url)
+
+    monkeypatch.setattr("matrix_ai.tools.social_tools.httpx.post", fake_post)
+    ctx = make_context(tmp_path)
+    ctx.config.instagram_user_id = "123456789"
+    tool = InstagramPublishImageTool()
+    args = tool.validate({
+        "image_url": "https://cdn.example.test/matrix.jpg",
+        "caption": "MATRIX update",
+    })
+    result = tool.run_sync(args, ctx)
+
+    assert calls[0][0].endswith("/123456789/media")
+    assert calls[0][1]["image_url"] == "https://cdn.example.test/matrix.jpg"
+    assert calls[1][0].endswith("/123456789/media_publish")
+    assert calls[1][1] == {"creation_id": "container-123"}
+    assert result["media_id"] == "published-456"
+    assert tool.verify(args, result).ok
+
+
+def test_instagram_publish_requires_https_image_url():
+    with pytest.raises(ValidationFailure):
+        InstagramPublishImageTool().validate({"image_url": "http://example.com/photo.jpg"})

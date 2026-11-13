@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 import httpx
-from pydantic import Field
+from pydantic import AnyHttpUrl, Field, field_validator
 
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
@@ -156,6 +156,79 @@ class InstagramListCommentsTool(Tool):
     def verify(self, args: InstagramListCommentsInput, output: dict[str, Any]) -> VerificationEvidence:
         ok = output.get("media_id") == args.media_id and isinstance(output.get("comments"), list)
         return VerificationEvidence(ok=ok, confidence=0.95 if ok else 0.0, checks=["instagram_comments_listed"])
+
+
+class InstagramPublishImageInput(StrictModel):
+    image_url: AnyHttpUrl
+    caption: str = Field(default="", max_length=2200)
+
+    @field_validator("image_url")
+    @classmethod
+    def _require_https_image(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        if value.scheme != "https":
+            raise ValueError("Instagram image_url must use HTTPS")
+        return value
+
+
+class InstagramPublishImageTool(Tool):
+    name = "instagram_publish_image"
+    description = "Publish an image post to the connected Instagram Professional account. Requires critical-action approval."
+    permission_scope = "instagram.publish"
+    risk = Risk.CRITICAL
+    idempotent = False
+    timeout_seconds = 45
+    input_model = InstagramPublishImageInput
+
+    def run_sync(self, args: InstagramPublishImageInput, ctx: ToolContext) -> dict[str, Any]:
+        ctx.ensure_active()
+        token = ctx.config.instagram_access_token
+        user_id = ctx.config.instagram_user_id
+        version = ctx.config.meta_graph_version
+        if not token or not user_id or not version:
+            raise ToolUnavailable(
+                "Instagram publishing is not configured. Set MATRIX_INSTAGRAM_ACCESS_TOKEN, "
+                "MATRIX_INSTAGRAM_USER_ID and MATRIX_META_GRAPH_VERSION."
+            )
+        if not _META_ID.fullmatch(user_id) or not _GRAPH_VERSION.fullmatch(version):
+            raise ToolExecutionError("Instagram user ID or Meta Graph API version is invalid.")
+        base = f"https://graph.facebook.com/{version}/{user_id}"
+        try:
+            container_response = httpx.post(
+                f"{base}/media",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"image_url": str(args.image_url), "caption": args.caption},
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("Instagram", exc) from exc
+        container = _response_json(container_response, "Instagram")
+        creation_id = container.get("id")
+        if not creation_id:
+            raise ToolExecutionError("Instagram did not confirm the image media container.")
+        ctx.ensure_active()
+        try:
+            publish_response = httpx.post(
+                f"{base}/media_publish",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"creation_id": str(creation_id)},
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("Instagram", exc) from exc
+        published = _response_json(publish_response, "Instagram")
+        media_id = published.get("id")
+        if not media_id:
+            raise ToolExecutionError(
+                "Instagram created the media container but did not confirm publication; verify the account before retrying."
+            )
+        return {"media_id": str(media_id), "creation_id": str(creation_id)}
+
+    def verify(self, args: InstagramPublishImageInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = bool(output.get("media_id") and output.get("creation_id"))
+        return VerificationEvidence(
+            ok=ok, confidence=0.98 if ok else 0.0,
+            checks=["instagram_media_container_created", "instagram_published_media_id_returned"],
+        )
 
 
 class InstagramReplyCommentInput(StrictModel):
