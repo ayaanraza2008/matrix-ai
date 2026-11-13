@@ -222,6 +222,9 @@ async def task_agents(
     addon_selection = next(
         (event for event in events if event.event_type == "task.addons_selected"), None
     )
+    skill_selection = next(
+        (event for event in events if event.event_type == "task.skills_selected"), None
+    )
     return {
         "task_id": task_id,
         "selected_agents": selection.detail.get("agents", []) if selection else [],
@@ -232,6 +235,8 @@ async def task_agents(
         "successful_workers": sum(run.get("status") == "completed" for run in worker_runs),
         "selected_addons": addon_selection.detail.get("addons", []) if addon_selection else [],
         "addon_context_used": bool(addon_selection and addon_selection.detail.get("context_injected")),
+        "selected_skills": skill_selection.detail.get("skills", []) if skill_selection else [],
+        "skill_context_used": bool(skill_selection and skill_selection.detail.get("context_injected")),
         "status": selection.status if selection else "not_routed",
     }
 
@@ -564,6 +569,7 @@ async def dashboard_status(principal: PrincipalDep, runtime: RuntimeDep) -> dict
             "configured": runtime.integrations.configured_count,
             "total": runtime.integrations.total_count,
         },
+        "skills": runtime.skills_manager.status(),
     }
 
 
