@@ -94,3 +94,41 @@ def test_replayed_telegram_task_is_idempotent_even_after_emergency_stop(runtime)
         (first,),
     )
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_replayed_update_does_not_reenqueue_terminal_task():
+    bridge, store = make_bridge()
+    enqueued = []
+    sent = []
+
+    class ExistingTask:
+        state = __import__("matrix_ai.core.models", fromlist=["TaskState"]).TaskState.COMPLETE
+        summary = "Already completed"
+        error = None
+
+    class Orchestrator:
+        def create_task(self, **kwargs):
+            return "existing-task"
+
+        async def enqueue(self, task_id):
+            enqueued.append(task_id)
+
+    store.task_view = lambda task_id: ExistingTask()
+    bridge.orchestrator = Orchestrator()
+
+    async def send(message):
+        sent.append(message)
+
+    bridge._send = send
+    await bridge._handle_update({
+        "update_id": 1234,
+        "message": {
+            "chat": {"type": "private", "id": 12345},
+            "from": {"id": 12345},
+            "text": "Run my task",
+        },
+    })
+
+    assert enqueued == []
+    assert any("Already completed" in message for message in sent)
