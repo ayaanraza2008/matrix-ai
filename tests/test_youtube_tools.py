@@ -205,3 +205,51 @@ def test_youtube_upload_defaults_to_private():
     })
     assert args.privacy_status == "private"
     assert args.publish_at is None
+
+
+def test_youtube_credentials_fail_closed_without_secure_keyring(runtime, monkeypatch):
+    import matrix_ai.integrations.youtube_auth as auth
+
+    class InsecureKeyring:
+        priority = 0
+
+    class FakeKeyringModule:
+        @staticmethod
+        def get_keyring():
+            return InsecureKeyring()
+
+    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
+    with pytest.raises(ToolExecutionError, match="secure OS credential manager"):
+        auth.load_youtube_credentials(runtime.config, YOUTUBE_READ_SCOPE)
+
+
+def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
+    import matrix_ai.integrations.youtube_auth as auth
+
+    class SecureKeyring:
+        priority = 1
+        values = {}
+
+        @classmethod
+        def get_password(cls, service, username):
+            return cls.values.get((service, username))
+
+        @classmethod
+        def set_password(cls, service, username, value):
+            cls.values[(service, username)] = value
+
+    class FakeKeyringModule:
+        @staticmethod
+        def get_keyring():
+            return SecureKeyring()
+
+        get_password = SecureKeyring.get_password
+        set_password = SecureKeyring.set_password
+
+    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
+    class Credentials:
+        def to_json(self):
+            return '{"refresh_token":"test-only"}'
+
+    auth._persist_credentials(runtime.config, Credentials())
+    assert auth.has_youtube_credentials(runtime.config)
