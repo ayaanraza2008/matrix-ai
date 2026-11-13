@@ -28,6 +28,7 @@ from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
 from .social_tools import (
     InstagramListCommentsTool,
+    InstagramPublishImageTool,
     InstagramReplyCommentTool,
     LinkedInCreatePostTool,
     WhatsAppSendTextTool,
@@ -100,6 +101,7 @@ def build_registry() -> ToolRegistry:
             *build_youtube_tools(),
             LinkedInCreatePostTool(),
             InstagramListCommentsTool(),
+            InstagramPublishImageTool(),
             InstagramReplyCommentTool(),
             WhatsAppSendTextTool(),
             GitHubWhoAmITool(),
