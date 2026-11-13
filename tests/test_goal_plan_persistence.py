@@ -329,6 +329,19 @@ async def test_owner_can_pause_and_resume_goal_dispatch(client, runtime, monkeyp
     assert await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id) == []
     assert enqueue.await_count == 4
 
+    # A task already in flight may finish while paused; it must not trigger
+    # another wave until the owner explicitly resumes the goal.
+    first_task = runtime.store.db.query_one(
+        "SELECT id FROM tasks WHERE goal_id=? ORDER BY created_at LIMIT 1",
+        (goal_id,),
+    )["id"]
+    runtime.store.update_task(
+        first_task, state="COMPLETE", evidence_json='{"verified": true}', summary="Verified"
+    )
+    runtime.store.sync_goal_for_task(first_task)
+    assert runtime.store.get_goal(goal_id)["state"] == "paused"
+    assert await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id) == []
+
     resumed = await client.post(f"/api/goals/{goal_id}/resume")
     assert resumed.status_code == 202, resumed.text
     assert resumed.json()["state"] == "running"
