@@ -16,6 +16,11 @@ class FakeStore:
         self.audits = []
         self.stopped = False
         self.flags = {}
+        self.idempotent_tasks = {}
+        self.task_views = {}
+
+    def get_idempotent_task_id(self, scope, key):
+        return self.idempotent_tasks.get((scope, key))
 
     def get_system_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -30,6 +35,8 @@ class FakeStore:
         self.stopped = active
 
     def task_view(self, task_id):
+        if task_id in self.task_views:
+            return self.task_views[task_id]
         raise AssertionError("task polling is tested separately")
 
 
@@ -91,7 +98,7 @@ async def test_telegram_submits_private_owner_message_to_orchestrator(tmp_path, 
     assert orchestrator.created[0]["request"] == "Open calculator"
     assert orchestrator.created[0]["user_id"] == "owner"
     assert orchestrator.created[0]["autonomy_level"] == bridge.config.autonomy_level
-    assert orchestrator.created[0]["idempotency_scope"] == "telegram"
+    assert orchestrator.created[0]["idempotency_scope"] == "telegram.update"
     assert orchestrator.created[0]["idempotency_key"] == "1"
     assert orchestrator.enqueued == ["task-123"]
     assert any("Received" in message for message in sent)
@@ -320,3 +327,43 @@ async def test_telegram_persists_offset_and_does_not_discard_fresh_startup_updat
 
     assert observed_offsets[0] == 55
     assert store.flags["telegram.update_offset"] == "56"
+
+
+
+async def test_telegram_enqueue_failure_keeps_update_retryable(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def fail_enqueue(_task_id):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(orchestrator, "enqueue", fail_enqueue)
+
+    try:
+        await bridge._process_update(update(update_id=701, text="Run a task"))
+    except RuntimeError as exc:
+        assert str(exc) == "queue unavailable"
+    else:
+        raise AssertionError("enqueue failure must propagate so the offset is not persisted")
+
+    assert len(orchestrator.created) == 1
+    assert store.flags.get("telegram_update_offset") is None
+    assert any(args[0] == "telegram.task_submission_failed" for args, _ in store.audits)
+
+
+async def test_telegram_replay_recovers_existing_task_before_rate_limit(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.idempotent_tasks[("telegram.update", "702")] = "existing-task"
+    store.task_views["existing-task"] = SimpleNamespace(state=TaskState.RECEIVED)
+    bridge.rate_limiter = RateLimiter(1)
+    bridge.rate_limiter.check("telegram:123456789")
+
+    async def report(_task_id):
+        return None
+
+    monkeypatch.setattr(bridge, "_report_task", report)
+    await bridge._process_update(update(update_id=702, text="Run a task"))
+
+    assert orchestrator.created == []
+    assert orchestrator.enqueued == ["existing-task"]
+    assert store.flags["telegram_update_offset"] == "702"
+    assert any("Recovered previously accepted" in message for message in sent)
