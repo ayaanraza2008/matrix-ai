@@ -359,3 +359,108 @@ async def test_pause_resume_goal_endpoints_are_owner_scoped(client, runtime):
     )
     assert (await client.post(f"/api/goals/{goal_id}/pause")).status_code == 404
     assert (await client.post(f"/api/goals/{goal_id}/resume")).status_code == 404
+
+
+def _complete_single_goal_node(runtime, *, goal_title="Goal"):
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title=goal_title, success_criteria="The required outcome is demonstrably complete."
+    )
+    runtime.store.save_goal_graph(
+        goal_id, [{"node_id": "outcome", "title": "Complete the outcome", "depends_on": []}]
+    )
+    task_id = runtime.store.create_task(
+        user_id="owner", original_request="Complete the outcome", kind="goal_node",
+        goal_id=goal_id, goal_node_id="outcome",
+    )
+    assert runtime.store.claim_goal_node(goal_id, "outcome")
+    runtime.store.attach_goal_node_task(goal_id, "outcome", task_id)
+    runtime.store.update_task(
+        task_id, state="COMPLETE", evidence_json='{"verified": true}', summary="Outcome verified"
+    )
+    runtime.store.sync_goal_for_task(task_id)
+    assert runtime.store.get_goal(goal_id)["state"] == "awaiting_verification"
+    return goal_id
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_verification_fails_closed_without_model(runtime):
+    goal_id = _complete_single_goal_node(runtime)
+
+    await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "awaiting_verification"
+    assert goal["criteria_status"] == "insufficient_evidence"
+    assert goal["verification_status"] == "pending_owner_review"
+    assert "Owner review is required" in goal["result_summary"]
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_verification_requires_evidence_for_every_node(runtime, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import json
+
+    goal_id = _complete_single_goal_node(runtime)
+    monkeypatch.setattr(type(runtime.models), "configured", property(lambda self: True))
+    complete = AsyncMock(return_value=SimpleNamespace(text=json.dumps({
+        "status": "verified",
+        "reason": "The criteria are supported.",
+        "supporting_nodes": ["outcome"],
+        "missing_evidence": [],
+    })))
+    monkeypatch.setattr(runtime.models, "complete", complete)
+
+    await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "completed"
+    assert goal["criteria_status"] == "verified_by_model"
+    assert goal["verification_status"] == "second_pass_model_assessed"
+    complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_assessor_cannot_verify_with_incomplete_node_coverage(runtime, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import json
+
+    goal_id = runtime.store.create_goal(
+        owner_id="owner", title="Two-node goal", success_criteria="Both outcomes are complete."
+    )
+    nodes = [
+        {"node_id": "first", "title": "First outcome", "depends_on": []},
+        {"node_id": "second", "title": "Second outcome", "depends_on": []},
+    ]
+    runtime.store.save_goal_graph(goal_id, nodes)
+    for node in nodes:
+        task_id = runtime.store.create_task(
+            user_id="owner", original_request=node["title"], kind="goal_node",
+            goal_id=goal_id, goal_node_id=node["node_id"],
+        )
+        assert runtime.store.claim_goal_node(goal_id, node["node_id"])
+        runtime.store.attach_goal_node_task(goal_id, node["node_id"], task_id)
+        runtime.store.update_task(
+            task_id, state="COMPLETE", evidence_json='{"verified": true}', summary="Verified"
+        )
+        runtime.store.sync_goal_for_task(task_id)
+    assert runtime.store.get_goal(goal_id)["state"] == "awaiting_verification"
+
+    monkeypatch.setattr(type(runtime.models), "configured", property(lambda self: True))
+    monkeypatch.setattr(
+        runtime.models, "complete",
+        AsyncMock(return_value=SimpleNamespace(text=json.dumps({
+            "status": "verified",
+            "reason": "Looks complete.",
+            "supporting_nodes": ["first"],
+            "missing_evidence": [],
+        }))),
+    )
+
+    await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "awaiting_verification"
+    assert goal["criteria_status"] == "insufficient_evidence"
+    assert goal["verification_status"] == "pending_owner_review"
