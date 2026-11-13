@@ -1,0 +1,251 @@
+"""Approval-gated official API actions for LinkedIn, Instagram and WhatsApp.
+
+These are narrow connectors, not browser automation. Provider-side app review,
+OAuth scopes, account eligibility, messaging policy and quotas still apply.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import httpx
+from pydantic import Field
+
+from ..core.models import Risk, VerificationEvidence
+from ..errors import ToolExecutionError, ToolUnavailable
+from .base import StrictModel, Tool, ToolContext
+
+_LINKEDIN_AUTHOR = re.compile(r"^urn:li:(?:person|organization):[0-9]+$")
+_LINKEDIN_VERSION = re.compile(r"^[0-9]{6}$")
+_GRAPH_VERSION = re.compile(r"^v[0-9]+\\.[0-9]+$")
+_META_ID = re.compile(r"^[0-9]{5,40}$")
+_PHONE = re.compile(r"^\\+?[1-9][0-9]{7,14}$")
+
+
+def _response_json(response: httpx.Response, provider: str) -> dict[str, Any]:
+    if response.status_code in {401, 403}:
+        raise ToolUnavailable(f"{provider} rejected the credentials or required permissions (HTTP {response.status_code}).")
+    if response.status_code == 429:
+        raise ToolUnavailable(f"{provider} rate limit reached; retry after the provider reset window.")
+    if response.status_code >= 500:
+        raise ToolUnavailable(f"{provider} is temporarily unavailable (HTTP {response.status_code}).")
+    if response.status_code not in {200, 201}:
+        raise ToolExecutionError(f"{provider} rejected the request (HTTP {response.status_code}).")
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_error(provider: str, exc: httpx.HTTPError) -> ToolExecutionError:
+    return ToolExecutionError(f"{provider} request failed ({type(exc).__name__}); credentials and request data were not logged.")
+
+
+class LinkedInCreatePostInput(StrictModel):
+    text: str = Field(min_length=1, max_length=3000)
+    visibility: str = Field(default="PUBLIC", pattern="^(PUBLIC|CONNECTIONS)$")
+
+
+class LinkedInCreatePostTool(Tool):
+    name = "linkedin_create_post"
+    description = "Publish a text post as the configured LinkedIn member or organization. Requires exact owner approval."
+    permission_scope = "linkedin.write"
+    risk = Risk.HIGH
+    idempotent = False
+    timeout_seconds = 20
+    input_model = LinkedInCreatePostInput
+
+    def run_sync(self, args: LinkedInCreatePostInput, ctx: ToolContext) -> dict[str, Any]:
+        token = ctx.config.linkedin_access_token
+        author = ctx.config.linkedin_author_urn
+        version = ctx.config.linkedin_api_version
+        if not token or not author:
+            raise ToolUnavailable("LinkedIn is not configured. Set MATRIX_LINKEDIN_ACCESS_TOKEN and MATRIX_LINKEDIN_AUTHOR_URN.")
+        if not _LINKEDIN_AUTHOR.fullmatch(author):
+            raise ToolExecutionError("MATRIX_LINKEDIN_AUTHOR_URN must be a person or organization URN.")
+        if not _LINKEDIN_VERSION.fullmatch(version):
+            raise ToolExecutionError("MATRIX_LINKEDIN_API_VERSION must use YYYYMM format.")
+        payload = {
+            "author": author,
+            "commentary": args.text,
+            "visibility": args.visibility,
+            "distribution": {
+                "feedDistribution": "MAIN_FEED",
+                "targetEntities": [],
+                "thirdPartyDistributionChannels": [],
+            },
+            "lifecycleState": "PUBLISHED",
+            "isReshareDisabledByAuthor": False,
+        }
+        try:
+            response = httpx.post(
+                "https://api.linkedin.com/rest/posts",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "LinkedIn-Version": version,
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("LinkedIn", exc) from exc
+        _response_json(response, "LinkedIn")
+        post_id = response.headers.get("x-restli-id")
+        if not post_id:
+            raise ToolExecutionError("LinkedIn accepted the request but did not return a post ID; verify the post before retrying.")
+        return {"post_id": post_id, "author": author, "visibility": args.visibility}
+
+    def verify(self, args: LinkedInCreatePostInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = bool(output.get("post_id") and output.get("author"))
+        return VerificationEvidence(
+            ok=ok, confidence=0.98 if ok else 0.0,
+            checks=["linkedin_created_post_id_returned"],
+        )
+
+
+class InstagramListCommentsInput(StrictModel):
+    media_id: str = Field(min_length=5, max_length=40, pattern=r"^[0-9]+$")
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class InstagramListCommentsTool(Tool):
+    name = "instagram_list_comments"
+    description = "Read a bounded page of comments on an Instagram Professional account's media."
+    permission_scope = "instagram.read"
+    risk = Risk.LOW
+    idempotent = True
+    returns_untrusted = True
+    timeout_seconds = 20
+    input_model = InstagramListCommentsInput
+
+    def run_sync(self, args: InstagramListCommentsInput, ctx: ToolContext) -> dict[str, Any]:
+        token, version = ctx.config.instagram_access_token, ctx.config.meta_graph_version
+        if not token or not version:
+            raise ToolUnavailable("Instagram is not configured. Set MATRIX_INSTAGRAM_ACCESS_TOKEN and MATRIX_META_GRAPH_VERSION.")
+        if not _GRAPH_VERSION.fullmatch(version):
+            raise ToolExecutionError("MATRIX_META_GRAPH_VERSION must use the vNN.N format.")
+        try:
+            response = httpx.get(
+                f"https://graph.facebook.com/{version}/{args.media_id}/comments",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "id,text,username,timestamp", "limit": args.limit},
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("Instagram", exc) from exc
+        payload = _response_json(response, "Instagram")
+        data = payload.get("data")
+        if not isinstance(data, list):
+            raise ToolExecutionError("Instagram returned an invalid comments collection.")
+        comments = [
+            {
+                "id": str(item.get("id", "")),
+                "text": str(item.get("text", ""))[:1000],
+                "username": str(item.get("username", ""))[:100],
+                "timestamp": item.get("timestamp"),
+            }
+            for item in data[: args.limit]
+            if isinstance(item, dict) and item.get("id")
+        ]
+        return {"media_id": args.media_id, "comments": comments, "count": len(comments)}
+
+    def verify(self, args: InstagramListCommentsInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = output.get("media_id") == args.media_id and isinstance(output.get("comments"), list)
+        return VerificationEvidence(ok=ok, confidence=0.95 if ok else 0.0, checks=["instagram_comments_listed"])
+
+
+class InstagramReplyCommentInput(StrictModel):
+    comment_id: str = Field(min_length=5, max_length=40, pattern=r"^[0-9]+$")
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class InstagramReplyCommentTool(Tool):
+    name = "instagram_reply_comment"
+    description = "Reply to a comment on the connected Instagram Professional account. Requires exact owner approval."
+    permission_scope = "instagram.write"
+    risk = Risk.HIGH
+    idempotent = False
+    timeout_seconds = 20
+    input_model = InstagramReplyCommentInput
+
+    def run_sync(self, args: InstagramReplyCommentInput, ctx: ToolContext) -> dict[str, Any]:
+        token, version = ctx.config.instagram_access_token, ctx.config.meta_graph_version
+        if not token or not version:
+            raise ToolUnavailable("Instagram is not configured. Set MATRIX_INSTAGRAM_ACCESS_TOKEN and MATRIX_META_GRAPH_VERSION.")
+        if not _GRAPH_VERSION.fullmatch(version):
+            raise ToolExecutionError("MATRIX_META_GRAPH_VERSION must use the vNN.N format.")
+        try:
+            response = httpx.post(
+                f"https://graph.facebook.com/{version}/{args.comment_id}/replies",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"message": args.message},
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("Instagram", exc) from exc
+        payload = _response_json(response, "Instagram")
+        reply_id = payload.get("id")
+        if not reply_id:
+            raise ToolExecutionError("Instagram did not confirm the created comment reply.")
+        return {"comment_id": args.comment_id, "reply_id": str(reply_id)}
+
+    def verify(self, args: InstagramReplyCommentInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = output.get("comment_id") == args.comment_id and bool(output.get("reply_id"))
+        return VerificationEvidence(ok=ok, confidence=0.98 if ok else 0.0, checks=["instagram_reply_id_returned"])
+
+
+class WhatsAppSendTextInput(StrictModel):
+    recipient: str = Field(min_length=8, max_length=16, pattern=r"^\\+?[1-9][0-9]{7,14}$")
+    text: str = Field(min_length=1, max_length=4096)
+
+
+class WhatsAppSendTextTool(Tool):
+    name = "whatsapp_send_text"
+    description = "Send a WhatsApp Business Platform text message to an opted-in recipient. Requires exact owner approval."
+    permission_scope = "whatsapp.write"
+    risk = Risk.HIGH
+    idempotent = False
+    timeout_seconds = 25
+    input_model = WhatsAppSendTextInput
+
+    def run_sync(self, args: WhatsAppSendTextInput, ctx: ToolContext) -> dict[str, Any]:
+        token = ctx.config.whatsapp_access_token
+        phone_id = ctx.config.whatsapp_phone_number_id
+        version = ctx.config.meta_graph_version
+        if not token or not phone_id or not version:
+            raise ToolUnavailable(
+                "WhatsApp Cloud API is not configured. Set MATRIX_WHATSAPP_ACCESS_TOKEN, "
+                "MATRIX_WHATSAPP_PHONE_NUMBER_ID and MATRIX_META_GRAPH_VERSION."
+            )
+        if not _META_ID.fullmatch(phone_id) or not _GRAPH_VERSION.fullmatch(version):
+            raise ToolExecutionError("WhatsApp phone-number ID or Meta Graph API version is invalid.")
+        recipient = args.recipient.lstrip("+")
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": recipient,
+            "type": "text",
+            "text": {"preview_url": False, "body": args.text},
+        }
+        try:
+            response = httpx.post(
+                f"https://graph.facebook.com/{version}/{phone_id}/messages",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=httpx.Timeout(self.timeout_seconds, connect=5.0),
+            )
+        except httpx.HTTPError as exc:
+            raise _request_error("WhatsApp", exc) from exc
+        result = _response_json(response, "WhatsApp")
+        messages = result.get("messages")
+        message_id = messages[0].get("id") if isinstance(messages, list) and messages and isinstance(messages[0], dict) else None
+        if not message_id:
+            raise ToolExecutionError("WhatsApp did not confirm a sent message ID.")
+        return {"message_id": str(message_id), "recipient": recipient}
+
+    def verify(self, args: WhatsAppSendTextInput, output: dict[str, Any]) -> VerificationEvidence:
+        ok = bool(output.get("message_id") and output.get("recipient") == args.recipient.lstrip("+"))
+        return VerificationEvidence(ok=ok, confidence=0.98 if ok else 0.0, checks=["whatsapp_message_id_returned"])
