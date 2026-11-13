@@ -433,10 +433,12 @@ class GoalSupervisor:
             return
 
         summary = str(result.get("reason") or "Independent criteria assessment completed.")[:1000]
-        state = "completed" if status == "verified" else (
-            "partial" if status == "not_verified" else "awaiting_verification"
+        # A model assessment is evidence for the owner, never the owner's
+        # final acceptance. Keep every successful DAG in review until an
+        # authenticated owner explicitly confirms or rejects the criteria.
+        self.store.finish_goal_graph(
+            goal_id, state="awaiting_verification", summary=summary
         )
-        self.store.finish_goal_graph(goal_id, state=state, summary=summary)
         self.store.db.execute(
             "UPDATE goals SET evidence_json=?, verification_status=?, criteria_status=?, updated_at=? WHERE id=?",
             (
