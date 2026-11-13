@@ -298,7 +298,7 @@ async def test_goal_criteria_confirmation_requires_review_and_is_owner_scoped(cl
     )
     assert runtime.store.get_goal(goal_id)["state"] == "needs_attention"
 
-    with pytest.raises(Exception):
+    from matrix_ai.errors import NotFoundError\n\n    with pytest.raises(NotFoundError):
         runtime.store.confirm_goal_criteria(
             goal_id, owner_id="another-user", outcome="met", reason="Not the owner."
         )
