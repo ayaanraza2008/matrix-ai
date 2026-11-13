@@ -264,6 +264,7 @@ class Store:
         if row is None:
             raise NotFoundError(f"goal {goal_id} not found")
         result = dict(row)
+        result["criteria_review"] = _json_load(result.get("criteria_review_json"), None)
         result["task"] = self._task_summary(self.get_task_row(row["task_id"])) if row["task_id"] else None
         return result
 
