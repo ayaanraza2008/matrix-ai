@@ -466,3 +466,34 @@ async def test_telegram_status_reports_task_counts_and_approval_queue(tmp_path):
     assert "Model: working (ollama/qwen-test)" in sent[0]
     assert "Active tasks: 2" in sent[0]
     assert "Waiting for owner approval: 1" in sent[0]
+
+
+
+async def test_telegram_registers_supported_commands_in_bot_menu(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    calls = []
+
+    async def fake_api(method, payload):
+        calls.append((method, payload))
+        return {"ok": True}
+
+    bridge._api = fake_api
+    await bridge._register_commands()
+
+    assert len(calls) == 1
+    method, payload = calls[0]
+    assert method == "setMyCommands"
+    names = {item["command"] for item in payload["commands"]}
+    assert names == {"start", "help", "status", "tasks", "task", "cancel", "stop", "resume"}
+
+
+async def test_telegram_command_menu_failure_does_not_disable_polling(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def fail_api(_method, _payload):
+        raise RuntimeError("temporary Telegram API error")
+
+    bridge._api = fail_api
+    await bridge._register_commands()
+
+    assert any(args[0] == "telegram.command_menu_failed" for args, _ in store.audits)
