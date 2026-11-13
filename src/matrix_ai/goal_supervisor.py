@@ -449,7 +449,7 @@ class GoalSupervisor:
                     if isinstance(result.get("missing_evidence", []), list) else [],
                     "reason": summary,
                 }),
-                "second_pass_model_assessed",
+                "pending_owner_review",
                 "verified_by_model" if status == "verified" else status,
                 iso(),
                 goal_id,
