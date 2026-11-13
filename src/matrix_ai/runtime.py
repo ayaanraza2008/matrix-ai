@@ -88,15 +88,15 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
+        auth = AuthService(store, config)
+        auth.bootstrap()
+        limiter = RateLimiter(config.rate_limit_per_minute)
         telegram = TelegramChatBridge(
             config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
         )
         goal_supervisor = GoalSupervisor(
             store=store, orchestrator=orchestrator, config=config, telegram=telegram
         )
-        auth = AuthService(store, config)
-        auth.bootstrap()
-        limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
             db=db,
