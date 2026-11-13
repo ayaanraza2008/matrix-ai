@@ -125,11 +125,16 @@ class GoalSupervisor:
                 detail={"graph_id": graph_id, "nodes": list(blocked)},
             )
 
-        ready = graph.ready_nodes(
-            completed,
-            running=running,
-            failed=failed,
-            limit=self.max_concurrent_nodes,
+        available_slots = max(0, self.max_concurrent_nodes - len(running))
+        ready = (
+            graph.ready_nodes(
+                completed,
+                running=running,
+                failed=failed,
+                limit=min(4, available_slots),
+            )
+            if available_slots
+            else ()
         )
         results: list[dict] = []
         if not self.store.emergency_stop:
