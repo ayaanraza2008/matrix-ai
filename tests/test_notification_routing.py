@@ -384,3 +384,24 @@ async def test_webhook_request_is_hmac_signed_and_redirects_are_disabled(tmp_pat
     assert payload["event_id"] == "event-123"
     assert payload["event_type"] == "health.degraded"
     assert payload["components"]["model"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_recovery_preference_suppresses_routine_push_but_not_urgent_alerts(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="degraded")
+    store.flags["notification_preferences"] = {"health_recovered": False, "daily_digest": True}
+    sent = []
+
+    async def send(state, components, event_id, delivered_channels):
+        sent.append(state)
+        return set(delivered_channels) | {"telegram"}
+
+    monkeypatch.setattr(scheduler, "_send_health_notification", send)
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
+    await scheduler.monitor_health()
+    models.current_status = "working"
+    await scheduler.monitor_health()
+
+    assert sent == ["degraded"]
+    assert [item["event_type"] for item in store.notifications] == ["health.degraded"]
+    assert store.get_flag("pending_health_notifications") == ""
