@@ -5,7 +5,7 @@ import pytest
 
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import DEFAULT_SCOPES, Risk
-from matrix_ai.errors import ToolUnavailable, ValidationFailure
+from matrix_ai.errors import ToolExecutionError, ToolUnavailable, ValidationFailure
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.social_tools import (
@@ -89,7 +89,7 @@ def test_linkedin_create_post_uses_current_posts_api_and_requires_provider_id(tm
 def test_linkedin_rejects_bad_author_urn(tmp_path):
     ctx = make_context(tmp_path)
     ctx.config.linkedin_author_urn = "https://linkedin.com/in/not-a-urn"
-    with pytest.raises(Exception, match="AUTHOR_URN"):
+    with pytest.raises(ToolExecutionError, match="AUTHOR_URN"):
         LinkedInCreatePostTool().run_sync(
             LinkedInCreatePostTool().validate({"text": "test"}), ctx
         )
