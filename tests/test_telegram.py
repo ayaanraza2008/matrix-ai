@@ -434,6 +434,7 @@ async def test_telegram_task_commands_list_inspect_and_cancel_only_telegram_task
     await bridge._handle_update(update(text="/task not-a-telegram-task"))
 
     assert "Recent MATRIX Telegram tasks:" in sent[0]
+    assert "task-abcdef123456" in sent[0]
     assert "Needs owner approval" in sent[1]
     assert "cannot auto-approve" in sent[1]
     assert "cancellation processed" in sent[2].lower()
