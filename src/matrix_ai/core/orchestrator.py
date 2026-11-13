@@ -96,7 +96,16 @@ class Orchestrator:
         autonomy_level: int | None = None,
         scopes: list[str] | None = None,
         kind: str = "chat",
+        goal_id: str | None = None,
+        goal_node_id: str | None = None,
+        deadline_seconds: float | None = None,
+        idempotency_scope: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
+        if idempotency_scope and idempotency_key:
+            existing_task_id = self.store.get_idempotent_task_id(idempotency_scope, idempotency_key)
+            if existing_task_id is not None:
+                return existing_task_id
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
         self.store.ensure_user(user_id)
@@ -109,7 +118,11 @@ class Orchestrator:
             autonomy_level=effective_autonomy,
             scopes=granted,
             kind=kind,
-            deadline_seconds=self.config.task_deadline_seconds,
+            deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
+            goal_id=goal_id,
+            goal_node_id=goal_node_id,
+            idempotency_scope=idempotency_scope,
+            idempotency_key=idempotency_key,
         )
         self.store.audit(
             "task.created",
@@ -118,6 +131,8 @@ class Orchestrator:
             status="received",
             detail={
                 "kind": kind,
+                "goal_id": goal_id,
+                "goal_node_id": goal_node_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
@@ -567,7 +582,8 @@ class Orchestrator:
         self.store.update_step(
             task_id,
             step.idx,
-            status=StepStatus.COMPLETED.value,
+            status=StepStatus.COMPLETED.value if ok else StepStatus.FAILED.value,
+            error=None if ok else "answer_unavailable",
             finished_at=iso(),
             evidence_json=json.dumps(evidence.model_dump()),
         )
@@ -781,7 +797,16 @@ class Orchestrator:
 
             self._fail_step(task_id, step.idx, "tool_failed", error)
             self._to(task_id, TaskState.VERIFY)
-            self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_failed",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self._to(task_id, TaskState.VERIFY)
@@ -803,11 +828,20 @@ class Orchestrator:
                 status="failed",
                 detail={"checks": evidence.checks},
             )
-            self._abort(
-                task_id,
-                "verification_failed",
-                f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
-            )
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(
+                    task_id,
+                    "verification_failed",
+                    f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
+                )
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_unverified",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self.store.update_step(
@@ -928,6 +962,11 @@ class Orchestrator:
         runner = self._runners.get(task_id)
         if runner is not None and not runner.done():
             runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+            # A runner can be cancelled before its coroutine starts. Reconcile
+            # explicitly so callers never observe a permanently nonterminal task.
+            if not TaskStateMachine.is_terminal(self.store.get_task_row(task_id)["state"]):
+                self._mark_cancelled(task_id)
         else:
             self._mark_cancelled(task_id)
         return self.store.task_view(task_id)
@@ -1058,6 +1097,8 @@ class Orchestrator:
             return
         if TaskStateMachine.can_transition(current, target):
             self.store.transition(task_id, target)
+            if TaskStateMachine.is_terminal(target):
+                self.store.sync_goal_for_task(task_id)
             return
         if TaskStateMachine.is_terminal(current):
             return
@@ -1072,13 +1113,13 @@ class Orchestrator:
             self.store.transition(task_id, TaskState.FAILED)
         except IllegalTransition:  # pragma: no cover - impossible with current graph
             self.store.update_task(task_id, state=target.value)
+        self.store.sync_goal_for_task(task_id)
 
     # ------------------------------------------------------------------
     # summaries and helpers
     # ------------------------------------------------------------------
     def _summarize_task(self, task_id: str, row, steps, calls, all_done: bool) -> str:
         answer = (self.store.get_task_row(task_id)["summary"] or "").strip()
-        answer_steps = [step for step in steps if step.kind is StepKind.ANSWER and step.status is StepStatus.COMPLETED]
         parts: list[str] = []
         for step in steps:
             if step.kind is StepKind.ANSWER:
@@ -1089,8 +1130,8 @@ class Orchestrator:
             elif step.status is StepStatus.FAILED:
                 parts.append(f"{step.tool_name or 'step'} failed: {step.error or 'unknown error'}")
         body = "; ".join(part for part in parts if part)
-        if answer_steps and answer:
-            return answer if all_done else f"{answer}\n\nNot fully verified: {body}"
+        if answer and any(step.kind is StepKind.ANSWER for step in steps):
+            return answer if all_done else f"{answer}\n\nNot fully verified: {body or 'the free-form answer could not be independently verified'}"
         if all_done:
             return f"Completed and verified: {body}" if body else "Completed."
         if parts:

@@ -59,6 +59,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         if start_background:
             await runtime.orchestrator.recover_after_restart()
+            await runtime.goal_supervisor.recover_after_restart()
             runtime.start_background()
         try:
             yield

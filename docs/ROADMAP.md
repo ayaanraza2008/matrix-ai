@@ -8,13 +8,13 @@ reproducible demonstration — not when code exists.
 | 0. Discovery | Repo inventory, baseline report, integration status | Reproducible baseline + prioritized gaps | **Complete** — `docs/BASELINE_REPORT.md` (empty repo, fresh build) |
 | 1. Stabilize core | API, state machine, tool registry, policy, cancellation, audit | Core tests pass; no unguarded execution | **Complete** — A01/A03–A08/A16/A17/A22/A23 pass |
 | 2. Local brain | Model adapter, manager, structured tools, benchmark harness | Local chat + tool routing within RAM budget | **Partial** — adapters/manager done; no benchmark harness or model configured on this PC |
-| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — mute/barge-in/PTT control done and tested; engines blocked |
+| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional local faster-whisper/Piper wired; target audio E2E, wake word, VAD and streaming pending |
 | 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — sessions + OCR adapter; Tesseract/MediaPipe/camera missing |
 | 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — files/apps/shell/system done; pywinauto + Playwright pending |
-| 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; not built |
-| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — memory + jobs done; quiet hours/alert routing pending |
-| 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial** — adapters and status implemented; credentials unconfigured |
-| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — UI/docs/CI/acceptance done; installer and signed build pending |
+| 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; debug/release assemble CI added in PR #21; physical-device validation pending |
+| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — owner-created recurring goals respect the global autonomy ceiling; quiet hours, alert routing and deeper goal lifecycle pending |
+| 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial** — the registry has credential/connectivity probes (GitHub identity, Telegram `getMe`, Home Assistant API ping, Google OAuth-file validation, Open-Meteo reachability, Firebase service-account validation and Twilio account lookup). Telegram also has the two-way chat/health-alert bridge in PRs #18/#19. Full Gmail/Calendar OAuth actions, GitHub issue/PR actions, Home Assistant entity controls, Firebase device registration/delivery and end-to-end telephony call flows remain unfinished; credentials are unconfigured. |
+| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — docs/CI/acceptance plus opt-in private Tailscale access and Windows logon startup; installer, signed build and physical-device E2E pending |
 
 ## Next milestones
 
@@ -30,10 +30,12 @@ reproducible demonstration — not when code exists.
 - [ ] Run the benchmark on the target PC and choose the largest model that stays inside the measured memory budget.
 - Acceptance: ≥ 90 % valid JSON plans on the MATRIX prompt set; peak RSS within budget; `/api/models` reports `working`.
 
-### M2 — Voice engines (Phase 3 exit)
-- faster-whisper `tiny.en`/`base` + Piper voice; push-to-talk path first.
-- Wire `VoiceSessionManager.transcribe/speak` to real engines; keep mute check before engine use.
-- Acceptance: A11/A12 run against real audio; barge-in stops playback ≤ 300 ms; no raw audio persisted.
+### M2 — Voice production validation (Phase 3 exit)
+- [x] Wire optional faster-whisper STT and Piper TTS into `VoiceSessionManager` (PR #14).
+- [x] Offload CPU-bound STT inference from the FastAPI event loop; keep mute checks before capture/inference.
+- [ ] Validate real microphone and speaker devices on the target Windows PC with the optional voice extra installed.
+- [ ] Measure barge-in latency (target ≤ 300 ms); add device selection, VAD, echo cancellation and streaming partial transcripts.
+- Acceptance: A11/A12 run against real audio, barge-in stops playback ≤ 300 ms, and no raw audio persists.
 
 ### M3 — Windows UI + browser automation (Phase 5 exit)
 - pywinauto window/control inspection; Playwright for approved sites.
@@ -47,3 +49,38 @@ reproducible demonstration — not when code exists.
 ### M5 — Packaging & release (Phase 9 exit)
 - PyInstaller or MSIX, startup shortcut, signed release, `matrix doctor` in the bundle.
 - Acceptance: fresh install on the target PC passes A01–A25 (except environment-blocked IDs, reported honestly).
+
+
+### M6 — Always-available, bounded autonomy
+
+- [x] Add an opt-in per-user Windows logon task with limited privileges.
+- [x] Add opt-in Tailscale Serve access that proxies only to loopback and never configures public Funnel.
+- [x] Expose authenticated automation and private-access status.
+- [x] Honour owner-created job autonomy up to the global MATRIX autonomy ceiling; preserve exact approval for HIGH/CRITICAL.
+- [ ] Validate a real Windows restart/sign-in/remote tailnet session and verify revocation/ACL behavior.
+- [x] Add persistent database/model/emergency-stop health transitions, with optional Telegram alerts and audit records.
+- [ ] Add quiet hours, richer notification routing and a persistent owner-goal lifecycle before broader proactive behavior.
+
+### M7 — Dependency-aware task plans
+
+- [x] Validate planner step dependency indexes, unknown references, duplicates and cycles.
+- [x] Preserve zero-based `depends_on` relationships through the planner parser.
+- [x] Execute only dependency-ready steps, including prerequisites that appear later in the plan.
+- [x] Block transitive descendants after a failed or unverified prerequisite.
+- [x] Continue independent branches after a step failure; final task outcome remains PARTIAL/FAILED when any required branch did not complete.
+- [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
+- [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
+- Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.
+
+### M8 — Persistent executable goal DAGs
+
+- [x] Persist bounded goal nodes and dependency edges in SQLite.
+- [x] Add authenticated plan, start, graph-status and cancellation APIs.
+- [x] Dispatch up to four dependency-ready nodes per goal through the normal task orchestrator.
+- [x] Continue independent branches and block descendants of failed nodes.
+- [x] Recover orphaned dispatch claims and resume durable goal graphs after startup.
+- [x] Resume graph reconciliation after a node approval decision.
+- [x] Add a separate read-only model criteria-assessment pass; keep goals awaiting owner review when no model/evidence is available.
+- [ ] Add explicit owner-triggered replan with a no-side-effect replay gate and bounded replan count.
+- [ ] Test restart recovery, pending-approval resume and cancellation during a live node on Windows and Linux.
+- [ ] Run the full CI matrix on the final PR head and complete end-to-end acceptance.

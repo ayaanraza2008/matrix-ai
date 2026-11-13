@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import sys
 from dataclasses import dataclass, field
+from datetime import time as datetime_time
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import ConfigError
 
@@ -156,6 +159,7 @@ class MatrixConfig:
     task_deadline_seconds: float = 900.0
 
     rate_limit_per_minute: int = 240
+    additional_scopes: tuple[str, ...] = ()
     allow_web_fetch: bool = True
     web_fetch_max_bytes: int = 400_000
     cors_origins: tuple[str, ...] = ()
@@ -170,6 +174,11 @@ class MatrixConfig:
     hexstrike_allowed_targets: tuple[str, ...] = ()
     log_level: str = "INFO"
 
+    # Routine recovery notices can be deferred; urgent degradation alerts bypass quiet hours.
+    notification_quiet_hours_start: str | None = None
+    notification_quiet_hours_end: str | None = None
+    notification_timezone: str = "UTC"
+
     # Optional integrations - never required, never logged, never committed.
     github_token: str | None = None
     telegram_bot_token: str | None = None
@@ -180,6 +189,20 @@ class MatrixConfig:
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     firebase_credentials_path: str | None = None
+    youtube_client_secrets_path: str | None = None
+    youtube_token_path: str | None = None
+    youtube_max_upload_bytes: int = 2_000_000_000
+    linkedin_access_token: str | None = None
+    linkedin_author_urn: str | None = None
+    linkedin_api_version: str = "202609"
+    instagram_access_token: str | None = None
+    instagram_user_id: str | None = None
+    whatsapp_access_token: str | None = None
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_app_secret: str | None = None
+    whatsapp_verify_token: str | None = None
+    whatsapp_allowed_senders: tuple[str, ...] = ()
+    meta_graph_version: str | None = None
 
     def __post_init__(self) -> None:
         self.home = Path(self.home).expanduser().resolve()
@@ -198,6 +221,16 @@ class MatrixConfig:
             else:
                 self.owner_token = self._load_or_create_owner_token()
                 self.owner_token_generated = True
+        self.additional_scopes = tuple(sorted(set(self.additional_scopes)))
+        self.whatsapp_allowed_senders = tuple(
+            sorted({sender.strip().lstrip("+") for sender in self.whatsapp_allowed_senders if sender.strip()})
+        )
+        if any(not re.fullmatch(r"[1-9][0-9]{7,14}", sender) for sender in self.whatsapp_allowed_senders):
+            raise ConfigError("MATRIX_WHATSAPP_ALLOWED_SENDERS must contain E.164 numbers separated by semicolons")
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*", scope) for scope in self.additional_scopes):
+            raise ConfigError("MATRIX_EXTRA_SCOPES entries must use domain.action format; wildcard is not allowed")
+        if self.youtube_token_path is None:
+            self.youtube_token_path = str(self.home / "youtube-token.json")
         self.autonomy_level = max(0, min(4, int(self.autonomy_level)))
         self.model_max_concurrent_requests = max(1, min(8, int(self.model_max_concurrent_requests)))
         self.agent_max_concurrent_workers = max(1, min(16, int(self.agent_max_concurrent_workers)))
@@ -215,6 +248,23 @@ class MatrixConfig:
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        if bool(self.notification_quiet_hours_start) != bool(self.notification_quiet_hours_end):
+            raise ConfigError("notification quiet hours require both start and end times")
+        for label, value in (
+            ("MATRIX_NOTIFICATION_QUIET_HOURS_START", self.notification_quiet_hours_start),
+            ("MATRIX_NOTIFICATION_QUIET_HOURS_END", self.notification_quiet_hours_end),
+        ):
+            if value is not None:
+                try:
+                    parsed = datetime_time.fromisoformat(value)
+                except ValueError as exc:
+                    raise ConfigError(f"{label} must use HH:MM format") from exc
+                if parsed.second or parsed.microsecond or len(value) != 5:
+                    raise ConfigError(f"{label} must use HH:MM format")
+        try:
+            ZoneInfo(self.notification_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ConfigError("MATRIX_NOTIFICATION_TIMEZONE must be a valid IANA timezone") from exc
 
     # -- helpers -----------------------------------------------------------
     @staticmethod
@@ -333,6 +383,12 @@ class MatrixConfig:
 
     def public_dict(self) -> dict:
         """Safe-to-render configuration (never includes tokens/keys)."""
+        try:
+            from .integrations.youtube_auth import has_youtube_credentials
+
+            youtube_connected = has_youtube_credentials(self)
+        except Exception:  # noqa: BLE001 - public config rendering must fail closed
+            youtube_connected = False
         return {
             "home": str(self.home),
             "host": self.host,
@@ -356,6 +412,13 @@ class MatrixConfig:
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "notification_routing": {
+                "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
+                "quiet_hours_start": self.notification_quiet_hours_start,
+                "quiet_hours_end": self.notification_quiet_hours_end,
+                "timezone": self.notification_timezone,
+                "urgent_degradation_bypasses_quiet_hours": True,
+            },
             "allow_web_fetch": self.allow_web_fetch,
             "allowed_app_ids": sorted(self.allowed_apps),
             "allowed_command_ids": sorted(self.allowed_commands),
@@ -367,6 +430,10 @@ class MatrixConfig:
                 "home_assistant": bool(self.home_assistant_url and self.home_assistant_token),
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
+                "youtube": youtube_connected,
+                "linkedin": bool(self.linkedin_access_token and self.linkedin_author_urn),
+                "instagram": bool(self.instagram_access_token and self.instagram_user_id and self.meta_graph_version),
+                "whatsapp": bool(self.whatsapp_access_token and self.whatsapp_phone_number_id and self.meta_graph_version),
             },
         }
 
@@ -416,12 +483,16 @@ class MatrixConfig:
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
+            additional_scopes=tuple(part.strip() for part in (_env("MATRIX_EXTRA_SCOPES", "") or "").split(";") if part.strip()),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
             file_roots=roots,
             allowed_apps=apps,
             addon_mcp_servers=addon_servers,
             addon_auto_install_sources=_env_bool("MATRIX_ADDON_AUTO_INSTALL_SOURCES", True),
             log_level=_env("MATRIX_LOG_LEVEL", "INFO") or "INFO",
+            notification_quiet_hours_start=_env("MATRIX_NOTIFICATION_QUIET_HOURS_START"),
+            notification_quiet_hours_end=_env("MATRIX_NOTIFICATION_QUIET_HOURS_END"),
+            notification_timezone=_env("MATRIX_NOTIFICATION_TIMEZONE", "UTC") or "UTC",
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_env("MATRIX_TELEGRAM_CHAT_ID"),
@@ -431,4 +502,22 @@ class MatrixConfig:
             twilio_account_sid=_env("MATRIX_TWILIO_ACCOUNT_SID"),
             twilio_auth_token=_env("MATRIX_TWILIO_AUTH_TOKEN"),
             firebase_credentials_path=_env("MATRIX_FIREBASE_CREDENTIALS"),
+            youtube_client_secrets_path=_env("MATRIX_YOUTUBE_CLIENT_SECRETS"),
+            youtube_token_path=_env("MATRIX_YOUTUBE_TOKEN_FILE"),
+            youtube_max_upload_bytes=_env_int("MATRIX_YOUTUBE_MAX_UPLOAD_BYTES", 2_000_000_000),
+            linkedin_access_token=_env("MATRIX_LINKEDIN_ACCESS_TOKEN"),
+            linkedin_author_urn=_env("MATRIX_LINKEDIN_AUTHOR_URN"),
+            linkedin_api_version=_env("MATRIX_LINKEDIN_API_VERSION", "202609") or "202609",
+            instagram_access_token=_env("MATRIX_INSTAGRAM_ACCESS_TOKEN"),
+            instagram_user_id=_env("MATRIX_INSTAGRAM_USER_ID"),
+            whatsapp_access_token=_env("MATRIX_WHATSAPP_ACCESS_TOKEN"),
+            whatsapp_phone_number_id=_env("MATRIX_WHATSAPP_PHONE_NUMBER_ID"),
+            whatsapp_app_secret=_env("MATRIX_WHATSAPP_APP_SECRET"),
+            whatsapp_verify_token=_env("MATRIX_WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
+            whatsapp_allowed_senders=tuple(
+                part.strip().lstrip("+")
+                for part in (_env("MATRIX_WHATSAPP_ALLOWED_SENDERS", "") or "").split(";")
+                if part.strip()
+            ),
+            meta_graph_version=_env("MATRIX_META_GRAPH_VERSION"),
         )
