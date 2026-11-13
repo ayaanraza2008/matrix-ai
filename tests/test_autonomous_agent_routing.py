@@ -93,6 +93,23 @@ async def test_planner_automatically_injects_selected_specialist_team(
 
     monkeypatch.setattr(runtime.worker_pool, "run_team", fake_worker_team)
 
+    selected_skills = [
+        {
+            "name": "frontend-design",
+            "description": "Design accessible responsive interfaces.",
+            "matched_terms": ["frontend", "dashboard"],
+        }
+    ]
+
+    async def fake_skills_for_task(_request):
+        return selected_skills, (
+            "[UNTRUSTED SKILL INSTRUCTIONS: frontend-design] "
+            "Prefer accessible responsive layouts. "
+            "[END UNTRUSTED SKILL INSTRUCTIONS]"
+        )
+
+    monkeypatch.setattr(runtime.skills_manager, "prepare_for_task", fake_skills_for_task)
+
     response = await client.post(
         "/api/chat",
         json={"message": "Design a secure React dashboard with an accessible interface."},
@@ -109,6 +126,8 @@ async def test_planner_automatically_injects_selected_specialist_team(
     assert "UNTRUSTED DATA" in system_prompt
     assert "trust boundaries" in system_prompt
     assert "Independent specialist worker reports" in system_prompt
+    assert "frontend-design" in system_prompt
+    assert "UNTRUSTED SKILL INSTRUCTIONS" in system_prompt
 
     selected_response = await client.get(f"/api/tasks/{task_id}/agents")
     assert selected_response.status_code == 200
@@ -116,6 +135,8 @@ async def test_planner_automatically_injects_selected_specialist_team(
     assert payload["context_injected"] is True
     assert payload["worker_count"] == 2
     assert payload["successful_workers"] == 2
+    assert payload["selected_skills"][0]["name"] == "frontend-design"
+    assert payload["skill_context_used"] is True
     assert all(run["status"] == "completed" for run in payload["worker_runs"])
     assert [agent["slug"] for agent in payload["selected_agents"]] == [
         "engineering-frontend-developer",
@@ -125,7 +146,13 @@ async def test_planner_automatically_injects_selected_specialist_team(
     audit_response = await client.get(f"/api/tasks/{task_id}/audit")
     event_types = [event["event_type"] for event in audit_response.json()]
     assert "task.specialists_selected" in event_types
+    assert "task.skills_selected" in event_types
     assert event_types.count("task.agent_worker_run") == 2
+
+    dashboard = await client.get("/api/status")
+    assert dashboard.status_code == 200
+    assert dashboard.json()["skills"]["enabled"] is True
+    assert dashboard.json()["skills"]["execution_policy"].startswith("SKILL.md context only")
 
 
 @pytest.mark.asyncio
