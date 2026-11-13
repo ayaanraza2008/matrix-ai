@@ -159,6 +159,20 @@ class Scheduler:
         return local_now >= quiet_start or local_now < quiet_end
 
     def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
+        # Keep a local, authenticated inbox even when no push channel is configured.
+        if hasattr(self.store, "create_notification"):
+            urgent = state == "degraded"
+            title = "MATRIX needs attention" if urgent else "MATRIX recovered"
+            message = (
+                f"Database: {components['database']}; Local model: {components['model']}; "
+                f"Emergency stop: {components['emergency_stop']}"
+            )
+            self.store.create_notification(
+                title=title,
+                message=message,
+                severity="critical" if components.get("emergency_stop") == "active" else ("warning" if urgent else "success"),
+                event_type="health.degraded" if urgent else "health.recovered",
+            )
         if not self.config.telegram_bot_token or not self.config.telegram_chat_id:
             return
         raw = self.store.get_flag("pending_health_notifications", "[]")
@@ -281,11 +295,41 @@ class Scheduler:
             log.warning("health notification failed: %s", type(exc).__name__)
             return False
 
+    def maybe_create_daily_digest(self) -> bool:
+        """Create one local daily summary after 09:00 in the configured timezone."""
+        preferences = self.store.notification_preferences()
+        if not preferences.get("daily_digest", True):
+            return False
+        local_now = datetime.now(ZoneInfo(self.config.notification_timezone))
+        if local_now.hour < 9:
+            return False
+        digest_date = local_now.date().isoformat()
+        if self.store.get_flag("notification_daily_digest_date") == digest_date:
+            return False
+        tasks = self.store.list_tasks(limit=200)
+        counts: dict[str, int] = {}
+        for task in tasks:
+            state = str(task.get("state") or "UNKNOWN").upper()
+            counts[state] = counts.get(state, 0) + 1
+        running = sum(counts.get(state, 0) for state in ("RECEIVED", "UNDERSTAND", "POLICY_CHECK", "PLAN", "TOOL_SELECTION", "EXECUTE", "VERIFY", "RETRY_SAFE", "WAITING_FOR_USER", "APPROVAL_REQUIRED"))
+        message = (
+            f"Recent tasks: {len(tasks)}; running or awaiting action: {running}; "
+            f"completed: {counts.get('COMPLETE', 0)}; failed: {counts.get('FAILED', 0)}; "
+            f"emergency stop: {'active' if self.store.emergency_stop else 'off'}"
+        )
+        notification_id = self.store.create_notification(
+            title="Your MATRIX daily summary", message=message, severity="info", event_type="daily.digest"
+        )
+        # Record the date even if disabled between preference read and write; avoids repeated work each minute.
+        self.store.set_flag("notification_daily_digest_date", digest_date)
+        return bool(notification_id)
+
     async def background_loop(self, interval_seconds: float = 60.0) -> None:
         while True:
             try:
                 await self.tick()
                 await self.monitor_health()
+                self.maybe_create_daily_digest()
                 await self.models.idle_check()
                 self.memory.sweep_expired()
             except asyncio.CancelledError:
@@ -306,3 +350,4 @@ class Scheduler:
             except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutdown path
                 pass
         self._task = None
+
