@@ -180,7 +180,7 @@ The inbox includes the core health component summary only. It does not include t
 
 ### Dashboard inbox, preferences and daily digest
 
-The dashboard renders the authenticated local notification inbox, unread count, severity, event type and read acknowledgement. Owner preferences are available through `GET/PUT /api/notifications/preferences`; they control routine recovery notices and the daily digest. Degraded-state and emergency-stop alerts are not suppressible. Preferences apply to the in-app inbox and do not silently change external push delivery.
+The dashboard renders the authenticated local notification inbox, unread count, severity, event type and read acknowledgement. Owner preferences are available through `GET/PUT /api/notifications/preferences`; the recovery preference applies across the inbox and enabled push channels, while the daily digest remains an in-app item. Degraded-state and emergency-stop alerts are not suppressible.
 
 The scheduler creates at most one daily digest per local calendar day, on its first tick at or after 09:00 in `MATRIX_NOTIFICATION_TIMEZONE`. The digest contains aggregate counts for recent tasks and the emergency-stop state, not task prompts or private task content. It is persisted in the same bounded inbox. The scheduler must be running for the digest to be generated; it is not an external push guarantee.
 
@@ -194,3 +194,6 @@ MATRIX can deliver health transitions to an owner-configured HTTPS webhook in ad
 - `MATRIX_NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` — comma-separated exact host allowlist; local/private IPs and local hostnames are rejected.
 
 Each request includes `X-MATRIX-Event-ID` and `X-MATRIX-Signature: sha256=...`. The JSON body includes the stable event ID, event type, severity and a limited health component summary. Receivers should verify the HMAC over the exact raw request body and deduplicate by event ID. MATRIX retries failed channels independently and remembers successful channels so a retry does not resend an already-confirmed Telegram or webhook delivery. Redirects are disabled. No webhook destination or signing secret is exposed in public settings.
+
+
+Webhook delivery is an optional second push channel beside Telegram. Per-event queue records remember which channels have confirmed delivery; retries target only channels still outstanding. This avoids duplicating successful sends when one provider is temporarily unavailable.
