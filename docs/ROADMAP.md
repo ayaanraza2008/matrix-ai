@@ -83,4 +83,5 @@ reproducible demonstration — not when code exists.
 - [x] Persist graph state and poll it after restart; reconcile ordinary tasks before graph dispatch begins.
 - [x] Expose owner-scoped create/list/read/cancel APIs.
 - [x] Add owner-approved bounded retry endpoint with durable attempt history and a fail-closed guard against repeating successful tool side effects.
-- [ ] Run restart/recovery acceptance on a real multi-node graph and validate Telegram progress notifications.
+- [x] Add optional Telegram progress notifications with persistent deduplication and retry cooldown.
+- [ ] Run restart/recovery acceptance on a real multi-node graph and validate live Telegram delivery with the owner's bot.
