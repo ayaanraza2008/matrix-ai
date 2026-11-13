@@ -143,12 +143,12 @@ class ApprovalDecisionBody(BaseModel):
 # ---------------------------------------------------------------------------
 @router.get("/webhooks/whatsapp", include_in_schema=False)
 async def whatsapp_webhook_verify(
+    runtime: RuntimeDep,
     mode: str | None = Query(default=None, alias="hub.mode"),
     verify_token: str | None = Query(default=None, alias="hub.verify_token"),
     challenge: str | None = Query(default=None, alias="hub.challenge"),
-    runtime: RuntimeDep = None,
 ) -> PlainTextResponse:
-    expected = runtime.config.whatsapp_verify_token if runtime else None
+    expected = runtime.config.whatsapp_verify_token
     if (
         mode != "subscribe"
         or not expected
@@ -214,8 +214,9 @@ async def whatsapp_webhook_receive(request: Request, runtime: RuntimeDep) -> dic
                     continue
                 sender = str(message.get("from") or "").lstrip("+")
                 message_id = str(message.get("id") or "")
-                body = str((message.get("text") or {}).get("body") or "").strip()
-                if sender not in allowed or not message_id or not body or len(body) > 4096:
+                text_object = message.get("text")
+                body = str(text_object.get("body") or "").strip() if isinstance(text_object, dict) else ""
+                if sender not in allowed or not message_id or len(message_id) > 512 or not body or len(body) > 4096:
                     ignored += 1
                     continue
                 if not runtime.store.claim_idempotency("whatsapp.inbound", message_id):
