@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from matrix_ai.storage.db import Database, SCHEMA_VERSION
+from matrix_ai.storage.db import SCHEMA_VERSION, Database
 
 
 def test_schema_v4_migrates_goal_node_identity_column_and_unique_index(tmp_path):
