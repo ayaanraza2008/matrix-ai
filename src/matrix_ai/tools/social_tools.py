@@ -5,7 +5,7 @@ import httpx
 from pydantic import Field, field_validator
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
-from .base import StrictModel, Tool, ToolContext
+from .base import StrictModel, Tool
 
 def _verified(resp, allowed=(200,201)):
     if resp.status_code in (401,403): raise ToolUnavailable("Provider rejected credentials or required permissions.")
