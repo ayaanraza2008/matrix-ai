@@ -73,3 +73,31 @@ No CI status was returned for the current main SHA at the time of this snapshot.
 - Do not merge a feature PR solely because `mergeable=true`.
 - Do not resolve overlapping PRs by force-pushing or rewriting shared branches without a reviewed migration plan.
 - Preserve owner approval, least privilege, audit evidence, and emergency stop across every integration.
+
+## Integration status re-check (2026-11-13 09:06 UTC)
+
+A fresh metadata and compare pass found that several PRs marked **merged** are merged only into stacked feature branches, not into `main`:
+
+| PR | Current state | Base branch | Meaning |
+|---|---|---|---|
+| #14 | Merged | `main` | The local voice foundation is in main. |
+| #16 | Merged | `feat/free-local-voice-stack` | Remote access/jobs are merged into the #14 stack, not main as a separate integration. |
+| #18 | Merged | `feat/autonomous-private-access` | Health monitoring is merged into the stacked remote-access branch. |
+| #19 | Merged | `feat/autonomous-health-monitor` | The two-way Telegram bridge is in the stacked branch, not verified in main/runtime. |
+| #20 | Merged | `feat/telegram-chat-bridge` | Android CI/security changes are in the same stack. |
+| #21 | **Open draft** | `feat/android-ci-hardening` | Telegram rate limiting, Python 3.11 CI and blocking dependency audit are not integrated. |
+| #22 | Merged | `hardening/telegram-rate-limit-python311` | Goal-supervisor contract/API foundation is merged into the #21 stack. |
+| #31 | Merged | `feat/orchestrator-plan-dependency-execution` | DAG execution is merged into its own dependency-execution stack, not main. |
+| #35 | Merged | `feat/youtube-channel-actions` | Pause/resume v2 is merged into a YouTube feature stack, not main. |
+| #32, #37, #47, #50 | Open drafts | Different stacked bases | Competing scheduler/verifier tracks remain unintegrated. |
+| #52 | Open draft | `main` | This acceptance/dependency documentation PR remains separate. |
+
+The current branch comparisons against `main` show substantial divergence and seven commits behind main for the inspected feature heads. For example, #21's head compares as 38 changed files, #31's as 57, #35's as 66, #37's as 42, and #47's as 45. These are not small, isolated PRs that can safely be retargeted or merged independently without reconciling their full dependency stacks.
+
+### Decision from this re-check
+
+1. Do **not** treat #19, #22, #31 or #35 as integrated into main merely because GitHub says their PRs are merged.
+2. Do **not** merge #21 or the competing DAG/verifier drafts directly into main in their current stacked state.
+3. Select one coherent goal DAG line, then build a fresh integration branch from the latest main and port/reconcile the required commits in dependency order. Re-run full CI on that integrated branch before opening a release-candidate PR.
+4. The Telegram bridge code is present in the #19 stacked branch. Live bot credentials, target-PC operation, duplicate-update behavior, rate limiting and restart recovery remain environment-acceptance items; the user must not be told Telegram is ready for direct operation yet.
+
