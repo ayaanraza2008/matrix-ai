@@ -8,7 +8,7 @@ Android client. This document states what is implemented, what is *not*, and how
 | Asset | Where | Protection |
 |---|---|---|
 | Owner bearer token | `%LOCALAPPDATA%\MATRIX\owner_token.txt`, browser localStorage | hashed (SHA-256) in SQLite; never rendered by the API |
-| Device tokens | SQLite hash on the PC; Android scaffold keeps the paired bearer token in transient memory | per-device, expiring, revocable; Android Keystore storage is not implemented yet |
+| Device tokens | SQLite hash on the PC; Android stores the paired bearer token as AES-256-GCM ciphertext with a non-exportable Android Keystore key | per-device, expiring, revocable; local logout clears ciphertext and attempts key deletion |
 | Approved workspace files | `MATRIX_FILE_ROOTS` | path resolution + root containment |
 | Task/approval state | SQLite | server-side policy, exact action hash |
 | Audit trail | SQLite `audit_events` | redaction before write |
@@ -38,8 +38,8 @@ The model is **untrusted**: it proposes plans, never permissions, never executio
 | T5 | Command injection | No free-form command tool; `command_id` only; fixed `argv`; `shell=False`; regex-constrained IDs; scrubbed child environment (A16) | Allowlisted commands themselves could be dangerous — review the list |
 | T6 | Destructive action without consent | HIGH/CRITICAL require approval bound to `sha256(tool + canonical args)`, TTL, single use; denial executes nothing (A05) | Owner can approve a harmful action intentionally |
 | T7 | Approval replay / reuse on different args | Hash includes exact arguments; resume re-checks hash; approval expired at decision time is `expired` (A05) | None known |
-| T8 | SSRF via research fetch | http(s) only, allowed ports, no credentials in URL, DNS resolution must yield only global addresses, redirects not followed, size and content-type bounds (A18 tests, `test_web_and_providers.py`) | Re-resolving the hostname at connect time leaves a DNS-rebinding TOCTOU window; the validator cannot pin the vetted IP through httpx today |
-| T9 | Token theft from dashboard | CSP `script-src 'self'`, no third-party scripts, token in localStorage, lock button clears it | XSS in same-origin custom JS or a compromised host would expose it; OS keyring integration is planned |
+| T8 | SSRF via research fetch | http(s) only, allowed ports, no credentials in URL, DNS resolution must yield only global addresses, redirects not followed, size and content-type bounds (A18 tests, `test_web_and_providers.py`) | DNS answers are validated and the TCP connection is pinned to the vetted numeric address while TLS SNI/hostname verification is retained; redirects are not followed |
+| T9 | Token theft from dashboard | CSP `script-src 'self'`, no third-party scripts, token in localStorage, lock button clears it; Android paired token is encrypted with a device-bound Android Keystore AES-GCM key | XSS in same-origin custom JS or a compromised host would expose it; OS keyring integration is planned |
 | T10 | Rogue/revoked device | Pairing code single-use + 5 min TTL; device token hashed; revocation invalidates sessions immediately (A19) | No hardware attestation on Android yet |
 | T11 | Duplicate execution after reconnect | One runner per task id; double enqueue/no-op; approvals single-use; terminal tasks never restart (A20) | In-flight tasks interrupted by a crash resume only where durable state allows; non-idempotent tools are not retried |
 | T12 | Runaway/looping autonomy | 12-step plan limit, task deadline, bounded retries, scheduler intervals, emergency stop cancels and blocks (A06) | A long-running allowlisted command can still occupy a worker until timeout |
