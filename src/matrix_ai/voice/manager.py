@@ -149,6 +149,16 @@ class VoiceSessionManager:
         session.last_utterance = transcript[:500] or None
         return {**result, "text": transcript, "session_id": session.id}
 
+    def transcribe_bytes(self, audio: bytes, *, suffix: str | None = None) -> dict:
+        """Transcribe bounded in-memory audio for trusted local adapters."""
+        if not audio:
+            raise ValidationFailure("audio payload is empty")
+        if len(audio) > MAX_AUDIO_BYTES:
+            raise ValidationFailure("audio exceeds the 8 MB limit")
+        if self.stt_engine is None:
+            raise ToolUnavailable("No local speech-to-text engine is installed.")
+        return self.stt_engine.transcribe(audio)
+
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
         text = (text or "").strip()
