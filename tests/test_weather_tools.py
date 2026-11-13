@@ -9,16 +9,6 @@ from matrix_ai.errors import ToolExecutionError
 from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 from matrix_ai.tools.weather_tools import OpenMeteoForecastInput, OpenMeteoForecastTool
-import pytest
-from matrix_ai.tools.weather_tools import OpenMeteoForecastInput, OpenMeteoForecastTool
-from pydantic import ValidationError
-
-from matrix_ai.config import MatrixConfig
-from matrix_ai.core.models import DEFAULT_SCOPES, Risk
-from matrix_ai.errors import ToolExecutionError
-from matrix_ai.tools.base import ToolContext
-from matrix_ai.tools.registry import build_registry
-
 
 def context(tmp_path):
     return ToolContext(task_id="weather-test", config=MatrixConfig(home=tmp_path))
