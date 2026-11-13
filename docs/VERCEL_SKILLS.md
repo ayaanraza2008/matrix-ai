@@ -21,9 +21,9 @@ The integration never runs skill-provided scripts, hooks, package managers, shel
 |---|---:|---|
 | MATRIX_SKILLS_AUTO_DISCOVER | true | Search skills.sh for free-form tasks |
 | MATRIX_SKILLS_AUTO_INSTALL | true | Install at most one relevant result per task |
-| MATRIX_SKILLS_AUTO_UPDATE | false | Updates are not run automatically by default |
+| MATRIX_SKILLS_AUTO_UPDATE | false | Update installed skills at most once per 24 hours when enabled |
 
-Set the corresponding variable to false to disable discovery or automatic installation. The skill store is under MATRIX_HOME; it is not committed into the MATRIX source repository. The first use may download the pinned CLI through npx; no npm dependency is added to MATRIX's Python runtime.
+Set the corresponding variable to false to disable discovery or automatic installation. Set MATRIX_SKILLS_AUTO_UPDATE=true to opt into daily updates of installed skills. The skill store is under MATRIX_HOME; it is not committed into the MATRIX source repository. The first use may download the pinned CLI through npx; no npm dependency is added to MATRIX's Python runtime.
 
 ## Owner operations
 
