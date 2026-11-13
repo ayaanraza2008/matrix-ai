@@ -32,7 +32,7 @@ from ..core.models import (
     parse_dt,
     utcnow,
 )
-from ..core.goal_verifier import review_goal_criteria\nfrom ..core.policy import PolicyEngine
+from ..core.policy import PolicyEngine
 from ..core.state_machine import TaskStateMachine
 from ..errors import (
     EmergencyStopActive,
