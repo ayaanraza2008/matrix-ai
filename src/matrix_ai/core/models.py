@@ -426,6 +426,14 @@ class JobView(BaseModel):
     last_status: str | None = None
 
 
+class JobUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
+    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
+    autonomy_level: int | None = Field(default=None, ge=0, le=2)
+    enabled: bool | None = None
+
+
 class JobCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=2000)
