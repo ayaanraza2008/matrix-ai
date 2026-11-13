@@ -22,7 +22,7 @@ def test_schema_v4_migrates_goal_node_identity_column_and_unique_index(tmp_path)
     }
     version = migrated.query_one("PRAGMA user_version")[0]
 
-    assert version == 5
+    assert version == 6
     assert "goal_node_id" in columns
     assert "idx_tasks_goal_node" in indexes
     migrated.close()
