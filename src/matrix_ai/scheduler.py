@@ -229,7 +229,6 @@ class Scheduler:
             )
             return
 
-        required_channels = self._configured_notification_channels(state)
         while pending:
             item = pending[0]
             try:
@@ -248,6 +247,7 @@ class Scheduler:
                 )
                 continue
 
+            required_channels = self._configured_notification_channels(state)
             # Degradation alerts (including emergency-stop state) always bypass quiet hours.
             if state == "healthy" and self._quiet_hours_active():
                 break
