@@ -43,7 +43,7 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure
+from ..errors import AuthenticationError, NotFoundError, PermissionDenied, ValidationFailure, PermissionDenied, ValidationFailure
 from ..integrations.addons import AddonError
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
@@ -990,6 +990,7 @@ async def automation_status(principal: PrincipalDep, runtime: RuntimeDep) -> dic
         "configured_autonomy_level": runtime.config.autonomy_level,
         "maximum_scheduled_job_autonomy": min(runtime.config.autonomy_level, 2),
         "notification_routing": runtime.config.public_dict()["notification_routing"],
+        "notification_routing": runtime.config.public_dict()["notification_routing"],
         "jobs_total": len(jobs),
         "jobs_enabled": sum(1 for job in jobs if job.enabled),
         "policy": {
@@ -1201,124 +1202,3 @@ async def disconnect_addon(
 ) -> dict[str, Any]:
     _require_owner(principal)
     return await runtime.addon_manager.disconnect(addon_id, runtime.registry)
-
-
-@router.get("/workers", tags=["agents"])
-async def list_workers(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
-    return {**runtime.worker_pool.status(), "workers": runtime.worker_pool.list_workers()}
-
-
-@router.get("/workers/{slug}", tags=["agents"])
-async def worker_detail(slug: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
-    worker = runtime.worker_pool.get_worker(slug)
-    if worker is None:
-        raise NotFoundError(f"worker {slug} not found")
-    return worker
-
-
-@router.get("/agents", tags=["system"])
-async def agents(principal: PrincipalDep) -> list[dict[str, Any]]:
-    return agent_catalog()
-
-
-@router.get("/agents/search", tags=["system"])
-async def search_agents(
-    principal: PrincipalDep,
-    q: str = Query(min_length=1, max_length=500),
-    limit: int = Query(default=5, ge=1, le=10),
-) -> dict[str, Any]:
-    matches = search_agency_agents(q, limit=limit)
-    return {"query": q, "count": len(matches), "agents": matches}
-
-
-@router.get("/agents/route", tags=["system"])
-async def route_agents(
-    principal: PrincipalDep,
-    q: str = Query(min_length=1, max_length=8000),
-) -> dict[str, Any]:
-    selected = route_agency_agents(q)
-    return {
-        "query": q,
-        "strategy": "automatic_hybrid_full_profile_search_v1",
-        "agent_count": len(selected),
-        "agents": [
-            {key: value for key, value in agent.items() if key != "content"}
-            for agent in selected
-        ],
-    }
-
-
-@router.get("/agents/{slug}", tags=["system"])
-async def agency_agent_detail(slug: str, principal: PrincipalDep) -> dict[str, Any]:
-    agent = get_agency_agent(slug)
-    if agent is None:
-        raise NotFoundError(f"specialist agent '{slug}' not found")
-    return agent
-
-
-@router.get("/settings", tags=["system"])
-async def settings(principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
-    return runtime.config.public_dict()
-
-
-# ---------------------------------------------------------------------------
-# scheduler
-# ---------------------------------------------------------------------------
-@router.get("/jobs", response_model=list[JobView], tags=["automation"])
-async def list_jobs(principal: PrincipalDep, runtime: RuntimeDep) -> list[JobView]:
-    return runtime.store.list_jobs()
-
-
-@router.post("/jobs", status_code=201, response_model=JobView, tags=["automation"])
-async def create_job(body: JobCreate, principal: PrincipalDep, runtime: RuntimeDep) -> JobView:
-    job_id = runtime.store.create_job(
-        name=body.name,
-        prompt=body.prompt,
-        interval_seconds=body.interval_seconds,
-        autonomy_level=body.autonomy_level,
-        enabled=body.enabled,
-    )
-    runtime.store.audit(
-        "scheduler.job_created",
-        actor=principal.user_id,
-        status="ok",
-        detail={"job_id": job_id, "interval_seconds": body.interval_seconds},
-    )
-    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
-    if not jobs:
-        raise NotFoundError("job was not persisted")
-    return jobs[0]
-
-
-@router.post("/jobs/{job_id}/run", status_code=202, tags=["automation"])
-async def run_job(job_id: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
-    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
-    if not jobs:
-        raise NotFoundError(f"job {job_id} not found")
-    job = jobs[0]
-    task_id = runtime.orchestrator.create_task(
-        request=job.prompt,
-        user_id=principal.user_id,
-        autonomy_level=min(int(job.autonomy_level), 1),
-        kind="job",
-    )
-    await runtime.orchestrator.enqueue(task_id)
-    runtime.store.mark_job_run(job.id, status="queued", interval_seconds=job.interval_seconds)
-    return {"job_id": job.id, "task": runtime.store.task_view(task_id)}
-
-
-@router.patch("/jobs/{job_id}", response_model=JobView, tags=["automation"])
-async def toggle_job(
-    job_id: str, body: JobToggleBody, principal: PrincipalDep, runtime: RuntimeDep
-) -> JobView:
-    runtime.store.set_job_enabled(job_id, body.enabled)
-    jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
-    if not jobs:
-        raise NotFoundError(f"job {job_id} not found")
-    return jobs[0]
-
-
-@router.get("/debug/tools/{tool_name}/schema", tags=["tools"])
-async def tool_schema(tool_name: str, principal: PrincipalDep, runtime: RuntimeDep) -> dict[str, Any]:
-    spec = runtime.registry.get(tool_name).spec()
-    return {"spec": spec.model_dump(mode="json"), "schema": json.loads(spec.model_dump_json())["input_schema"]}
