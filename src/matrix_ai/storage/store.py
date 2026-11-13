@@ -603,6 +603,12 @@ class Store:
         )
         if cursor.rowcount != 1:
             raise ValueError("goal changed before confirmation; reload and retry")
+        if goal["task_id"]:
+            self.db.execute(
+                "UPDATE goal_graph_node_attempts SET outcome=?, finished_at=COALESCE(finished_at,?) "
+                "WHERE task_id=?",
+                (status, iso(), goal["task_id"]),
+            )
         return self.get_goal(goal_id)
 
 
