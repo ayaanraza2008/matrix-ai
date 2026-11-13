@@ -89,7 +89,7 @@ def test_analyzer_supports_claude_code_transcript_blocks(tmp_path):
                 {"type": "tool_use", "name": "Edit", "input": {"new_string": "PRIVATE"}},
             ]},
         })
-    source.write_text("\\n".join(json.dumps(item) for item in records), encoding="utf-8")
+    source.write_text("\n".join(json.dumps(item) for item in records), encoding="utf-8")
     result = analyze_jsonl(source)
     assert result["source"]["format"] == ["claude_code"]
     assert result["metrics"]["tool_calls"] == 6
