@@ -403,7 +403,7 @@ class TelegramChatBridge:
                 view = self.store.task_view(task_id)
                 state = getattr(view.state, "value", str(view.state))
                 summary = (view.summary or view.error or view.original_request or "").replace("\n", " ")
-                lines.append(f"{state} · {task_id[:12]} · {summary[:120]}")
+                lines.append(f"{state} · {task_id} · {summary[:120]}")
             await self._send("\n".join(lines))
             return
         if command in {"/task", "/cancel"}:
