@@ -171,3 +171,22 @@ def test_social_tools_fail_safely_on_provider_auth_errors(tmp_path, monkeypatch)
 def test_whatsapp_rejects_non_e164_recipient():
     with pytest.raises(ValidationFailure):
         WhatsAppSendTextTool().validate({"recipient": "123", "text": "Hello"})
+
+
+@pytest.mark.asyncio
+async def test_social_integrations_report_missing_and_configured_without_claiming_live_access(runtime):
+    for name in ("linkedin", "instagram", "whatsapp"):
+        result = await runtime.integrations.get(name).safe_check()
+        assert result.status == "missing_credentials"
+
+    runtime.config.linkedin_access_token = "configured-token"
+    runtime.config.linkedin_author_urn = "urn:li:person:123"
+    runtime.config.instagram_access_token = "configured-token"
+    runtime.config.meta_graph_version = "v24.0"
+    runtime.config.whatsapp_access_token = "configured-token"
+    runtime.config.whatsapp_phone_number_id = "123456789012345"
+
+    for name in ("linkedin", "instagram", "whatsapp"):
+        result = await runtime.integrations.get(name).safe_check()
+        assert result.status == "configured"
+        assert "verified" in (result.detail or "")
