@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-
 from matrix_ai.tools.github_tools import (
     GitHubCommentIssueTool,
     GitHubCreateIssueTool,
