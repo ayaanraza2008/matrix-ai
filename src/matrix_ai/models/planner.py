@@ -175,10 +175,7 @@ class PlanParser:
                 )
             )
         try:
-            try:
             return Plan(goal=goal, steps=steps, source="model")
-        except ValidationError as exc:
-            raise ValidationFailure(f"invalid plan: {exc}") from exc
         except ValidationError as exc:
             raise ValidationFailure(f"invalid plan: {exc}") from exc
 
