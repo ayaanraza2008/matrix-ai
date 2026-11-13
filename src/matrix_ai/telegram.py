@@ -388,12 +388,14 @@ class TelegramChatBridge:
                 await self._send("That task ID does not belong to a task submitted through this Telegram chat.")
                 return
             if command == "/cancel":
+                prior_view = self.store.task_view(command_args)
+                prior_state = getattr(prior_view.state, "value", str(prior_view.state))
+                if prior_view.state in TERMINAL_TASK_STATES:
+                    await self._send(f"Task {command_args[:12]} is already terminal ({prior_state}).")
+                    return
                 view = await self.orchestrator.cancel(command_args)
                 state = getattr(view.state, "value", str(view.state))
-                if view.state in TERMINAL_TASK_STATES:
-                    await self._send(f"Task {command_args[:12]} is already terminal ({state}).")
-                else:
-                    await self._send(f"Cancellation requested for task {command_args[:12]}. Current state: {state}.")
+                await self._send(f"Task {command_args[:12]} cancellation processed. Current state: {state}.")
                 return
             view = self.store.task_view(command_args)
             state = getattr(view.state, "value", str(view.state))
