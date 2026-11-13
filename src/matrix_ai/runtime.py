@@ -31,6 +31,7 @@ from .security.auth import AuthService
 from .security.ratelimit import RateLimiter
 from .storage.db import Database
 from .storage.store import Store
+from .telegram import TelegramChatBridge
 from .tools.base import ToolContext
 from .tools.registry import ToolRegistry, build_registry
 from .vision.manager import VisionSessionManager
@@ -55,6 +56,7 @@ class MatrixRuntime:
     vision: VisionSessionManager
     integrations: IntegrationRegistry
     scheduler: Scheduler
+    telegram: TelegramChatBridge
     started_at: float = field(default_factory=time.time)
     version: str = __version__
 
@@ -105,6 +107,7 @@ class MatrixRuntime:
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
+            telegram=TelegramChatBridge(config=config, orchestrator=orchestrator, store=store),
         )
         store.audit(
             "system.started",
@@ -179,8 +182,10 @@ class MatrixRuntime:
     # -- lifecycle --------------------------------------------------------
     def start_background(self) -> None:
         self.scheduler.start()
+        self.telegram.start()
 
     async def shutdown(self) -> None:
+        await self.telegram.stop()
         await self.scheduler.stop()
         await self.voice.shutdown()
         self.vision.stop_all()
