@@ -118,3 +118,8 @@ A task reaching COMPLETE now moves its parent goal to awaiting_verification, not
 The branch now includes a side-effect-free `GoalGraph` validator. It rejects empty/duplicate node IDs, unknown/self/duplicate dependencies, malformed dependency sequences, cycles, excessive graph size and excessive fan-in. It provides deterministic topological ordering and a bounded ready-node selector that does not unlock descendants of failed nodes.
 
 This is a tested planning primitive, **not a persistent multi-task scheduler**: goal tasks are still single-linked in the current API, graph state is not yet stored in SQLite, and the orchestrator does not yet dispatch a goal DAG. Do not count multi-task execution, pause/resume, replanning or goal-level recovery as implemented until those are integrated and accepted end-to-end.
+
+
+### Owner-controlled final verification (schema v6)
+
+The second-pass model assessment is advisory and never marks a goal complete by itself. A DAG whose tasks finish remains in `awaiting_verification` with `verification_status=pending_owner_review`; the model's assessment is stored separately in `criteria_status` and `evidence_json`. The authenticated owner must call `POST /api/goals/{goal_id}/confirm` with `outcome=met` or `not_met` and a reason. The decision, owner ID, timestamp and reason are persisted; every confirmation is also audited. Model-unavailable goals can be reviewed manually through the same owner-only flow. This preserves the distinction between task-step evidence, model assessment and owner acceptance.
