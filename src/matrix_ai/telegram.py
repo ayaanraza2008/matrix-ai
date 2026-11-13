@@ -223,8 +223,14 @@ class TelegramChatBridge:
 
         try:
             task_id = self.orchestrator.create_task(
-                request=text[:8000], user_id="owner",
-                autonomy_level=self.config.autonomy_level, kind="chat",
+                request=text[:8000],
+                user_id="owner",
+                autonomy_level=self.config.autonomy_level,
+                kind="chat",
+                source_update_id=(
+                    f"telegram:{update['update_id']}"
+                    if isinstance(update.get("update_id"), int) else None
+                ),
             )
             await self.orchestrator.enqueue(task_id)
             await self._send(f"Received. MATRIX task: {task_id}")
