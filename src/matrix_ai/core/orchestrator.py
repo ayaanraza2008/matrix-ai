@@ -97,7 +97,10 @@ class Orchestrator:
         scopes: list[str] | None = None,
         kind: str = "chat",
         goal_id: str | None = None,
+        goal_node_id: str | None = None,
         deadline_seconds: float | None = None,
+        idempotency_scope: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
@@ -113,6 +116,9 @@ class Orchestrator:
             kind=kind,
             deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
             goal_id=goal_id,
+            goal_node_id=goal_node_id,
+            idempotency_scope=idempotency_scope,
+            idempotency_key=idempotency_key,
         )
         self.store.audit(
             "task.created",
@@ -122,6 +128,7 @@ class Orchestrator:
             detail={
                 "kind": kind,
                 "goal_id": goal_id,
+                "goal_node_id": goal_node_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
@@ -320,11 +327,7 @@ class Orchestrator:
     async def _prepare(self, task_id: str, ctx: ToolContext) -> None:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
-            (
-                plan, intent, model_name, selected_agents, specialist_context_used,
-                worker_runs, selected_addons, addon_context_used,
-                selected_skills, skill_context_used,
-            ) = await self._build_plan(task_id)
+            plan, intent, model_name, selected_agents, specialist_context_used, worker_runs = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
             return
@@ -377,27 +380,6 @@ class Orchestrator:
             },
         )
 
-        self.store.audit(
-            "task.skills_selected",
-            actor="skills-router",
-            task_id=task_id,
-            status="context_injected" if skill_context_used else (
-                "selected_without_context" if selected_skills else "no_skill_needed"
-            ),
-            detail={
-                "context_injected": skill_context_used,
-                "selected_count": len(selected_skills),
-                "skills": [
-                    {
-                        "name": skill.get("name"),
-                        "description": skill.get("description"),
-                        "matched_terms": skill.get("matched_terms", []),
-                    }
-                    for skill in selected_skills[:3]
-                ],
-            },
-        )
-
         for result in worker_runs:
             self.store.audit(
                 "task.agent_worker_run",
@@ -416,31 +398,6 @@ class Orchestrator:
                     "error": result.get("error"),
                 },
             )
-
-        self.store.audit(
-            "task.addons_selected",
-            actor="addon-router",
-            task_id=task_id,
-            status="context_injected" if addon_context_used else (
-                "selected_without_context" if selected_addons else "no_addon_needed"
-            ),
-            detail={
-                "context_injected": addon_context_used,
-                "selected_count": len(selected_addons),
-                "addons": [
-                    {
-                        "id": addon.get("id"),
-                        "name": addon.get("name"),
-                        "repository": addon.get("repository"),
-                        "kind": addon.get("kind"),
-                        "protocol": addon.get("protocol"),
-                        "installed": addon.get("installed"),
-                        "matched_terms": addon.get("matched_terms", []),
-                    }
-                    for addon in selected_addons
-                ],
-            },
-        )
 
         self._to(task_id, TaskState.POLICY_CHECK)
         decision = self.policy.evaluate_plan(
@@ -470,10 +427,7 @@ class Orchestrator:
 
     async def _build_plan(
         self, task_id: str
-    ) -> tuple[
-        Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]],
-        list[dict[str, Any]], bool, list[dict[str, Any]], bool,
-    ]:
+    ) -> tuple[Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]]]:
         row = self.store.get_task_row(task_id)
         model_name = self.models.model_name if self.models.configured else None
         if row["kind"] == "direct":
@@ -497,14 +451,12 @@ class Orchestrator:
                 ],
                 source="heuristic",
             )
-            return plan, "direct_tool", model_name, [], False, [], [], False, [], False
+            return plan, "direct_tool", model_name, [], False, []
 
         intent = await self.planner.plan(row["original_request"])
         return (
             intent.plan, intent.intent, model_name, intent.selected_agents,
             intent.specialist_context_used, intent.worker_runs,
-            intent.selected_addons, intent.addon_context_used,
-            intent.selected_skills, intent.skill_context_used,
         )
 
     async def _execute_steps(self, task_id: str, ctx: ToolContext) -> None:
@@ -571,7 +523,8 @@ class Orchestrator:
         self.store.update_step(
             task_id,
             step.idx,
-            status=StepStatus.COMPLETED.value,
+            status=StepStatus.COMPLETED.value if ok else StepStatus.FAILED.value,
+            error=None if ok else "answer_unavailable",
             finished_at=iso(),
             evidence_json=json.dumps(evidence.model_dump()),
         )
@@ -785,7 +738,16 @@ class Orchestrator:
 
             self._fail_step(task_id, step.idx, "tool_failed", error)
             self._to(task_id, TaskState.VERIFY)
-            self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_failed",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self._to(task_id, TaskState.VERIFY)
@@ -807,11 +769,20 @@ class Orchestrator:
                 status="failed",
                 detail={"checks": evidence.checks},
             )
-            self._abort(
-                task_id,
-                "verification_failed",
-                f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
-            )
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(
+                    task_id,
+                    "verification_failed",
+                    f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
+                )
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_unverified",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self.store.update_step(
@@ -1090,7 +1061,6 @@ class Orchestrator:
     # ------------------------------------------------------------------
     def _summarize_task(self, task_id: str, row, steps, calls, all_done: bool) -> str:
         answer = (self.store.get_task_row(task_id)["summary"] or "").strip()
-        answer_steps = [step for step in steps if step.kind is StepKind.ANSWER and step.status is StepStatus.COMPLETED]
         parts: list[str] = []
         for step in steps:
             if step.kind is StepKind.ANSWER:
@@ -1101,8 +1071,8 @@ class Orchestrator:
             elif step.status is StepStatus.FAILED:
                 parts.append(f"{step.tool_name or 'step'} failed: {step.error or 'unknown error'}")
         body = "; ".join(part for part in parts if part)
-        if answer_steps and answer:
-            return answer if all_done else f"{answer}\n\nNot fully verified: {body}"
+        if answer and any(step.kind is StepKind.ANSWER for step in steps):
+            return answer if all_done else f"{answer}\n\nNot fully verified: {body or 'the free-form answer could not be independently verified'}"
         if all_done:
             return f"Completed and verified: {body}" if body else "Completed."
         if parts:
