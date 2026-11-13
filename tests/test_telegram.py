@@ -187,6 +187,7 @@ async def test_telegram_emergency_stop_is_not_blocked_by_task_rate_limit(tmp_pat
     assert store.stopped is True
     assert sent == ["Emergency stop activated. Cancelled tasks: 2."]
 
+
 async def test_task_creation_deduplicates_replayed_telegram_update(runtime):
     kwargs = {
         "request": "Open calculator",
