@@ -16,9 +16,9 @@ from .config import MatrixConfig
 from .core.models import TERMINAL_TASK_STATES, TaskState
 from .core.orchestrator import Orchestrator
 from .errors import RateLimited, ToolUnavailable, ValidationFailure
-from .voice.manager import MAX_AUDIO_BYTES
 from .security.ratelimit import RateLimiter
 from .storage.store import Store
+from .voice.manager import MAX_AUDIO_BYTES
 
 log = logging.getLogger("matrix.telegram")
 
