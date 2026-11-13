@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from matrix_ai.tools.weather_tools import OpenMeteoForecastInput, OpenMeteoForecastTool
 from pydantic import ValidationError
 
