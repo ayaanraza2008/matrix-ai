@@ -190,3 +190,100 @@ async def test_telegram_emergency_stop_is_not_blocked_by_task_rate_limit(tmp_pat
     assert store.stopped is True
     assert sent == ["Emergency stop activated. Cancelled tasks: 2."]
 
+
+
+async def test_telegram_voice_note_is_transcribed_and_submitted_as_owner_task(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def transcribe(_voice):
+        return "check my system status"
+
+    monkeypatch.setattr(bridge, "_transcribe_voice", transcribe)
+    await bridge._handle_update({
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "voice": {"file_id": "voice-file"},
+        }
+    })
+
+    assert orchestrator.created[0]["request"] == "check my system status"
+    assert orchestrator.enqueued == ["task-123"]
+    assert any(message.startswith("I heard:") for message in sent)
+
+
+async def test_telegram_voice_download_is_bounded_and_transcribed_in_memory(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    class FakeVoiceManager:
+        stt_engine = object()
+
+        def __init__(self):
+            self.audio = None
+            self.suffix = None
+
+        def transcribe_bytes(self, audio, *, suffix=None):
+            self.audio = audio
+            self.suffix = suffix
+            return {"text": "hello matrix"}
+
+    class FakeResponse:
+        headers = {"content-length": "4"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_bytes(self):
+            yield b"opus"
+
+    class FakeClient:
+        def stream(self, method, url):
+            assert method == "GET"
+            assert "api.telegram.org/file/bot" in url
+            return FakeResponse()
+
+    voice = FakeVoiceManager()
+    bridge.voice_manager = voice
+    bridge._client = FakeClient()
+
+    async def fake_api(method, payload):
+        assert method == "getFile"
+        assert payload == {"file_id": "voice-file"}
+        return {"result": {"file_path": "voice/file.oga"}}
+
+    monkeypatch.setattr(bridge, "_api", fake_api)
+    transcript = await bridge._transcribe_voice({
+        "file_id": "voice-file",
+        "file_size": 4,
+        "mime_type": "audio/ogg",
+    })
+
+    assert transcript == "hello matrix"
+    assert voice.audio == b"opus"
+    assert voice.suffix == ".ogg"
+    assert any(args[0] == "telegram.voice_transcribed" for args, _kwargs in store.audits)
+
+
+async def test_telegram_rejects_oversized_voice_before_download(tmp_path):
+    from matrix_ai.errors import ValidationFailure
+    from matrix_ai.voice.manager import MAX_AUDIO_BYTES
+
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    bridge.voice_manager = SimpleNamespace(stt_engine=object())
+
+    try:
+        await bridge._transcribe_voice({
+            "file_id": "voice-file",
+            "file_size": MAX_AUDIO_BYTES + 1,
+            "mime_type": "audio/ogg",
+        })
+    except ValidationFailure:
+        pass
+    else:
+        raise AssertionError("oversized Telegram voice note should be rejected")

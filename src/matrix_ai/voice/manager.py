@@ -139,15 +139,33 @@ class VoiceSessionManager:
             raise ValidationFailure("audio payload is empty")
         if len(payload) > MAX_AUDIO_BYTES:
             raise ValidationFailure("audio exceeds the 8 MB limit")
+        result = self.transcribe_bytes(payload)
+        transcript = str(result.get("text", "")).strip()
+        session.last_utterance = transcript[:500] or None
+        return {**result, "text": transcript, "session_id": session.id}
+
+    def transcribe_bytes(self, payload: bytes, *, suffix: str | None = None) -> dict:
+        """Transcribe an explicitly supplied audio file without opening a microphone session."""
+        if not payload:
+            raise ValidationFailure("audio payload is empty")
+        if len(payload) > MAX_AUDIO_BYTES:
+            raise ValidationFailure("audio exceeds the 8 MB limit")
+        if self.stt_engine is None:
+            raise ToolUnavailable(
+                "No local speech-to-text engine is installed. Install matrix-ai[voice] "
+                "and allow the first Whisper model download."
+            )
         try:
-            result = self.stt_engine.transcribe(payload)
+            if suffix is None:
+                result = self.stt_engine.transcribe(payload)
+            else:
+                result = self.stt_engine.transcribe(payload, suffix=suffix)
         except Exception as exc:  # noqa: BLE001 - codec/model errors vary by optional backend
             raise ToolUnavailable(
                 f"Local speech-to-text failed ({type(exc).__name__})."
             ) from exc
         transcript = str(result.get("text", "")).strip()
-        session.last_utterance = transcript[:500] or None
-        return {**result, "text": transcript, "session_id": session.id}
+        return {**result, "text": transcript}
 
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)

@@ -105,6 +105,8 @@ def test_schema_v1_database_migrates_to_goal_linkage(tmp_path):
     path = tmp_path / "legacy.sqlite"
     initial = Database(path)
     initial.execute("DROP INDEX IF EXISTS idx_tasks_goal")
+    initial.execute("DROP INDEX IF EXISTS idx_tasks_goal_node")
+    initial.execute("ALTER TABLE tasks DROP COLUMN goal_node_id")
     initial.execute("ALTER TABLE tasks DROP COLUMN goal_id")
     initial.execute("DROP TABLE goals")
     initial.execute("PRAGMA user_version=1")

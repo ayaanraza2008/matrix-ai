@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     device_id TEXT,
     kind TEXT NOT NULL DEFAULT 'chat',
     goal_id TEXT,
+    goal_node_id TEXT,
     state TEXT NOT NULL,
     original_request TEXT NOT NULL,
     normalized_goal TEXT,
@@ -102,6 +103,22 @@ CREATE TABLE IF NOT EXISTS goals (
 );
 CREATE INDEX IF NOT EXISTS idx_goals_owner_created ON goals(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_goals_state ON goals(state);
+
+CREATE TABLE IF NOT EXISTS goal_nodes (
+    goal_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    depends_on_json TEXT NOT NULL DEFAULT '[]',
+    state TEXT NOT NULL DEFAULT 'pending',
+    task_id TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    evidence_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (goal_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_goal_nodes_state ON goal_nodes(goal_id, state);
 
 CREATE TABLE IF NOT EXISTS plan_steps (
     task_id TEXT NOT NULL,
@@ -249,6 +266,12 @@ class Database:
                 columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
                 if "goal_id" not in columns:
                     self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_id TEXT")
+                if "goal_node_id" not in columns:
+                    self._conn.execute("ALTER TABLE tasks ADD COLUMN goal_node_id TEXT")
+                self._conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_goal_node "
+                    "ON tasks(goal_id, goal_node_id) WHERE goal_node_id IS NOT NULL"
+                )
                 goal_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()}
                 for name, declaration in (
                     ("deadline", "TEXT"),

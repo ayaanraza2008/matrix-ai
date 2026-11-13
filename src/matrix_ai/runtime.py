@@ -22,6 +22,7 @@ from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
 from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
+from .goal_supervisor import GoalSupervisor
 from .integrations.registry import IntegrationRegistry
 from .memory.service import MemoryService
 from .models.manager import ModelManager
@@ -50,6 +51,7 @@ class MatrixRuntime:
     planner: PlannerService
     worker_pool: AgentWorkerPool
     orchestrator: Orchestrator
+    goal_supervisor: GoalSupervisor
     auth: AuthService
     limiter: RateLimiter
     voice: VoiceSessionManager
@@ -86,8 +88,10 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
+        goal_supervisor = GoalSupervisor(store, orchestrator, models)
         auth = AuthService(store, config)
         auth.bootstrap()
+        voice = VoiceSessionManager(config, tts_engine)
         limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
@@ -100,16 +104,18 @@ class MatrixRuntime:
             planner=planner,
             worker_pool=worker_pool,
             orchestrator=orchestrator,
+            goal_supervisor=goal_supervisor,
             auth=auth,
             limiter=limiter,
-            voice=VoiceSessionManager(config, tts_engine),
+            voice=voice,
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
             telegram=TelegramChatBridge(
-                config=config, orchestrator=orchestrator, store=store, rate_limiter=limiter
+                config=config, orchestrator=orchestrator, store=store,
+                rate_limiter=limiter, voice_manager=voice,
             ),
         )
         store.audit(
@@ -188,6 +194,7 @@ class MatrixRuntime:
         self.telegram.start()
 
     async def shutdown(self) -> None:
+        await self.goal_supervisor.shutdown()
         await self.telegram.stop()
         await self.scheduler.stop()
         await self.voice.shutdown()

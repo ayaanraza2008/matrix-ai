@@ -71,3 +71,16 @@ reproducible demonstration — not when code exists.
 - [ ] Add persistent multi-task goal DAG records, bounded goal-level replanning and crash recovery.
 - [ ] Add independent semantic evaluation for owner-authored success criteria; until then goals remain `awaiting_verification` rather than being silently marked verified.
 - Acceptance: hermetic dependency tests and full Windows/Ubuntu CI pass; production acceptance additionally requires restart/recovery and real integration tests.
+
+### M8 — Persistent executable goal DAGs
+
+- [x] Persist bounded goal nodes and dependency edges in SQLite.
+- [x] Add authenticated plan, start, graph-status and cancellation APIs.
+- [x] Dispatch up to four dependency-ready nodes per goal through the normal task orchestrator.
+- [x] Continue independent branches and block descendants of failed nodes.
+- [x] Recover orphaned dispatch claims and resume durable goal graphs after startup.
+- [x] Resume graph reconciliation after a node approval decision.
+- [x] Add a separate read-only model criteria-assessment pass; keep goals awaiting owner review when no model/evidence is available.
+- [ ] Add explicit owner-triggered replan with a no-side-effect replay gate and bounded replan count.
+- [ ] Test restart recovery, pending-approval resume and cancellation during a live node on Windows and Linux.
+- [ ] Run the full CI matrix on the final PR head and complete end-to-end acceptance.
