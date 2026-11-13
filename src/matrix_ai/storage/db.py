@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS goals (
     verification_status TEXT NOT NULL DEFAULT 'pending',
     criteria_status TEXT NOT NULL DEFAULT 'not_evaluated',
     evidence_json TEXT,
+    criteria_confirmed_at TEXT,
+    criteria_confirmed_by TEXT,
+    criteria_confirmation_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     finished_at TEXT
@@ -278,6 +281,9 @@ class Database:
                     ("verification_status", "TEXT NOT NULL DEFAULT 'pending'"),
                     ("criteria_status", "TEXT NOT NULL DEFAULT 'not_evaluated'"),
                     ("evidence_json", "TEXT"),
+                    ("criteria_confirmed_at", "TEXT"),
+                    ("criteria_confirmed_by", "TEXT"),
+                    ("criteria_confirmation_reason", "TEXT"),
                 ):
                     if name not in goal_columns:
                         self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {declaration}")
