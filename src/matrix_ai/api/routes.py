@@ -486,6 +486,31 @@ async def check_integration(name: str, principal: PrincipalDep, runtime: Runtime
 
 
 # ---------------------------------------------------------------------------
+# in-app notifications
+# ---------------------------------------------------------------------------
+@router.get("/notifications", tags=["notifications"])
+async def list_notifications(
+    principal: PrincipalDep,
+    runtime: RuntimeDep,
+    limit: int = Query(default=50, ge=1, le=100),
+    unread_only: bool = Query(default=False),
+) -> dict[str, Any]:
+    items = runtime.store.list_notifications(limit=limit, unread_only=unread_only)
+    return {"notifications": items, "unread_count": sum(not item.get("read", False) for item in runtime.store.list_notifications(limit=100))}
+
+
+@router.post("/notifications/{notification_id}/read", tags=["notifications"])
+async def mark_notification_read(
+    notification_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    runtime.store.mark_notification_read(notification_id)
+    runtime.store.audit(
+        "notification.read", actor=principal.user_id, status="read", detail={"notification_id": notification_id}
+    )
+    return {"id": notification_id, "read": True}
+
+
+# ---------------------------------------------------------------------------
 # security, system, settings
 # ---------------------------------------------------------------------------
 @router.get("/security/audit", response_model=list[AuditEventView], tags=["security"])
