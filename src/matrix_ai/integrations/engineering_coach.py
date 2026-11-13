@@ -72,6 +72,7 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
     roles: Counter[str] = Counter()
 
     detected_formats: set[str] = set()
+    codex_tool_names: dict[str, str] = {}
     processed_lines = 0
     for line in raw.splitlines():
         if not line.strip():
@@ -88,7 +89,7 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
             malformed += 1
             continue
 
-        format_name, normalized_records = normalize_agent_record(record)
+        format_name, normalized_records = normalize_agent_record(record, codex_tool_names)
         detected_formats.add(format_name)
         events += 1
         for normalized in normalized_records:
