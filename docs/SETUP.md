@@ -65,7 +65,7 @@ Copy `.env.example` to `.env` and load it in your shell, or set variables direct
 | `MATRIX_MODEL_RAM_BUDGET_MB` | `2500` | Model memory ceiling |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 |
 | `MATRIX_APPROVAL_TTL_SECONDS` | `300` | Approval validity |
-| `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool |
+| `MATRIX_ALLOW_WEB_FETCH` | `false` | Public-page research tool; opt in only after reviewing the DNS-rebinding limitation in `docs/SECURITY.md` |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Explicit opt-in for non-local endpoints |
 
 ### Local model (optional, recommended)
