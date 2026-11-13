@@ -37,6 +37,7 @@ The source and CI integration are complete; the following cannot be honestly mar
 | Gate | Required evidence | State |
 |---|---|---|
 | Windows install/startup | Fresh install on target PC; logon startup; stop/start; reboot recovery; upgrade and rollback | Pending target PC |
+| Local model/autonomy | Install a compatible local model, verify `/api/models`, benchmark plan validity/tool selection/latency/RAM, confirm global autonomy ceiling | Pending target PC and hardware budget |
 | Private remote access | Tailscale Serve works only for authorized tailnet devices; ACL isolation and revoke test | Pending owner tailnet |
 | Telegram | Fresh bot token stored locally; owner pairing; send/receive; /status; /stop; restart/replay; unauthorized chat rejected | Pending live bot |
 | Local voice | Install voice extra and local model/voice; real mic/speaker; mute, stop, barge-in and no-audio-persistence test | Pending target hardware |
