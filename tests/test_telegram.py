@@ -142,6 +142,11 @@ async def test_telegram_reports_result_after_owner_approval(tmp_path, monkeypatc
 
 async def test_telegram_report_failures_are_audited(tmp_path, monkeypatch):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    def fail_task_view(_task_id):
+        raise RuntimeError("store unavailable")
+
+    store.task_view = fail_task_view
     store.task_views["task-123"] = None
     async def no_wait(_seconds):
         return None
