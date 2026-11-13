@@ -3,18 +3,18 @@
 Phases follow the blueprint. A phase is only **complete** when its exit criteria are met with tests and a
 reproducible demonstration — not when code exists.
 
-| Phase | Deliverables | Exit criteria | Status |
+| Phase | Deliverables | Exit criteria | Current status (2026-11-13) |
 |---|---|---|---|
-| 0. Discovery | Repo inventory, baseline report, integration status | Reproducible baseline + prioritized gaps | **Complete** — `docs/BASELINE_REPORT.md` (empty repo, fresh build) |
-| 1. Stabilize core | API, state machine, tool registry, policy, cancellation, audit | Core tests pass; no unguarded execution | **Complete** — A01/A03–A08/A16/A17/A22/A23 pass |
-| 2. Local brain | Model adapter, manager, structured tools, benchmark harness | Local chat + tool routing within RAM budget | **Partial** — adapters/manager done; no benchmark harness or model configured on this PC |
-| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional local faster-whisper/Piper wired; target audio E2E, wake word, VAD and streaming pending |
-| 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — sessions + OCR adapter; Tesseract/MediaPipe/camera missing |
-| 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — files/apps/shell/system done; pywinauto + Playwright pending |
-| 6. Android companion | Compose UI, pairing, chat/voice, camera, notifications | Connects securely, survives reconnect | **Scaffold** — Kotlin app structure + API contract committed; debug/release assemble CI added in PR #21; physical-device validation pending |
-| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Partial** — owner-created recurring goals respect the global autonomy ceiling; quiet hours, alert routing and deeper goal lifecycle pending |
-| 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial** — the registry has credential/connectivity probes (GitHub identity, Telegram `getMe`, Home Assistant API ping, Google OAuth-file validation, Open-Meteo reachability, Firebase service-account validation and Twilio account lookup). Telegram also has the two-way chat/health-alert bridge in PRs #18/#19. Full Gmail/Calendar OAuth actions, GitHub issue/PR actions, Home Assistant entity controls, Firebase device registration/delivery and end-to-end telephony call flows remain unfinished; credentials are unconfigured. |
-| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **Partial** — docs/CI/acceptance plus opt-in private Tailscale access and Windows logon startup; installer, signed build and physical-device E2E pending |
+| 0. Discovery | Repo inventory, baseline report, integration status | Reproducible baseline + prioritized gaps | **Complete** |
+| 1. Stabilize core | API, state machine, tool registry, policy, cancellation, audit | Core tests pass; no unguarded execution | **Implemented; CI passed** |
+| 2. Local brain | Model adapter, manager, structured tools, benchmark harness | Local chat + tool routing within RAM budget | **Partial** — adapters and benchmark command exist; target PC model installation/benchmark pending |
+| 3. Voice | STT, TTS, wake word, VAD, interruption, mute | Voice E2E on target PC | **Partial** — optional faster-whisper/Piper and push-to-talk transcription integrated; real audio, device selection, wake word, VAD and streaming pending |
+| 4. Vision | Permission flow, OCR, gestures, image analysis | On-demand capture with visible state | **Partial** — session/policy and OCR adapter; Tesseract and target-camera acceptance pending |
+| 5. Desktop automation | Scoped Windows tools, browser, files, monitoring | Typed, allowlisted, verified, audited calls | **Partial** — core file/app/shell/system tools integrated; full UI automation/Playwright workflows pending |
+| 6. Android companion | Compose UI, pairing, chat, camera, notifications | Connects securely, survives reconnect | **Scaffold + CI build** — debug and unsigned release assemble; physical-device validation and owner signing pending |
+| 7. Memory & proactive | Governed memory, scheduler, goals, monitoring | Retention/deletion/limits tested | **Core implemented; ops acceptance pending** — persistent goal DAGs, owner review, scheduler, pause/resume/cancel, quiet hours and notification routing integrated |
+| 8. Integrations | GitHub, Google, Telegram, Home Assistant, telephony | Each adapter has setup + health + failure handling | **Partial/provider-dependent** — Telegram and guarded GitHub/YouTube/LinkedIn/Instagram/WhatsApp adapters integrated; OAuth, credentials and live provider acceptance remain per account |
+| 9. Polish & release | JARVIS UI, docs, packaging, CI, E2E acceptance | Release candidate meets acceptance suite | **CI-validated candidate; not certified** — PR #72 merged and exact-head CI passed; installer, signed Android release, target-device tests and operational rehearsal pending |
 
 ## Next milestones
 
