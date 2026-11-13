@@ -6,8 +6,8 @@ never prompt text, tool arguments, paths, or raw session records.
 """
 from __future__ import annotations
 
-from collections import Counter
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,6 @@ from pydantic import Field
 from ..core.models import Risk
 from ..errors import ValidationFailure
 from ..tools.base import StrictModel, Tool, ToolContext
-
 
 MAX_SESSION_BYTES = 10 * 1024 * 1024
 MAX_SESSION_EVENTS = 50_000
