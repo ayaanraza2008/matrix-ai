@@ -34,7 +34,7 @@ The latest CI run on current `main` has these seven successful jobs: dependency 
 
 - The current model configuration and factory on this `main` expose only `none`, `ollama` and `openai`; no `FreeLLMAPIProvider` or `MATRIX_MODEL_PROVIDER=freellm` path is present in the current tracked implementation. Any reported FreeLLM work must be published in a reviewable branch/PR and validated before it is counted as merged.
 - The canonical Telegram setup guide is `docs/TELEGRAM_SETUP.md`.
-- No open pull requests were present when this report was refreshed. Local/unpushed commits are not evidence available to reviewers or CI.
+- The repository had no other open PR when this report-only PR was opened. Local/unpushed commits are not evidence available to reviewers or CI.
 
 ## Recovery, packaging and CI
 
