@@ -7,7 +7,6 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-
 from matrix_ai.models.discovery import ProbeTarget, probe_endpoint
 from matrix_ai.models.presets import preset_by_id, preset_catalog
 
