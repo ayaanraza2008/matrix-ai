@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 
 def utcnow() -> datetime:
@@ -127,7 +127,16 @@ class PlanStep(BaseModel):
     kind: StepKind = StepKind.TOOL
     tool_name: str | None = None
     arguments: dict[str, Any] = Field(default_factory=dict)
-    depends_on: list[int] = Field(default_factory=list)
+    depends_on: list[StrictInt] = Field(default_factory=list)
+
+    @field_validator("depends_on")
+    @classmethod
+    def _valid_dependencies(cls, value: list[int]) -> list[int]:
+        if any(isinstance(item, bool) or item < 0 for item in value):
+            raise ValueError("step dependencies must be non-negative integer indexes")
+        if len(value) != len(set(value)):
+            raise ValueError("duplicate dependencies are not allowed")
+        return value
 
     @field_validator("tool_name")
     @classmethod
@@ -150,6 +159,16 @@ class Plan(BaseModel):
         for expected, step in enumerate(steps):
             if step.idx != expected:
                 raise ValueError("plan steps must be indexed 0..n-1 in order")
+        if steps:
+            from .goal_graph import GoalGraph, GoalGraphError, GoalNode
+
+            try:
+                GoalGraph(
+                    GoalNode(str(step.idx), tuple(str(dep) for dep in step.depends_on))
+                    for step in steps
+                )
+            except GoalGraphError as exc:
+                raise ValueError(f"invalid plan dependencies: {exc}") from exc
         return steps
 
 
@@ -415,27 +434,6 @@ class JobCreate(BaseModel):
     enabled: bool = True
 
 
-class JobUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
-    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
-    autonomy_level: int | None = Field(default=None, ge=0, le=2)
-    enabled: bool | None = None
-
-    @field_validator("name", "prompt", mode="before")
-    @classmethod
-    def _strip_job_text(cls, value: str | None) -> str | None:
-        return value.strip() if isinstance(value, str) else value
-
-    @model_validator(mode="after")
-    def _require_non_null_update(self):
-        if not self.model_fields_set:
-            raise ValueError("at least one job field must be supplied")
-        if any(getattr(self, name) is None for name in self.model_fields_set):
-            raise ValueError("updated job fields cannot be null")
-        return self
-
-
 #: Default permission scopes a new task may exercise. Tools outside the granted
 #: set are refused server-side even if the model asks for them.
 DEFAULT_SCOPES: tuple[str, ...] = (
@@ -449,6 +447,7 @@ DEFAULT_SCOPES: tuple[str, ...] = (
     "memory.write",
     "web.read",
     "vision.read",
-    "addons.read",
-    "addons.control",
+    "weather.read",
+    "youtube.read",
+    "github.read",
 )
