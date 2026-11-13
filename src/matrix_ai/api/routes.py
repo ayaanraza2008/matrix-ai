@@ -720,6 +720,12 @@ async def toggle_job(
     job_id: str, body: JobToggleBody, principal: PrincipalDep, runtime: RuntimeDep
 ) -> JobView:
     runtime.store.set_job_enabled(job_id, body.enabled)
+    runtime.store.audit(
+        "scheduler.job_resumed" if body.enabled else "scheduler.job_paused",
+        actor=principal.user_id,
+        status="enabled" if body.enabled else "paused",
+        detail={"job_id": job_id},
+    )
     jobs = [job for job in runtime.store.list_jobs() if job.id == job_id]
     if not jobs:
         raise NotFoundError(f"job {job_id} not found")
