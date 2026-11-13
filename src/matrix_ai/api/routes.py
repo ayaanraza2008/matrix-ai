@@ -421,6 +421,48 @@ async def get_goal(
     return goal
 
 
+@router.post("/goals/{goal_id}/pause", tags=["goals"])
+async def pause_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    try:
+        runtime.store.pause_goal_plan(goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runtime.store.audit(
+        "goal.paused", actor=principal.user_id, status="paused",
+        detail={"goal_id": goal_id, "in_flight_tasks_continue": True},
+    )
+    refreshed = runtime.store.get_goal(goal_id)
+    refreshed["nodes"] = runtime.store.get_goal_graph(goal_id)
+    return refreshed
+
+
+@router.post("/goals/{goal_id}/resume", status_code=202, tags=["goals"])
+async def resume_goal_plan(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    try:
+        runtime.store.resume_goal_plan(goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    dispatched = await runtime.orchestrator.dispatch_goal_ready_nodes(goal_id)
+    runtime.store.audit(
+        "goal.resumed", actor=principal.user_id, status="running",
+        detail={"goal_id": goal_id, "dispatched_count": len(dispatched)},
+    )
+    refreshed = runtime.store.get_goal(goal_id)
+    refreshed["nodes"] = runtime.store.get_goal_graph(goal_id)
+    refreshed["dispatched_task_ids"] = dispatched
+    return refreshed
+
+
 @router.post("/goals/{goal_id}/cancel", tags=["goals"])
 async def cancel_goal(
     goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
