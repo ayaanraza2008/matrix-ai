@@ -199,9 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "youtube-auth":
             from .integrations.youtube_auth import connect_youtube
 
-            token_file = connect_youtube(config)
-            print(f"YouTube OAuth connected. Local token stored at: {token_file}")
-            print("The token is private to this MATRIX installation; do not share or commit it.")
+            credential_store = connect_youtube(config)
+            print(f"YouTube OAuth connected. Refresh token stored in: {credential_store}.")
+            print("No plaintext OAuth token file is created. Keep your OS account protected.")
             return 0
 
         if args.command == "pair-code":
