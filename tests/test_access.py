@@ -138,3 +138,21 @@ def test_paired_device_session_never_receives_owner_scope(runtime):
 
     with pytest.raises(PermissionDenied, match="Only the MATRIX owner"):
         _require_owner(device_principal)
+
+
+@pytest.mark.asyncio
+async def test_paired_device_cannot_list_or_revoke_devices(client, runtime):
+    owner = runtime.auth.verify_token(runtime.config.owner_token)
+    pairing = runtime.auth.issue_pairing_code(owner)
+    paired = runtime.auth.pair(
+        code=pairing.code,
+        device_name="test-android",
+        platform="android",
+    )
+    headers = {"Authorization": f"Bearer {paired.token}"}
+
+    listing = await client.get("/api/devices", headers=headers)
+    revocation = await client.post("/api/devices/nonexistent/revoke", headers=headers)
+
+    assert listing.status_code == 403
+    assert revocation.status_code == 403
