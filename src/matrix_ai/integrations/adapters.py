@@ -246,11 +246,11 @@ class InstagramIntegration(Integration):
     name = "instagram"
     description = "Read and reply to comments on an Instagram Professional account."
     category = "social"
-    required_settings = ("MATRIX_INSTAGRAM_ACCESS_TOKEN", "MATRIX_META_GRAPH_VERSION")
+    required_settings = ("MATRIX_INSTAGRAM_ACCESS_TOKEN", "MATRIX_INSTAGRAM_USER_ID", "MATRIX_META_GRAPH_VERSION")
 
     @property
     def configured(self) -> bool:
-        return bool(self.config.instagram_access_token and self.config.meta_graph_version)
+        return bool(self.config.instagram_access_token and self.config.instagram_user_id and self.config.meta_graph_version)
 
     async def check(self) -> IntegrationResult:
         return IntegrationResult(
