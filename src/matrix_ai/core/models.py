@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utcnow() -> datetime:
@@ -413,6 +413,27 @@ class JobCreate(BaseModel):
     interval_seconds: int = Field(ge=60, le=86_400)
     autonomy_level: int = Field(default=1, ge=0, le=2)
     enabled: bool = True
+
+
+class JobUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
+    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
+    autonomy_level: int | None = Field(default=None, ge=0, le=2)
+    enabled: bool | None = None
+
+    @field_validator("name", "prompt", mode="before")
+    @classmethod
+    def _strip_job_text(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _require_non_null_update(self):
+        if not self.model_fields_set:
+            raise ValueError("at least one job field must be supplied")
+        if any(getattr(self, name) is None for name in self.model_fields_set):
+            raise ValueError("updated job fields cannot be null")
+        return self
 
 
 #: Default permission scopes a new task may exercise. Tools outside the granted
