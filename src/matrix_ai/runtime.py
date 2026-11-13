@@ -171,6 +171,7 @@ class MatrixRuntime:
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
+            "goal_supervisor": "running" if self.goal_supervisor.running else "stopped",
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}
         return HealthView(
