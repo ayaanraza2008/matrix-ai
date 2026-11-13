@@ -51,7 +51,7 @@ fun MatrixApp() {
     val scope = rememberCoroutineScope()
     val client = remember { MatrixClient("") }
 
-    var baseUrl by rememberSaveable { mutableStateOf("") }
+    var baseUrl by rememberSaveable { mutableStateOf("http://10.0.2.2:8765") }
     var code by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
     var token by remember { mutableStateOf<String?>(null) }
@@ -126,6 +126,20 @@ fun MatrixApp() {
         )
         Button(onClick = { pairDevice() }, enabled = !busy && code.isNotBlank()) {
             Text(if (token == null) "Pair device" else "Re-pair device")
+        }
+
+        if (token != null) {
+            Button(
+                onClick = {
+                    client.token = null
+                    token = null
+                    lastTaskId = null
+                    output = "Local session cleared. Pair again to reconnect."
+                },
+                enabled = !busy,
+            ) {
+                Text("Clear local session")
+            }
         }
 
         HorizontalDivider()
