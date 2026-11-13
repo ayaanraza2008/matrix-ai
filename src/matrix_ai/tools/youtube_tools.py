@@ -349,7 +349,7 @@ class YouTubeReplyCommentTool(Tool):
     description = "Post a public reply to a YouTube comment. Requires youtube.write and explicit owner approval."
     permission_scope = "youtube.write"
     risk = Risk.HIGH
-    autonomy_level = 4
+    autonomy_level = 2
     timeout_seconds = 30
     idempotent = False
     input_model = YouTubeReplyCommentInput
@@ -377,7 +377,7 @@ class YouTubeUploadVideoTool(Tool):
     description = "Upload a video from an approved local folder. Defaults to private; public publishing requires owner approval."
     permission_scope = "youtube.write"
     risk = Risk.HIGH
-    autonomy_level = 4
+    autonomy_level = 2
     timeout_seconds = 600
     idempotent = False
     input_model = YouTubeUploadInput
