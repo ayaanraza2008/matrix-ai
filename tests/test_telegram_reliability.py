@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -31,7 +32,6 @@ def make_bridge():
     store = CursorStore()
     config = SimpleNamespace(
         rate_limit_per_minute=10,
-        autonomy_level=2,
         telegram_bot_token="test-token",
         telegram_chat_id="12345",
         autonomy_level=2,
@@ -140,3 +140,29 @@ async def test_replayed_update_does_not_reenqueue_terminal_task():
 
     assert enqueued == []
     assert any("Already accepted" in message for message in sent)
+
+
+
+@pytest.mark.asyncio
+async def test_replayed_running_task_restarts_telegram_result_reporting():
+    bridge, store = make_bridge()
+    store.existing_task_id = "existing-task"
+    store.task_view = lambda task_id: SimpleNamespace(state=TaskState.EXECUTE)
+    reports = []
+
+    async def report(task_id):
+        reports.append(task_id)
+
+    bridge._report_task = report
+    bridge._send = lambda _message: asyncio.sleep(0)
+    await bridge._handle_update({
+        "update_id": 1234,
+        "message": {
+            "chat": {"type": "private", "id": 12345},
+            "from": {"id": 12345},
+            "text": "Run my task",
+        },
+    })
+    await asyncio.sleep(0)
+
+    assert reports == ["existing-task"]
