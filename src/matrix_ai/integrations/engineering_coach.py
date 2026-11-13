@@ -72,7 +72,8 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
     roles: Counter[str] = Counter()
 
     detected_formats: set[str] = set()
-    codex_tool_names: dict[str, str] = {}
+    tool_names_by_id: dict[str, str] = {}
+    observed_call_ids: set[str] = {}
     processed_lines = 0
     for line in raw.splitlines():
         if not line.strip():
@@ -89,7 +90,7 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
             malformed += 1
             continue
 
-        format_name, normalized_records = normalize_agent_record(record, codex_tool_names)
+        format_name, normalized_records = normalize_agent_record(record, tool_names_by_id)
         detected_formats.add(format_name)
         events += 1
         for normalized in normalized_records:
@@ -105,8 +106,17 @@ def analyze_jsonl(path: Path) -> dict[str, Any]:
             )
             if not is_tool_event:
                 continue
+            call_id = normalized.get("call_id")
+            if kind == "tool_result" and isinstance(call_id, str) and call_id in observed_call_ids:
+                if _is_error(normalized):
+                    tool_errors += 1
+                    tool_successes[name] = max(0, tool_successes[name] - 1)
+                    previous_successful_tool = None
+                continue
             tool_calls += 1
             tool_counts[name] += 1
+            if isinstance(call_id, str):
+                observed_call_ids.add(call_id)
             if _is_error(normalized):
                 tool_errors += 1
                 previous_successful_tool = None
