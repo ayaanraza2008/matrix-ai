@@ -29,12 +29,14 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Offline speech-to-text / text-to-speech | **Implemented, optional** | faster-whisper + Piper adapters; see `docs/VOICE_AND_TELEPHONY.md`; target hardware E2E pending |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
-| Optional integrations with health checks | **Adapters implemented** | Google/Twilio/Tailscale/FCM not configured |
-| Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
+| Scheduled owner goals | **Implemented** | Bounded recurring jobs, global autonomy ceiling and policy/approval enforcement |
+| Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
+| External integrations | **Partial** | Credential/connectivity probes exist; Telegram chat bridge is in the stacked PR chain. Full Gmail/Calendar, GitHub, Home Assistant, FCM and telephony action workflows are not complete |
+| Android companion | **Scaffolded** | Builds debug and unsigned release APKs in CI; physical-device tests and signed APK pending |
 | Signed release / installer | **Planned** | Phase 9 |
 
 Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
@@ -133,7 +135,7 @@ Windows PC                                     Android (scaffold)
     SQLite (WAL) + approved workspace + optional local model runtime
 ```
 
-Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), the external add-ons in [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), the external add-ons in [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md), and the [autonomy and private access guide](docs/AUTONOMY_AND_REMOTE_ACCESS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### Why the state machine matters
 
@@ -202,11 +204,11 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **No speech engines yet.** Voice session state, mute and barge-in are real and tested; STT/TTS adapters return `503` until you install faster-whisper / Piper.
+- **Voice needs local assets.** Install `.[voice]`, configure a Piper ONNX voice and run real microphone/speaker end-to-end tests on the target PC; wake word, VAD, echo cancellation and streaming transcripts are pending.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
-- **Remote access is not exposed.** Use Tailscale/WireGuard; do not port-forward the API.
+- **Remote availability is opt-in.** Use `matrix remote-access enable` for tailnet-only Tailscale Serve and `matrix startup install` for current-user Windows logon startup. The PC must remain powered on, signed in and connected; never port-forward the API.
 - **`web.fetch_public` re-resolves DNS** rather than pinning the vetted IP for the TCP connection; redirects are disabled and only public addresses are allowed, but the TOCTOU gap is documented in `docs/SECURITY.md`.
 - Auto-retry covers idempotent, low/medium-risk tools with exponential backoff and jitter; non-idempotent actions never retry blindly.
 
