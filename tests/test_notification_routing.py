@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime as RealDateTime
 from types import SimpleNamespace
 
 import pytest
 
+import matrix_ai.scheduler as scheduler_module
 from matrix_ai.config import MatrixConfig
 from matrix_ai.errors import ConfigError
 from matrix_ai.scheduler import Scheduler
@@ -15,6 +17,19 @@ class FakeStore:
         self.audits = []
         self.db = SimpleNamespace(integrity_check=lambda: "ok")
         self.emergency_stop = False
+        self.notifications = []
+        self.task_rows = []
+
+    def notification_preferences(self):
+        raw = self.get_flag("notification_preferences", None)
+        return {"health_recovered": True, "daily_digest": True} if raw is None else raw
+
+    def create_notification(self, **item):
+        self.notifications.append(item)
+        return "notification-" + str(len(self.notifications))
+
+    def list_tasks(self, *, limit=200):
+        return self.task_rows[:limit]
 
     def get_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -204,3 +219,69 @@ def test_public_settings_expose_routing_without_secrets(tmp_path):
         "urgent_degradation_bypasses_quiet_hours": True,
     }
     assert "secret-token" not in str(settings)
+
+
+@pytest.mark.asyncio
+async def test_health_transition_is_saved_to_local_inbox_without_push_configuration(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="working")
+    scheduler.config.telegram_bot_token = None
+    scheduler.config.telegram_chat_id = None
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
+
+    await scheduler.monitor_health()  # Establish baseline; no notification.
+    models.current_status = "degraded"
+    await scheduler.monitor_health()
+
+    assert len(store.notifications) == 1
+    assert store.notifications[0]["title"] == "MATRIX needs attention"
+    assert store.notifications[0]["severity"] == "warning"
+    assert store.notifications[0]["event_type"] == "health.degraded"
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_inbox_event_is_critical(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="working")
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: True)
+    await scheduler.monitor_health()
+    store.emergency_stop = True
+    await scheduler.monitor_health()
+
+    assert store.notifications[-1]["severity"] == "critical"
+    assert store.notifications[-1]["event_type"] == "health.degraded"
+    assert "Emergency stop: active" in store.notifications[-1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_daily_digest_is_created_once_after_local_nine_am(tmp_path, monkeypatch):
+    scheduler, store, _ = make_scheduler(tmp_path)
+    store.task_rows = [
+        {"state": "COMPLETE"}, {"state": "FAILED"}, {"state": "EXECUTE"},
+    ]
+    class FixedDateTime(RealDateTime):
+        @classmethod
+        def now(cls, tz=None):
+            return RealDateTime(2026, 11, 13, 9, 5, tzinfo=tz)
+    monkeypatch.setattr(scheduler_module, "datetime", FixedDateTime)
+
+    assert scheduler.maybe_create_daily_digest() is True
+    assert store.notifications[-1]["event_type"] == "daily.digest"
+    assert "Recent tasks: 3" in store.notifications[-1]["message"]
+    assert "running or awaiting action: 1" in store.notifications[-1]["message"]
+    assert scheduler.maybe_create_daily_digest() is False
+    assert len(store.notifications) == 1
+
+
+def test_daily_digest_respects_owner_preference(tmp_path, monkeypatch):
+    scheduler, store, _ = make_scheduler(tmp_path)
+    store.flags["notification_preferences"] = {"health_recovered": True, "daily_digest": False}
+
+    class FixedDateTime(RealDateTime):
+        @classmethod
+        def now(cls, tz=None):
+            return RealDateTime(2026, 11, 13, 10, 0, tzinfo=tz)
+
+    monkeypatch.setattr(scheduler_module, "datetime", FixedDateTime)
+
+    assert scheduler.maybe_create_daily_digest() is False
+    assert store.notifications == []
+
