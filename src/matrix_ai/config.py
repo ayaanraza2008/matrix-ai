@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import sys
 from dataclasses import dataclass, field
@@ -136,6 +137,7 @@ class MatrixConfig:
     agent_worker_timeout_seconds: int = 90
 
     autonomy_level: int = 2
+    additional_scopes: tuple[str, ...] = ()
     approval_ttl_seconds: int = 300
     approval_wait_seconds: float = 900.0
     max_retries: int = 2
@@ -158,6 +160,9 @@ class MatrixConfig:
     home_assistant_url: str | None = None
     home_assistant_token: str | None = None
     google_credentials_path: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_refresh_token: str | None = None
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     firebase_credentials_path: str | None = None
@@ -185,6 +190,10 @@ class MatrixConfig:
         self.agent_worker_timeout_seconds = max(5, min(300, int(self.agent_worker_timeout_seconds)))
         if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        scopes = tuple(dict.fromkeys(str(scope).strip() for scope in self.additional_scopes if str(scope).strip()))
+        if any(scope == "*" or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", scope) for scope in scopes):
+            raise ConfigError("MATRIX_EXTRA_SCOPES contains an invalid or wildcard permission scope")
+        self.additional_scopes = scopes
 
     # -- helpers -----------------------------------------------------------
     def _load_or_create_owner_token(self) -> str:
@@ -242,6 +251,7 @@ class MatrixConfig:
                 "github": bool(self.github_token),
                 "telegram": bool(self.telegram_bot_token and self.telegram_chat_id),
                 "google_workspace": bool(self.google_credentials_path),
+                "youtube": bool(self.google_client_id and self.google_client_secret and self.google_refresh_token),
                 "home_assistant": bool(self.home_assistant_url and self.home_assistant_token),
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
@@ -263,6 +273,9 @@ class MatrixConfig:
         if raw_roots:
             roots = tuple(Path(part.strip()) for part in raw_roots.split(";") if part.strip())
 
+        raw_extra_scopes = _env("MATRIX_EXTRA_SCOPES", "") or ""
+        extra_scopes = tuple(part.strip() for part in raw_extra_scopes.replace(",", ";").split(";") if part.strip())
+
         return cls(
             home=default_home(),
             host=_env("MATRIX_HOST", "127.0.0.1") or "127.0.0.1",
@@ -280,6 +293,7 @@ class MatrixConfig:
             agent_max_concurrent_workers=_env_int("MATRIX_AGENT_MAX_CONCURRENT_WORKERS", 4),
             agent_worker_timeout_seconds=_env_int("MATRIX_AGENT_WORKER_TIMEOUT_SECONDS", 90),
             autonomy_level=_env_int("MATRIX_AUTONOMY_LEVEL", 2),
+            additional_scopes=extra_scopes,
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
             allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
@@ -292,6 +306,9 @@ class MatrixConfig:
             home_assistant_url=_env("MATRIX_HOME_ASSISTANT_URL"),
             home_assistant_token=_env("MATRIX_HOME_ASSISTANT_TOKEN"),
             google_credentials_path=_env("MATRIX_GOOGLE_CREDENTIALS"),
+            google_client_id=_env("MATRIX_GOOGLE_CLIENT_ID"),
+            google_client_secret=_env("MATRIX_GOOGLE_CLIENT_SECRET"),
+            google_refresh_token=_env("MATRIX_GOOGLE_REFRESH_TOKEN"),
             twilio_account_sid=_env("MATRIX_TWILIO_ACCOUNT_SID"),
             twilio_auth_token=_env("MATRIX_TWILIO_AUTH_TOKEN"),
             firebase_credentials_path=_env("MATRIX_FIREBASE_CREDENTIALS"),
