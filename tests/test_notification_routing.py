@@ -16,9 +16,18 @@ class FakeStore:
         self.db = SimpleNamespace(integrity_check=lambda: "ok")
         self.emergency_stop = False
         self.notifications = []
+        self.task_rows = []
+
+    def notification_preferences(self):
+        raw = self.get_flag("notification_preferences", None)
+        return {"health_recovered": True, "daily_digest": True} if raw is None else raw
 
     def create_notification(self, **item):
         self.notifications.append(item)
+        return "notification-" + str(len(self.notifications))
+
+    def list_tasks(self, *, limit=200):
+        return self.task_rows[:limit]
 
     def get_flag(self, name, default=None):
         return self.flags.get(name, default)
@@ -238,3 +247,42 @@ async def test_emergency_stop_inbox_event_is_critical(tmp_path, monkeypatch):
     assert store.notifications[-1]["severity"] == "critical"
     assert store.notifications[-1]["event_type"] == "health.degraded"
     assert "Emergency stop: active" in store.notifications[-1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_daily_digest_is_created_once_after_local_nine_am(tmp_path, monkeypatch):
+    import matrix_ai.scheduler as scheduler_module
+    from datetime import datetime as RealDateTime
+
+    scheduler, store, _ = make_scheduler(tmp_path)
+    store.task_rows = [
+        {"state": "COMPLETE"}, {"state": "FAILED"}, {"state": "EXECUTE"},
+    ]
+    class FixedDateTime(RealDateTime):
+        @classmethod
+        def now(cls, tz=None):
+            return RealDateTime(2026, 11, 13, 9, 5, tzinfo=tz)
+    monkeypatch.setattr(scheduler_module, "datetime", FixedDateTime)
+
+    assert scheduler.maybe_create_daily_digest() is True
+    assert store.notifications[-1]["event_type"] == "daily.digest"
+    assert "Recent tasks: 3" in store.notifications[-1]["message"]
+    assert "running or awaiting action: 1" in store.notifications[-1]["message"]
+    assert scheduler.maybe_create_daily_digest() is False
+    assert len(store.notifications) == 1
+
+
+def test_daily_digest_respects_owner_preference(tmp_path, monkeypatch):
+    import matrix_ai.scheduler as scheduler_module
+    from datetime import datetime as RealDateTime
+
+    scheduler, store, _ = make_scheduler(tmp_path)
+    store.flags["notification_preferences"] = {"health_recovered": True, "daily_digest": False}
+    class FixedDateTime(RealDateTime):
+        @classmethod
+        def now(cls, tz=None):
+            return RealDateTime(2026, 11, 13, 10, 0, tzinfo=tz)
+    monkeypatch.setattr(scheduler_module, "datetime", FixedDateTime)
+
+    assert scheduler.maybe_create_daily_digest() is False
+    assert store.notifications == []
