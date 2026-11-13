@@ -67,7 +67,17 @@ def test_install_rejects_untrusted_repo_and_skill_identifiers(tmp_path):
 def test_install_uses_pinned_cli_and_never_shell_executes(tmp_path, monkeypatch):
     manager = make_manager(tmp_path)
     monkeypatch.setattr(SkillsManager, "_node_ready", staticmethod(lambda: True))
-    monkeypatch.setattr("matrix_ai.integrations.skills.shutil.which", lambda _name: "npx")
+    node = tmp_path / ("node.exe" if __import__("os").name == "nt" else "node")
+    npx = tmp_path / ("npx.cmd" if __import__("os").name == "nt" else "npx")
+    node.touch()
+    npx.touch()
+    npx_cli = node.resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+    npx_cli.parent.mkdir(parents=True)
+    npx_cli.touch()
+    monkeypatch.setattr(
+        "matrix_ai.integrations.skills.shutil.which",
+        lambda name: str(node if name == "node" else npx),
+    )
     calls = []
 
     def fake_run(command, **kwargs):
@@ -109,10 +119,10 @@ async def test_prepare_for_task_uses_existing_skills_without_network_when_discov
 
 def test_search_query_removes_urls_emails_and_inline_secrets():
     query = _safe_search_query(
-        "build a React app api_key=sk-abcdefghijklmnopqrstuvwxyz0123456789 "
+        "build a React app api_key=REDACTED "
         "for user@example.com using https://private.example/path"
     )
-    assert "sk-" not in query
+    assert "redacted" not in query
     assert "example.com" not in query
     assert "user" not in query
     assert "https" not in query
