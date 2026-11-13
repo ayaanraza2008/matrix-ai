@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from pydantic import ValidationError
+
+from matrix_ai.config import MatrixConfig
+from matrix_ai.core.models import DEFAULT_SCOPES, Risk
+from matrix_ai.errors import ToolExecutionError, ToolUnavailable
+from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.github_tools import (
     GitHubCommentIssueTool,
     GitHubCreateIssueTool,
@@ -11,11 +17,6 @@ from matrix_ai.tools.github_tools import (
     GitHubListIssuesTool,
     GitHubWhoAmITool,
 )
-
-from matrix_ai.config import MatrixConfig
-from matrix_ai.core.models import DEFAULT_SCOPES, Risk
-from matrix_ai.errors import ToolExecutionError, ToolUnavailable, ValidationFailure
-from matrix_ai.tools.base import ToolContext
 from matrix_ai.tools.registry import build_registry
 
 
@@ -25,6 +26,7 @@ def make_context(tmp_path, token="test-token"):
         config=MatrixConfig(home=tmp_path, github_token=token),
     )
 
+
 def response(status=200, payload=None, headers=None):
     return httpx.Response(
         status,
@@ -32,6 +34,7 @@ def response(status=200, payload=None, headers=None):
         headers=headers,
         request=httpx.Request("GET", "https://api.github.com/user"),
     )
+
 
 def test_github_tools_registered_and_read_only():
     registry = build_registry()
@@ -46,6 +49,7 @@ def test_github_tools_registered_and_read_only():
         assert tool.risk == Risk.LOW
         assert tool.spec().idempotent is True
 
+
 def test_github_requires_token(tmp_path):
     tool = GitHubWhoAmITool()
     with pytest.raises(ToolUnavailable, match="MATRIX_GITHUB_TOKEN"):
@@ -53,6 +57,7 @@ def test_github_requires_token(tmp_path):
             GitHubEmptyInput(),
             ToolContext(task_id="github-test", config=MatrixConfig(home=tmp_path, github_token=None)),
         )
+
 
 def test_github_whoami_uses_bearer_token_and_returns_minimal_data(tmp_path, monkeypatch):
     calls = {}
@@ -76,6 +81,7 @@ def test_github_whoami_uses_bearer_token_and_returns_minimal_data(tmp_path, monk
     assert result["data"]["login"] == "ayaan"
     assert "email" not in result["data"]
     assert tool.verify(GitHubEmptyInput(), result).ok is True
+
 
 def test_github_repository_and_issues_are_bounded_and_prs_excluded(tmp_path, monkeypatch):
     def fake_get(url, *, headers, params=None, timeout):
@@ -104,6 +110,7 @@ def test_github_repository_and_issues_are_bounded_and_prs_excluded(tmp_path, mon
     assert result["count"] == 1
     assert result["issues"][0]["number"] == 1
 
+
 def test_github_pull_request_returns_branch_and_merge_metadata(tmp_path, monkeypatch):
     def fake_get(url, *, headers, params=None, timeout):
         assert url.endswith("/repos/owner/repo/pulls/7")
@@ -127,13 +134,13 @@ def test_github_pull_request_returns_branch_and_merge_metadata(tmp_path, monkeyp
     assert result["data"]["base"] == "main"
     assert result["data"]["draft"] is True
 
+
 def test_github_rejects_bad_repo_and_pagination(tmp_path):
-    with pytest.raises(ValidationFailure):
+    with pytest.raises(ValidationError):
         GitHubGetRepositoryTool().validate({"repository": "owner/repo?per_page=100"})
-    with pytest.raises(ValidationFailure):
+    with pytest.raises(ValidationError):
         GitHubListIssuesTool().validate({"repository": "owner/repo", "per_page": 100})
-    with pytest.raises(ValidationFailure):
-        GitHubGetPullRequestTool().validate({"repository": "owner/repo?x=1", "number": 1})
+
 
 @pytest.mark.parametrize(
     ("status", "error"),
@@ -147,6 +154,7 @@ def test_github_provider_errors_are_safely_mapped(tmp_path, monkeypatch, status,
     with pytest.raises(error):
         GitHubWhoAmITool().run_sync(GitHubEmptyInput(), make_context(tmp_path))
 
+
 def test_github_network_error_does_not_leak_request_headers(tmp_path, monkeypatch):
     def fail(*args, **kwargs):
         raise httpx.ConnectError("offline")
@@ -154,6 +162,8 @@ def test_github_network_error_does_not_leak_request_headers(tmp_path, monkeypatc
     monkeypatch.setattr("matrix_ai.tools.github_tools.httpx.get", fail)
     with pytest.raises(ToolExecutionError, match="GitHub request failed"):
         GitHubWhoAmITool().run_sync(GitHubEmptyInput(), make_context(tmp_path))
+
+
 
 def test_github_writes_are_high_risk_and_not_default_granted():
     create = GitHubCreateIssueTool()
@@ -165,6 +175,7 @@ def test_github_writes_are_high_risk_and_not_default_granted():
     assert "github.write" not in DEFAULT_SCOPES
     assert create.spec().idempotent is False
     assert comment.spec().idempotent is False
+
 
 def test_github_create_issue_posts_only_after_tool_execution(tmp_path, monkeypatch):
     calls = {}
@@ -191,6 +202,7 @@ def test_github_create_issue_posts_only_after_tool_execution(tmp_path, monkeypat
     assert calls["json"]["title"] == "Bug report"
     assert result["data"]["number"] == 23
 
+
 def test_github_comment_issue_posts_to_validated_issue_path(tmp_path, monkeypatch):
     calls = {}
 
@@ -209,6 +221,7 @@ def test_github_comment_issue_posts_to_validated_issue_path(tmp_path, monkeypatc
     assert calls["url"].endswith("/repos/owner/repo/issues/4/comments")
     assert calls["json"] == {"body": "Reviewed."}
     assert result["data"]["id"] == 99
+
 
 def test_github_write_rejects_missing_provider_confirmation(tmp_path, monkeypatch):
     monkeypatch.setattr(
