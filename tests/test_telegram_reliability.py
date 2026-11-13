@@ -13,6 +13,9 @@ class CursorStore:
         self.flags = {}
         self.audits = []
 
+    def get_idempotent_task_id(self, scope, key):
+        return None
+
     def get_system_flag(self, name, default=None):
         return self.flags.get(name, default)
 
