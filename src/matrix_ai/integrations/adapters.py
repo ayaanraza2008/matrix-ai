@@ -278,10 +278,20 @@ class WhatsAppIntegration(Integration):
         )
 
     async def check(self) -> IntegrationResult:
-        return IntegrationResult(
-            STATUS_CONFIGURED,
-            "Credentials are present. Business-account permissions are verified when an approved message is sent.",
+        inbound_ready = bool(
+            self.config.whatsapp_app_secret
+            and self.config.whatsapp_verify_token
+            and self.config.whatsapp_allowed_senders
         )
+        detail = (
+            "Outbound credentials are present; business-account permissions are verified on an approved send. "
+            + (
+                "Inbound webhook secrets and sender allowlist are configured; public HTTPS reachability is a deployment check."
+                if inbound_ready
+                else "Inbound webhook is disabled until app secret, verify token and sender allowlist are configured."
+            )
+        )
+        return IntegrationResult(STATUS_CONFIGURED, detail)
 
 
 def build_integrations(config: MatrixConfig) -> list[Integration]:
