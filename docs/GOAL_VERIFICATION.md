@@ -16,6 +16,7 @@ A model review never changes a goal to `verified`. The goal remains `awaiting_ve
 - `GET /api/goal-graphs` and `GET /api/goal-graphs/{graph_id}` return owner-scoped graph state.
 - `POST /api/goal-graphs/{graph_id}/cancel` cancels running node tasks and prevents queued nodes from dispatching.
 - `POST /api/goal-graphs/{graph_id}/nodes/{node_id}/retry` requests an owner-approved retry. A node is limited to three total attempts, and retries are refused if the previous attempt had any successful tool calls (to avoid duplicate side effects).
+- If Telegram credentials are configured, graph state changes send owner progress notifications. Delivery state is persisted to prevent duplicate alerts across restarts; transient failures are retried with a cooldown.
 - Each node is an ordinary MATRIX goal with its own task, deadline, evidence, audit trail and owner confirmation.
 - Root nodes are dispatched first, up to a bounded concurrency limit. A dependent node is dispatched only after all prerequisites are owner-confirmed as `verified`.
 - A failed prerequisite blocks its transitive descendants; independent branches may continue. An emergency stop prevents new nodes from being dispatched.
