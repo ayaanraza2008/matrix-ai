@@ -503,3 +503,39 @@ async def test_telegram_command_menu_failure_does_not_disable_polling(tmp_path):
     await bridge._register_commands()
 
     assert any(args[0] == "telegram.command_menu_failed" for args, _ in store.audits)
+
+
+
+async def test_telegram_task_report_retries_transient_delivery_failures(tmp_path, monkeypatch):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    attempts = 0
+
+    async def flaky_send(message):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise RuntimeError("temporary send failure")
+        sent.append(message)
+
+    async def no_wait(_seconds):
+        return None
+
+    bridge._send = flaky_send
+    monkeypatch.setattr("matrix_ai.telegram.asyncio.sleep", no_wait)
+
+    await bridge._send_report("Task completed.")
+
+    assert attempts == 3
+    assert sent == ["Task completed."]
+
+
+async def test_telegram_wrong_sender_cannot_resume_emergency_stop(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.emergency_stop = True
+    store.stopped = True
+
+    await bridge._handle_update(update(chat_id=123456789, sender_id=987654321, text="/resume"))
+
+    assert store.emergency_stop is True
+    assert store.stopped is True
+    assert sent == []
