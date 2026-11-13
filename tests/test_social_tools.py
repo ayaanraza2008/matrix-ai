@@ -263,6 +263,11 @@ async def test_whatsapp_webhook_verifies_challenge_and_hmac_signature(client, ru
     )
     assert received.status_code == 200, received.text
     assert received.json()["accepted"] == 1
+    stored = runtime.store.db.query(
+        "SELECT original_request FROM tasks WHERE kind='chat' AND original_request LIKE 'Owner-authorized WhatsApp message%'"
+    )
+    assert len(stored) == 1
+    assert "Check my task status" in stored[0]["original_request"]
 
     duplicate = await client.post(
         "/api/webhooks/whatsapp",
