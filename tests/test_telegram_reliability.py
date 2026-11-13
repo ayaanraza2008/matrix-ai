@@ -30,6 +30,7 @@ def make_bridge():
     store = CursorStore()
     config = SimpleNamespace(
         rate_limit_per_minute=10,
+        autonomy_level=2,
         telegram_bot_token="test-token",
         telegram_chat_id="12345",
     )
