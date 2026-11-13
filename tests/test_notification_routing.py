@@ -126,7 +126,7 @@ async def test_failed_notification_is_retried_on_later_health_tick(tmp_path, mon
 async def test_failed_degradation_is_not_lost_when_recovery_occurs_in_quiet_hours(tmp_path, monkeypatch):
     scheduler, store, models = make_scheduler(tmp_path, model_status="degraded")
     sent = []
-    outcomes = iter([False, True, True])
+    outcomes = iter([False, False, True, True])
 
     async def send(state, components):
         sent.append(state)
@@ -144,7 +144,7 @@ async def test_failed_degradation_is_not_lost_when_recovery_occurs_in_quiet_hour
 
     monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
     await scheduler.monitor_health()
-    assert sent == ["degraded", "degraded", "healthy"]
+    assert sent == ["degraded", "degraded", "degraded", "healthy"]
     assert store.get_flag("pending_health_notifications") == ""
 
 
