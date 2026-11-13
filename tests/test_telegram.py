@@ -80,6 +80,8 @@ class FakeStore:
         return list(self.goal_nodes.get(goal_id, []))
 
     def get_idempotent_task_id(self, scope, key):
+        if scope == "telegram.goal" and key in self.idempotent_goals:
+            return self.idempotent_goals[key][1]
         return self.idempotent_tasks.get((scope, key))
 
     def is_idempotent_task(self, scope, task_id):
