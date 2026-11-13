@@ -25,5 +25,27 @@ def test_debug_manifest_is_the_only_cleartext_override():
 def test_android_pairing_token_is_not_saved_in_instance_state():
     activity = ROOT / "main" / "java" / "com" / "ayaanraza" / "matrix" / "MainActivity.kt"
     source = activity.read_text(encoding="utf-8")
-    assert "var token by remember { mutableStateOf<String?>(null) }" in source
+    assert "var token by remember { mutableStateOf(tokenVault.load()) }" in source
     assert "var token by rememberSaveable" not in source
+
+
+def test_android_paired_token_uses_keystore_encryption():
+    vault = ROOT / "main" / "java" / "com" / "ayaanraza" / "matrix" / "TokenVault.kt"
+    source = vault.read_text(encoding="utf-8")
+    assert '"AndroidKeyStore"' in source
+    assert '"AES/GCM/NoPadding"' in source
+    assert "KeyGenParameterSpec.Builder" in source
+    assert "GCMParameterSpec" in source
+    assert "preferences.edit()" in source
+    assert "Base64.encodeToString(encrypted, Base64.NO_WRAP)" in source
+
+
+def test_android_ui_persists_and_can_clear_keystore_token():
+    activity = ROOT / "main" / "java" / "com" / "ayaanraza" / "matrix" / "MainActivity.kt"
+    source = activity.read_text(encoding="utf-8")
+    assert "TokenVault(context.applicationContext)" in source
+    assert "mutableStateOf(tokenVault.load())" in source
+    assert "tokenVault.save(newToken)" in source
+    assert "tokenVault.clear()" in source
+    manifest = ROOT / "main" / "AndroidManifest.xml"
+    assert 'android:allowBackup="false"' in manifest.read_text(encoding="utf-8")

@@ -8,14 +8,15 @@ and the body is returned as untrusted data with injection markers surfaced.
 from __future__ import annotations
 
 import html as html_module
+import http.client
 import ipaddress
 import re
 import socket
+import ssl
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
-import httpx
 from pydantic import Field
 
 from ..core.models import Risk, VerificationEvidence
@@ -40,12 +41,77 @@ _BLANKS = re.compile(r"\n{3,}")
 Resolver = Callable[..., list]
 
 
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection that connects to a previously vetted numeric address."""
+
+    def __init__(self, host: str, port: int, address: str, *, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection(
+            (self._pinned_address, self.port), self.timeout, self.source_address
+        )
+
+
+class _PinnedHTTPSConnection(_PinnedHTTPConnection):
+    """Preserve hostname verification and TLS SNI while pinning the TCP peer."""
+
+    def __init__(self, host: str, port: int, address: str, *, timeout: float) -> None:
+        super().__init__(host, port, address, timeout=timeout)
+        self._context = ssl.create_default_context()
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection(
+            (self._pinned_address, self.port), self.timeout, self.source_address
+        )
+        try:
+            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+        except BaseException:
+            raw_socket.close()
+            raise
+
+
+def _fetch_pinned(url: str, addresses: list[str], max_bytes: int) -> tuple[int, str, str | None, bytes]:
+    """Fetch one bounded response using a validated IP; never follow redirects."""
+    parsed = urlsplit(url)
+    host = parsed.hostname
+    if host is None or not addresses:
+        raise ValidationFailure("URL must have a validated hostname and address")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    cls = _PinnedHTTPSConnection if parsed.scheme == "https" else _PinnedHTTPConnection
+    connection = cls(host, port, addresses[0], timeout=8.0)
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+    try:
+        connection.putrequest("GET", path, skip_host=True)
+        for name, value in {
+            "Host": parsed.netloc,
+            "User-Agent": "MATRIX/0.1 (+local-first assistant)",
+            "Accept": "text/html,text/plain,application/json,application/xml",
+            "Connection": "close",
+        }.items():
+            connection.putheader(name, value)
+        connection.endheaders()
+        response = connection.getresponse()
+        status = response.status
+        content_type = response.getheader("content-type", "").split(";", 1)[0].strip().lower()
+        location = response.getheader("location")
+        body = response.read(max_bytes + 1) if status == 200 else b""
+        return status, content_type, location, body[:max_bytes]
+    except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+        raise ToolExecutionError("pinned web request failed") from exc
+    finally:
+        connection.close()
+
+
 def resolve_and_validate(url: str, resolver: Resolver | None = None) -> list[str]:
     """Validate a URL can only reach the public internet. Returns resolved IPs."""
     resolver = resolver or socket.getaddrinfo
     if not isinstance(url, str) or len(url) > 2000:
         raise ValidationFailure("url must be a string shorter than 2000 characters")
-    parsed = urlparse(url)
+    parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"}:
         raise PermissionDenied("only http and https URLs are permitted")
     if parsed.username or parsed.password:
@@ -115,39 +181,17 @@ class FetchPublicUrlTool(Tool):
         if not ctx.config.allow_web_fetch:
             raise ToolUnavailable("web fetch is disabled by configuration")
         resolved = resolve_and_validate(args.url)
-        limits = httpx.Limits(max_connections=2, max_keepalive_connections=0)
-        headers = {"User-Agent": "MATRIX/0.1 (+local-first assistant)", "Accept": "text/html,text/plain"}
-        with httpx.Client(
-            timeout=httpx.Timeout(15.0, connect=8.0),
-            follow_redirects=False,
-            limits=limits,
-            headers=headers,
-        ) as client:
-            with client.stream("GET", args.url) as response:
-                status = response.status_code
-                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                location = response.headers.get("location")
-                if status != 200:
-                    return {
-                        "url": args.url,
-                        "status_code": status,
-                        "location": location,
-                        "text": "",
-                        "content_type": content_type,
-                        "untrusted": True,
-                        "injection_markers": [],
-                    }
-                if content_type and not content_type.startswith(ALLOWED_CONTENT_TYPES):
-                    raise ToolExecutionError(f"unsupported content type: {content_type}")
-                chunks: list[bytes] = []
-                total = 0
-                limit = ctx.config.web_fetch_max_bytes
-                for chunk in response.iter_bytes():
-                    chunks.append(chunk)
-                    total += len(chunk)
-                    if total >= limit:
-                        break
-        raw = b"".join(chunks)[:limit].decode("utf-8", errors="replace")
+        limit = ctx.config.web_fetch_max_bytes
+        status, content_type, location, body = _fetch_pinned(args.url, resolved, limit)
+        if status != 200:
+            return {
+                "url": args.url, "status_code": status, "location": location,
+                "text": "", "content_type": content_type, "untrusted": True,
+                "injection_markers": [],
+            }
+        if content_type and not content_type.startswith(ALLOWED_CONTENT_TYPES):
+            raise ToolExecutionError(f"unsupported content type: {content_type}")
+        raw = body.decode("utf-8", errors="replace")
         text = html_to_text(raw) if "html" in content_type or "<html" in raw[:2000].lower() else raw.strip()
         markers = detect_injection(text)
         return {
