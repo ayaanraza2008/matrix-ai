@@ -6,6 +6,7 @@ import socket
 
 import pytest
 
+from matrix_ai.config import MatrixConfig
 from matrix_ai.errors import ModelUnavailable, PermissionDenied, ToolExecutionError
 from matrix_ai.models.base import OpenAICompatibleProvider, is_local_endpoint
 from matrix_ai.tools.web_tools import html_to_text, resolve_and_validate
@@ -89,3 +90,15 @@ def test_local_provider_is_not_blocked_by_cloud_guard(config):
     config.openai_base_url = "http://127.0.0.1:8080/v1"
     provider = OpenAICompatibleProvider(config)
     provider._guard_cloud()  # must not raise
+
+
+def test_public_web_fetch_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("MATRIX_ALLOW_WEB_FETCH", raising=False)
+    config = MatrixConfig.from_env()
+    assert config.allow_web_fetch is False
+
+
+def test_public_web_fetch_requires_explicit_opt_in(monkeypatch):
+    monkeypatch.setenv("MATRIX_ALLOW_WEB_FETCH", "true")
+    config = MatrixConfig.from_env()
+    assert config.allow_web_fetch is True

@@ -21,12 +21,20 @@ TEST_TOKEN = "matrix-test-owner-token-1234567890"
 TERMINAL_STATES = {"COMPLETE", "PARTIAL", "FAILED", "CANCELLED"}
 
 
+@pytest.fixture(autouse=True)
+def disable_external_skill_discovery_in_tests(monkeypatch):
+    """Keep the test suite hermetic; skill discovery is covered with mocked clients."""
+    monkeypatch.setenv("MATRIX_SKILLS_AUTO_DISCOVER", "false")
+    monkeypatch.setenv("MATRIX_SKILLS_AUTO_INSTALL", "false")
+
+
 @pytest.fixture
 def config(tmp_path: Path) -> MatrixConfig:
     return MatrixConfig(
         home=tmp_path / "home",
         owner_token=TEST_TOKEN,
         model_provider="none",
+        addon_auto_install_sources=False,  # tests never fetch third-party sources
         rate_limit_per_minute=100_000,
         approval_wait_seconds=3.0,
         approval_ttl_seconds=120,

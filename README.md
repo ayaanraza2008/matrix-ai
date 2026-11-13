@@ -15,6 +15,7 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 
 | Area | Status | Evidence |
 |---|---|---|
+| Startup crash recovery | **Implemented** | `core/orchestrator.py`, `test_startup_recovery.py`, `docs/RECOVERY.md` |
 | Central orchestrator + explicit state machine | **Implemented** | `src/matrix_ai/core/orchestrator.py`, `state_machine.py`, tests `test_orchestrator_lifecycle.py` |
 | Server-side policy engine, autonomy L0–L4, risk classes | **Implemented** | `core/policy.py`, `test_policy.py` |
 | Exact approval binding (hash of tool + args + TTL) | **Implemented** | `test_a05_destructive_approval.py` |
@@ -24,17 +25,27 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Governed SQLite memory + FTS5, delete removes from retrieval | **Implemented** | `memory/service.py`, `test_a09_memory.py`, `test_a10_memory_deletion.py` |
 | Model provider abstraction (Ollama / OpenAI-compatible / offline) | **Implemented** | `models/base.py`, `test_a02_model_offline.py` |
 | Hardware-aware model manager (8 GB RAM discipline) | **Implemented** | `models/manager.py`, `test_a24_resource_budget.py` |
+| Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
+| 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
-| Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Offline voice engines | **Implemented, optional** | faster-whisper + Piper adapters; real microphone/speaker acceptance still pending |
+| Offline speech-to-text / text-to-speech | **Implemented, optional** | faster-whisper + Piper adapters; see `docs/VOICE_AND_TELEPHONY.md`; target hardware E2E pending |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
-| Optional integrations with health checks | **Adapters implemented** | Google/Twilio/Tailscale/FCM not configured |
-| Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
+| Scheduled owner goals | **Implemented** | Bounded recurring jobs, owner pause/resume/edit/delete, timezone-aware quiet hours and global autonomy ceiling |
+| Private remote access + Windows logon startup | **Implemented, opt-in** | `matrix remote-access enable` (Tailscale Serve) and `matrix startup install`; see `docs/AUTONOMY_AND_REMOTE_ACCESS.md` |
+| External integrations | **Partial** | Owner-paired Telegram chat + health notifications; GitHub/YouTube/WhatsApp/Instagram/LinkedIn remain provider- and account-dependent |
+| Android companion | **Scaffolded** | Builds debug and unsigned release APKs in CI; physical-device tests and signed APK pending |
 | Signed release / installer | **Planned** | Phase 9 |
 
 Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
+
+MATRIX includes the full 283-profile Agency Agents specialist library as a pinned Git submodule. Each profile has its own addressable worker instance, lock, status and run counters. Selected workers independently analyze a task and return bounded reports to the coordinator; all real tool actions still pass through MATRIX's central policy, exact-approval and verification pipeline. They share the configured inference provider rather than duplicating 283 model weights. See [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md) for installation, API and safety details.
+
+MATRIX also has a pinned, lazy-loaded catalogue of 18 optional capability repositories (OpenWhispr, YouTube Automation Agent, Browser Use, Mobile MCP, REA, Craft Anything, HexStrike, ECC, OpenViking, AgentMemory, scientific skills and more). Their features are selected by task intent; only owner-installed references and explicitly connected services are used. Source install never runs upstream scripts. See [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md) for pinned licences, install/connect instructions, API routes and safety boundaries.
+
+MATRIX also integrates the pinned Vercel Agent Skills CLI. For free-form tasks with a configured local model, it can discover and install one relevant public skill, then route its bounded SKILL.md instructions into planner context. Skills are treated as untrusted reference data: no scripts, hooks or package commands are executed, and every real action still passes through MATRIX policy and approval. See [docs/VERCEL_SKILLS.md](docs/VERCEL_SKILLS.md).
 
 ---
 
@@ -42,7 +53,7 @@ Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.m
 
 ```powershell
 # 1. Get the code
-git clone https://github.com/ayaanraza2008/matrix-ai.git
+git clone --recurse-submodules https://github.com/ayaanraza2008/matrix-ai.git
 cd matrix-ai
 
 # 2. Create an isolated venv
@@ -71,7 +82,7 @@ $env:MATRIX_MODEL_NAME = "qwen2.5:0.5b-instruct-q4_K_M"
 matrix serve
 ```
 
-MATRIX works without a model: deterministic tools, memory, approvals and verification keep working. Free-form chat degrades to an honest message instead of hallucinating.
+MATRIX works without a model: deterministic tools, memory, approvals and verification keep working. Free-form chat degrades to an honest message instead of hallucinating. To measure a configured local model on English/Hindi plans without executing them, run matrix benchmark-model; see docs/SETUP.md.
 
 ---
 
@@ -87,9 +98,17 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_FILE_ROOTS` | `<home>\workspace` | `;`-separated roots that file tools may touch |
 | `MATRIX_MODEL_PROVIDER` | `none` | `none`, `ollama`, or `openai`-compatible local server |
 | `MATRIX_MODEL_RAM_BUDGET_MB` | `2500` | Model memory ceiling (8 GB PC discipline) |
+| `MATRIX_MODEL_MAX_CONCURRENT_REQUESTS` | `1` | Active inference requests for the shared model |
+| `MATRIX_AGENT_MAX_CONCURRENT_WORKERS` | `4` | Maximum concurrently active specialist actors |
+| `MATRIX_AGENT_WORKER_TIMEOUT_SECONDS` | `90` | Per-worker execution deadline |
+| `MATRIX_YOUTUBE_AUTOMATION_ENABLED` | `false` | Explicitly expose the local YouTube Automation Agent service tools |
+| `MATRIX_YOUTUBE_AUTOMATION_URL` | `http://127.0.0.1:3456` | Loopback/private service endpoint; public hosts are refused |
+| `MATRIX_ADDON_MCP_SERVERS` | unset | Owner-only JSON config of local MCP processes / verified OpenWhispr endpoint |
+| `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
+| `MATRIX_HEXSTRIKE_ALLOWED_TARGETS` | empty | Exact owner-approved hosts/IPs; HexStrike target tools are blocked until set |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 default autonomy |
-| `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool (SSRF-guarded) |
+| `MATRIX_ALLOW_WEB_FETCH` | `false` | Public-page research tool; disabled by default until PR #75 receives independent security review and is merged |
 | `MATRIX_GITHUB_TOKEN`, `MATRIX_TELEGRAM_*`, `MATRIX_HOME_ASSISTANT_*`, `MATRIX_TWILIO_*` | unset | Optional integrations |
 
 ---
@@ -117,7 +136,7 @@ Windows PC                                     Android (scaffold)
     SQLite (WAL) + approved workspace + optional local model runtime
 ```
 
-Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Read the design rationale in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the threat model in [`docs/SECURITY.md`](docs/SECURITY.md), the specialist integration in [`docs/AGENCY_AGENTS.md`](docs/AGENCY_AGENTS.md), the external add-ons in [`docs/EXTERNAL_ADDONS.md`](docs/EXTERNAL_ADDONS.md), and the [autonomy and private access guide](docs/AUTONOMY_AND_REMOTE_ACCESS.md), and the phased plan in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### Why the state machine matters
 
@@ -131,6 +150,22 @@ A model can propose a plan; it cannot mark work complete. `COMPLETE` is only rea
 4. Content from web pages, files or tool output is fenced as untrusted, and suspicious output taints later actions → approval required.
 5. Emergency stop cancels running tasks and blocks new execution.
 6. Secrets are redacted from audit records, refused in memory, and stripped from child-process environments.
+
+---
+
+## Astryx Studio (optional React dashboard)
+
+MATRIX includes an optional React 19 + Meta Astryx frontend alongside the classic dashboard. The existing dashboard remains at `/`; Astryx Studio is served at `/studio/` after its frontend build is generated.
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+matrix serve
+```
+
+Open `http://127.0.0.1:8765/studio/`. The studio reuses the existing local bearer token and authenticated MATRIX API. It is a separate presentation layer: orchestration, tools, approvals, memory, and security remain in the Python backend. See [Astryx Studio integration notes](docs/ASTRYX_STUDIO.md).
 
 ---
 
@@ -170,11 +205,11 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **No speech engines yet.** Voice session state, mute and barge-in are real and tested; STT/TTS adapters return `503` until you install faster-whisper / Piper.
+- **Voice needs local assets.** Install `.[voice]`, configure a Piper ONNX voice and run real microphone/speaker end-to-end tests on the target PC; wake word, VAD, echo cancellation and streaming transcripts are pending.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
 - **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
-- **Remote access is not exposed.** Use Tailscale/WireGuard; do not port-forward the API.
+- **Remote availability is opt-in.** Use `matrix remote-access enable` for tailnet-only Tailscale Serve and `matrix startup install` for current-user Windows logon startup. The PC must remain powered on, signed in and connected; never port-forward the API.
 - **`web.fetch_public` re-resolves DNS** rather than pinning the vetted IP for the TCP connection; redirects are disabled and only public addresses are allowed, but the TOCTOU gap is documented in `docs/SECURITY.md`.
 - Auto-retry covers idempotent, low/medium-risk tools with exponential backoff and jitter; non-idempotent actions never retry blindly.
 
@@ -183,3 +218,13 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Third-party model weights (Qwen, Whisper, Piper voices) carry their own licenses; check before redistribution.
+
+
+### Free local voice
+
+Install the optional offline speech stack with `pip install -e ".[voice]"`. MATRIX uses
+faster-whisper on CPU/INT8 for speech-to-text and Piper for local text-to-speech. Download a
+Piper ONNX voice separately and set `MATRIX_PIPER_MODEL`; see
+[`docs/VOICE_AND_TELEPHONY.md`](docs/VOICE_AND_TELEPHONY.md). The first Whisper model load may
+download weights into the local cache. Speech clips are temporary and are not stored in MATRIX's
+database. Phone/PSTN calls remain an optional transport and carrier charges are not free.

@@ -1,9 +1,7 @@
-"""Voice session control.
+"""Voice session control with optional local speech engines.
 
-This release ships the permission-critical half of the voice stack: an explicit
-session, a visible listening/speaking state, instant mute, push-to-talk
-semantics and barge-in cancellation. Speech engines (faster-whisper/Piper) are
-optional adapters; when absent the API says so instead of faking a transcript.
+Mute is checked before decoding or invoking STT. Raw audio is processed in a
+temporary file by the engine and is never persisted by MATRIX.
 """
 
 from __future__ import annotations
@@ -11,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import importlib.util
-import shutil
 import uuid
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -21,13 +17,13 @@ from ..config import MatrixConfig
 from ..core.models import VoiceStatusView, iso
 from ..errors import ConflictError, NotFoundError, ToolUnavailable, ValidationFailure, VoiceMuted
 from ..security.redaction import contains_secret
+from .engines import SttEngine, build_stt_engine, build_tts_engine
 
 MAX_AUDIO_BYTES = 8_000_000
 
 
 class TtsEngine(Protocol):
     name: str
-
     async def speak(self, text: str) -> None: ...
 
 
@@ -41,52 +37,44 @@ class VoiceSession:
 
 
 class VoiceSessionManager:
-    def __init__(self, config: MatrixConfig, tts_engine: TtsEngine | None = None) -> None:
+    def __init__(
+        self, config: MatrixConfig, tts_engine: TtsEngine | None = None,
+        stt_engine: SttEngine | None = None,
+    ) -> None:
         self.config = config
-        self.tts_engine = tts_engine
+        self.tts_engine = tts_engine if tts_engine is not None else build_tts_engine()
+        self.stt_engine = stt_engine if stt_engine is not None else build_stt_engine()
         self._sessions: dict[str, VoiceSession] = {}
         self._active_id: str | None = None
         self._speak_task: asyncio.Task | None = None
-        self.stt_provider = self._detect_stt()
-        self.tts_provider = tts_engine.name if tts_engine is not None else self._detect_tts()
+        self.stt_provider = self.stt_engine.name if self.stt_engine else "unavailable"
+        self.tts_provider = self.tts_engine.name if self.tts_engine else "unavailable"
 
-    # -- capability detection --------------------------------------------
-    @staticmethod
-    def _detect_stt() -> str:
-        return "faster-whisper" if importlib.util.find_spec("faster_whisper") else "unavailable"
-
-    @staticmethod
-    def _detect_tts() -> str:
-        if shutil.which("piper"):
-            return "piper"
-        return "unavailable"
-
-    # -- session state ----------------------------------------------------
     @property
     def active_session(self) -> VoiceSession | None:
-        if self._active_id is None:
-            return None
-        return self._sessions.get(self._active_id)
+        return self._sessions.get(self._active_id) if self._active_id else None
 
     def status(self) -> VoiceStatusView:
         session = self.active_session
-        detail = None
-        if self.stt_provider == "unavailable":
-            detail = "Push-to-talk session control is available; no speech-to-text engine is installed yet."
+        missing = []
+        if self.stt_engine is None:
+            missing.append("speech-to-text")
+        if self.tts_engine is None:
+            missing.append("text-to-speech")
+        detail = None if not missing else "Local " + " and ".join(missing) + " engine not configured."
         return VoiceStatusView(
-            available=True,
-            state=session.state if session else "idle",
-            muted=bool(session and session.muted),
-            stt_provider=self.stt_provider,
-            tts_provider=self.tts_provider,
-            detail=detail,
+            available=True, state=session.state if session else "idle",
+            muted=bool(session and session.muted), stt_provider=self.stt_provider,
+            tts_provider=self.tts_provider, detail=detail,
         )
 
     def start(self, *, muted: bool = False) -> VoiceSession:
         existing = self.active_session
         if existing is not None:
             return existing
-        session = VoiceSession(id=uuid.uuid4().hex, state="listening", muted=muted)
+        session = VoiceSession(
+            id=uuid.uuid4().hex, state="muted" if muted else "listening", muted=muted
+        )
         self._sessions[session.id] = session
         self._active_id = session.id
         return session
@@ -101,6 +89,9 @@ class VoiceSessionManager:
         session = self._require_session(session_id)
         session.muted = True
         session.state = "muted"
+        if self._speak_task is not None and not self._speak_task.done():
+            self._speak_task.cancel()
+            self._speak_task = None
         return session
 
     def unmute(self, session_id: str | None = None) -> VoiceSession:
@@ -116,6 +107,9 @@ class VoiceSessionManager:
         session.muted = False
         if self._active_id == session.id:
             self._active_id = None
+        if self._speak_task is not None and not self._speak_task.done():
+            self._speak_task.cancel()
+            self._speak_task = None
         return session
 
     def _require_session(self, session_id: str | None) -> VoiceSession:
@@ -126,28 +120,35 @@ class VoiceSessionManager:
             raise ConflictError("no active voice session; start one first")
         return session
 
-    # -- microphone input -------------------------------------------------
     def transcribe(self, audio_base64: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
         if session.muted:
             raise VoiceMuted("microphone is muted; audio capture is refused")
-        if session.state not in {"listening"}:
+        if session.state != "listening":
             raise ConflictError(f"session state '{session.state}' does not accept audio")
-        if self.stt_provider == "unavailable":
+        if self.stt_engine is None:
             raise ToolUnavailable(
-                "No speech-to-text engine is installed. Install the 'voice' extra and a compact "
-                "Whisper model, or use text chat."
+                "No local speech-to-text engine is installed. Install matrix-ai[voice] "
+                "and allow the first Whisper model download, or use text chat."
             )
         try:
             payload = base64.b64decode(audio_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValidationFailure("audio must be base64-encoded") from exc
+        if not payload:
+            raise ValidationFailure("audio payload is empty")
         if len(payload) > MAX_AUDIO_BYTES:
             raise ValidationFailure("audio exceeds the 8 MB limit")
-        # Audio is processed in memory only; raw audio is never persisted by default.
-        raise ToolUnavailable("speech-to-text adapter is registered but not implemented in this release")
+        try:
+            result = self.stt_engine.transcribe(payload)
+        except Exception as exc:  # noqa: BLE001 - codec/model errors vary by optional backend
+            raise ToolUnavailable(
+                f"Local speech-to-text failed ({type(exc).__name__})."
+            ) from exc
+        transcript = str(result.get("text", "")).strip()
+        session.last_utterance = transcript[:500] or None
+        return {**result, "text": transcript, "session_id": session.id}
 
-    # -- speech output & barge-in ----------------------------------------
     async def speak(self, text: str, *, session_id: str | None = None) -> dict:
         session = self._require_session(session_id)
         text = (text or "").strip()
@@ -157,8 +158,8 @@ class VoiceSessionManager:
             raise ValidationFailure("refusing to speak text that looks like a credential")
         if self.tts_engine is None:
             raise ToolUnavailable(
-                "No text-to-speech engine is installed. Install Piper (or another local TTS engine) "
-                "to enable spoken replies."
+                "No local text-to-speech engine is configured. Install matrix-ai[voice], "
+                "download a Piper voice, and set MATRIX_PIPER_MODEL."
             )
         if self._speak_task is not None and not self._speak_task.done():
             raise ConflictError("already speaking; barge in first")

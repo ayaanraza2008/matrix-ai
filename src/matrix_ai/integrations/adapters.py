@@ -6,6 +6,7 @@ metadata. Nothing here runs during startup, and no adapter sends user content.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from .base import (
     Integration,
     IntegrationResult,
 )
+from .youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service, has_youtube_credentials
 
 TIMEOUT = httpx.Timeout(6.0, connect=4.0)
 
@@ -101,6 +103,33 @@ class GoogleWorkspaceIntegration(Integration):
             STATUS_CONFIGURED,
             "OAuth client present. Gmail/Calendar scopes and the consent flow are a manual setup step.",
         )
+
+
+
+class YouTubeIntegration(Integration):
+    name = "youtube"
+    description = "Manage the connected YouTube channel through the official YouTube Data API."
+    category = "creator"
+    required_settings = ("MATRIX_YOUTUBE_CLIENT_SECRETS", "OS credential manager")
+
+    @property
+    def configured(self) -> bool:
+        return has_youtube_credentials(self.config)
+
+    def _check_sync(self) -> IntegrationResult:
+        service = build_youtube_service(self.config, YOUTUBE_READ_SCOPE)
+        response = service.channels().list(part="snippet", mine=True, maxResults=1).execute()
+        items = response.get("items", [])
+        if not items:
+            return IntegrationResult(STATUS_DEGRADED, "OAuth is valid, but the account has no accessible YouTube channel.")
+        title = items[0].get("snippet", {}).get("title", "connected channel")
+        return IntegrationResult(STATUS_OK, f"Connected to YouTube channel: {str(title)[:120]}.")
+
+    async def check(self) -> IntegrationResult:
+        try:
+            return await asyncio.to_thread(self._check_sync)
+        except Exception as exc:  # noqa: BLE001 - integration health must not crash the runtime
+            return IntegrationResult(STATUS_DEGRADED, f"YouTube check failed ({type(exc).__name__}); reconnect or inspect scopes.")
 
 
 class HomeAssistantIntegration(Integration):
@@ -196,11 +225,84 @@ class FirebasePushIntegration(Integration):
         )
 
 
+class LinkedInIntegration(Integration):
+    name = "linkedin"
+    description = "Publish owner-approved text posts through the official LinkedIn Posts API."
+    category = "social"
+    required_settings = ("MATRIX_LINKEDIN_ACCESS_TOKEN", "MATRIX_LINKEDIN_AUTHOR_URN")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.linkedin_access_token and self.config.linkedin_author_urn)
+
+    async def check(self) -> IntegrationResult:
+        return IntegrationResult(
+            STATUS_CONFIGURED,
+            "Credentials are present. LinkedIn account permissions are verified when an approved post is submitted.",
+        )
+
+
+class InstagramIntegration(Integration):
+    name = "instagram"
+    description = "Read and reply to comments on an Instagram Professional account."
+    category = "social"
+    required_settings = ("MATRIX_INSTAGRAM_ACCESS_TOKEN", "MATRIX_INSTAGRAM_USER_ID", "MATRIX_META_GRAPH_VERSION")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.instagram_access_token and self.config.instagram_user_id and self.config.meta_graph_version)
+
+    async def check(self) -> IntegrationResult:
+        return IntegrationResult(
+            STATUS_CONFIGURED,
+            "Credentials are present. Professional-account eligibility and comment permissions are verified by the Graph API.",
+        )
+
+
+class WhatsAppIntegration(Integration):
+    name = "whatsapp"
+    description = "Send owner-approved messages through the WhatsApp Business Cloud API."
+    category = "social"
+    required_settings = (
+        "MATRIX_WHATSAPP_ACCESS_TOKEN",
+        "MATRIX_WHATSAPP_PHONE_NUMBER_ID",
+        "MATRIX_META_GRAPH_VERSION",
+    )
+
+    @property
+    def configured(self) -> bool:
+        return bool(
+            self.config.whatsapp_access_token
+            and self.config.whatsapp_phone_number_id
+            and self.config.meta_graph_version
+        )
+
+    async def check(self) -> IntegrationResult:
+        inbound_ready = bool(
+            self.config.whatsapp_app_secret
+            and self.config.whatsapp_verify_token
+            and self.config.whatsapp_allowed_senders
+        )
+        detail = (
+            "Outbound credentials are present; business-account permissions are verified on an approved send. "
+            + (
+                "Inbound webhook secrets and sender allowlist are configured; public HTTPS reachability is a deployment check."
+                if inbound_ready
+                else "Inbound webhook is disabled until app secret, verify token and sender allowlist are configured."
+            )
+        )
+        return IntegrationResult(STATUS_CONFIGURED, detail)
+
+
 def build_integrations(config: MatrixConfig) -> list[Integration]:
     return [
         GitHubIntegration(config),
         TelegramIntegration(config),
         GoogleWorkspaceIntegration(config),
+        YouTubeIntegration(config),
+        LinkedInIntegration(config),
+        InstagramIntegration(config),
+        WhatsAppIntegration(config),
         HomeAssistantIntegration(config),
         WeatherIntegration(config),
         FirebasePushIntegration(config),
@@ -213,10 +315,14 @@ __all__ = [
     "GitHubIntegration",
     "GoogleWorkspaceIntegration",
     "HomeAssistantIntegration",
+    "InstagramIntegration",
+    "LinkedInIntegration",
+    "WhatsAppIntegration",
     "IntegrationResult",
     "STATUS_UNAVAILABLE",
     "TelegramIntegration",
     "TelephonyIntegration",
     "WeatherIntegration",
+    "YouTubeIntegration",
     "build_integrations",
 ]

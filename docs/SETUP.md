@@ -65,7 +65,7 @@ Copy `.env.example` to `.env` and load it in your shell, or set variables direct
 | `MATRIX_MODEL_RAM_BUDGET_MB` | `2500` | Model memory ceiling |
 | `MATRIX_AUTONOMY_LEVEL` | `2` | L0–L4 |
 | `MATRIX_APPROVAL_TTL_SECONDS` | `300` | Approval validity |
-| `MATRIX_ALLOW_WEB_FETCH` | `true` | Public-page research tool |
+| `MATRIX_ALLOW_WEB_FETCH` | `false` | Public-page research tool; opt in only after reviewing the DNS-rebinding limitation in `docs/SECURITY.md` |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Explicit opt-in for non-local endpoints |
 
 ### Local model (optional, recommended)
@@ -159,3 +159,18 @@ Remote control only works while the PC is powered on, connected and running MATR
 - Revoke lost phones from **Devices** immediately.
 - Review the audit trail after any autonomous task.
 - Never commit `.env`, databases, model weights or keystores.
+
+
+### Compare local model quality and speed
+
+MATRIX includes a read-only benchmark command. It sends a fixed set of English and Hindi prompts to the configured local model, validates the returned plan against MATRIX tool schemas, and reports tool-selection accuracy, p50/p90 model latency, and observed process memory. It never executes generated plans, downloads models, or sends these benchmark prompts to a public cloud endpoint.
+
+```powershell
+# After Ollama is installed and the model is pulled:
+matrix benchmark-model
+```
+
+The report separates schema-valid output from correct tool selection. A model can produce valid JSON and still choose the wrong tool. RSS for Ollama is an observed estimate based on visible local processes; it may not include shared GPU memory or a server running on another machine. Run the benchmark on the actual MATRIX PC before selecting a larger model.
+
+MATRIX also supports a local OpenAI-compatible endpoint such as llama.cpp. Set MATRIX_MODEL_PROVIDER=openai, MATRIX_OPENAI_BASE_URL=http://127.0.0.1:8080/v1, and MATRIX_MODEL_NAME to the served model identifier. Non-local endpoints are refused by this benchmark even when cloud use is separately enabled.
+

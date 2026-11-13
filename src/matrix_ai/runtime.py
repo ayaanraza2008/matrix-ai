@@ -20,8 +20,14 @@ from .core.models import (
 )
 from .core.orchestrator import Orchestrator
 from .core.policy import PolicyEngine
+from .core.worker_pool import AgentWorkerPool
 from .errors import PermissionDenied
+from .goal_supervisor import GoalSupervisor
+from .integrations.addons import AddonManager
+from .integrations.engineering_coach import EngineeringCoachAnalyzeTool
 from .integrations.registry import IntegrationRegistry
+from .integrations.skills import SkillsManager
+from .integrations.youtube_automation import build_youtube_tools
 from .memory.service import MemoryService
 from .models.manager import ModelManager
 from .models.planner import PlannerService
@@ -30,6 +36,7 @@ from .security.auth import AuthService
 from .security.ratelimit import RateLimiter
 from .storage.db import Database
 from .storage.store import Store
+from .telegram import TelegramChatBridge
 from .tools.base import ToolContext
 from .tools.registry import ToolRegistry, build_registry
 from .vision.manager import VisionSessionManager
@@ -46,13 +53,18 @@ class MatrixRuntime:
     models: ModelManager
     memory: MemoryService
     planner: PlannerService
+    worker_pool: AgentWorkerPool
     orchestrator: Orchestrator
+    goal_supervisor: GoalSupervisor
     auth: AuthService
     limiter: RateLimiter
     voice: VoiceSessionManager
     vision: VisionSessionManager
     integrations: IntegrationRegistry
+    addon_manager: AddonManager
     scheduler: Scheduler
+    telegram: TelegramChatBridge
+    skills_manager: SkillsManager
     started_at: float = field(default_factory=time.time)
     version: str = __version__
 
@@ -63,10 +75,24 @@ class MatrixRuntime:
         db = Database(config.db_path)
         store = Store(db)
         registry = build_registry()
+        for youtube_tool in build_youtube_tools(config):
+            registry.register(youtube_tool)
+        registry.register(EngineeringCoachAnalyzeTool())
         policy = PolicyEngine(config, store)
         models = ModelManager(config, store)
         memory = MemoryService(db)
-        planner = PlannerService(registry, models, store)
+        addon_manager = AddonManager(config, store=store)
+        skills_manager = SkillsManager(config, store=store)
+        worker_pool = AgentWorkerPool(
+            models,
+            registry,
+            max_concurrent=config.agent_max_concurrent_workers,
+            timeout_seconds=config.agent_worker_timeout_seconds,
+        )
+        planner = PlannerService(
+            registry, models, store, worker_pool=worker_pool, addon_manager=addon_manager,
+            skills_manager=skills_manager,
+        )
         orchestrator = Orchestrator(
             config=config,
             store=store,
@@ -76,8 +102,11 @@ class MatrixRuntime:
             planner=planner,
             memory=memory,
         )
+        goal_supervisor = GoalSupervisor(store, orchestrator, models)
         auth = AuthService(store, config)
         auth.bootstrap()
+        voice = VoiceSessionManager(config, tts_engine)
+        limiter = RateLimiter(config.rate_limit_per_minute)
         runtime = cls(
             config=config,
             db=db,
@@ -87,15 +116,24 @@ class MatrixRuntime:
             models=models,
             memory=memory,
             planner=planner,
+            worker_pool=worker_pool,
             orchestrator=orchestrator,
+            goal_supervisor=goal_supervisor,
             auth=auth,
-            limiter=RateLimiter(config.rate_limit_per_minute),
-            voice=VoiceSessionManager(config, tts_engine),
+            limiter=limiter,
+            voice=voice,
             vision=VisionSessionManager(config),
             integrations=IntegrationRegistry(config, store),
+            addon_manager=addon_manager,
             scheduler=Scheduler(
                 store=store, orchestrator=orchestrator, models=models, memory=memory, config=config
             ),
+            telegram=TelegramChatBridge(
+                config=config, orchestrator=orchestrator, store=store,
+                rate_limiter=limiter,
+                voice_manager=voice,
+            ),
+            skills_manager=skills_manager,
         )
         store.audit(
             "system.started",
@@ -151,6 +189,8 @@ class MatrixRuntime:
             "voice": self.voice.status().stt_provider,
             "vision": "ocr" if self.vision.ocr_available else "capture_only",
             "integrations": f"{self.integrations.configured_count}/{self.integrations.total_count}",
+            "addons": "available",
+            "skills": f"{self.skills_manager.status()['installed_count']} installed",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}
@@ -170,11 +210,16 @@ class MatrixRuntime:
     # -- lifecycle --------------------------------------------------------
     def start_background(self) -> None:
         self.scheduler.start()
+        self.telegram.start()
 
     async def shutdown(self) -> None:
+        await self.goal_supervisor.shutdown()
+        await self.telegram.stop()
         await self.scheduler.stop()
         await self.voice.shutdown()
         self.vision.stop_all()
         await self.orchestrator.shutdown()
+        await self.worker_pool.shutdown()
+        await self.addon_manager.disconnect_all(self.registry)
         self.store.audit("system.stopped", actor="system", status="ok")
         self.db.close()

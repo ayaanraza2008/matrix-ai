@@ -16,11 +16,29 @@ from .file_tools import (
     StatPathTool,
     WriteTextTool,
 )
+from .github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
+)
 from .memory_tools import MemorySaveTool, MemorySearchTool
 from .shell_tools import RunAllowedCommandTool
+from .social_tools import (
+    InstagramListCommentsTool,
+    InstagramPublishImageTool,
+    InstagramReplyCommentTool,
+    LinkedInCreatePostTool,
+    WhatsAppSendTemplateTool,
+    WhatsAppSendTextTool,
+)
 from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
+from .weather_tools import OpenMeteoForecastTool
 from .web_tools import FetchPublicUrlTool
+from .youtube_tools import build_youtube_tools
 
 
 class ToolRegistry:
@@ -37,6 +55,10 @@ class ToolRegistry:
         if not tool.permission_scope or "." not in tool.permission_scope:
             raise ValueError(f"tool {tool.name} needs a 'domain.action' permission scope")
         self._tools[tool.name] = tool
+
+    def unregister(self, name: str) -> bool:
+        """Remove a dynamically connected tool; built-in tools are untouched."""
+        return self._tools.pop(name, None) is not None
 
     def get(self, name: str) -> Tool:
         tool = self._tools.get(name)
@@ -80,5 +102,19 @@ def build_registry() -> ToolRegistry:
             MemorySaveTool(),
             FetchPublicUrlTool(),
             OcrImageTool(),
+            OpenMeteoForecastTool(),
+            *build_youtube_tools(),
+            LinkedInCreatePostTool(),
+            InstagramListCommentsTool(),
+            InstagramPublishImageTool(),
+            InstagramReplyCommentTool(),
+            WhatsAppSendTextTool(),
+            WhatsAppSendTemplateTool(),
+            GitHubWhoAmITool(),
+            GitHubGetRepositoryTool(),
+            GitHubListIssuesTool(),
+            GitHubGetPullRequestTool(),
+            GitHubCreateIssueTool(),
+            GitHubCommentIssueTool(),
         ]
     )

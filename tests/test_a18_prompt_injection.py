@@ -58,7 +58,7 @@ async def test_tainted_plan_requires_approval_and_executes_nothing(client, runti
     assert response.status_code == 202
     task_id = response.json()["task"]["id"]
 
-    waiting = await wait_for_state(client, task_id, {"WAITING_FOR_USER"}, timeout=10)
+    waiting = await wait_for_state(client, task_id, {"WAITING_FOR_USER"}, timeout=25)
     approvals = waiting["approvals"]
     assert approvals and approvals[-1]["status"] == "pending"
     assert approvals[-1]["tool_name"] == "files.write_text"

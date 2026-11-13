@@ -26,6 +26,7 @@ from .runtime import MatrixRuntime
 
 log = logging.getLogger("matrix.app")
 WEB_DIR = Path(__file__).parent / "web"
+STUDIO_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -57,6 +58,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_background:
+            await runtime.orchestrator.recover_after_restart()
+            await runtime.goal_supervisor.recover_after_restart()
             runtime.start_background()
         try:
             yield
@@ -100,7 +103,7 @@ def create_app(
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
         path = request.url.path
-        if path == "/" or path.startswith("/assets"):
+        if path == "/" or path.startswith("/assets") or path.startswith("/studio"):
             response.headers.setdefault("Content-Security-Policy", UI_CSP)
         return response
 
@@ -112,6 +115,9 @@ def create_app(
         @app.get("/", include_in_schema=False)
         async def index() -> FileResponse:
             return FileResponse(WEB_DIR / "index.html")
+
+    if STUDIO_DIR.is_dir():
+        app.mount("/studio", StaticFiles(directory=str(STUDIO_DIR), html=True), name="studio")
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:

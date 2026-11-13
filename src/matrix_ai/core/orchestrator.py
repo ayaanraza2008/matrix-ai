@@ -96,7 +96,16 @@ class Orchestrator:
         autonomy_level: int | None = None,
         scopes: list[str] | None = None,
         kind: str = "chat",
+        goal_id: str | None = None,
+        goal_node_id: str | None = None,
+        deadline_seconds: float | None = None,
+        idempotency_scope: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
+        if idempotency_scope and idempotency_key:
+            existing_task_id = self.store.get_idempotent_task_id(idempotency_scope, idempotency_key)
+            if existing_task_id is not None:
+                return existing_task_id
         if self.policy.emergency_stop:
             raise EmergencyStopActive("Emergency stop is active. Clear it before starting new work.")
         self.store.ensure_user(user_id)
@@ -109,7 +118,11 @@ class Orchestrator:
             autonomy_level=effective_autonomy,
             scopes=granted,
             kind=kind,
-            deadline_seconds=self.config.task_deadline_seconds,
+            deadline_seconds=min(deadline_seconds, self.config.task_deadline_seconds) if deadline_seconds else self.config.task_deadline_seconds,
+            goal_id=goal_id,
+            goal_node_id=goal_node_id,
+            idempotency_scope=idempotency_scope,
+            idempotency_key=idempotency_key,
         )
         self.store.audit(
             "task.created",
@@ -118,6 +131,8 @@ class Orchestrator:
             status="received",
             detail={
                 "kind": kind,
+                "goal_id": goal_id,
+                "goal_node_id": goal_node_id,
                 "request": request[:500],
                 "autonomy_level": effective_autonomy,
                 "scopes": granted,
@@ -154,6 +169,120 @@ class Orchestrator:
         runner = asyncio.create_task(self._run_guarded(task_id), name=f"matrix-task-{task_id[:8]}")
         self._runners[task_id] = runner
         runner.add_done_callback(lambda _task, tid=task_id: self._runners.pop(tid, None))
+
+    async def recover_after_restart(self) -> dict[str, int]:
+        """Reconcile persisted work after a process restart without replaying uncertain actions.
+
+        Untouched RECEIVED tasks are safe to enqueue. Valid pending approvals remain
+        available to the owner. An approval already recorded as approved can resume
+        because its exact action fingerprint is checked again by the normal executor.
+        Any other in-flight state is stopped and reported for manual review.
+        """
+        result = {"resumed": 0, "awaiting_approval": 0, "failed": 0}
+        for task in self.store.nonterminal_tasks():
+            task_id = str(task["id"])
+            state = TaskState(task["state"])
+
+            if state is TaskState.RECEIVED:
+                await self.enqueue(task_id)
+                result["resumed"] += 1
+                self.store.audit(
+                    "task.recovery_requeued",
+                    actor="system",
+                    task_id=task_id,
+                    status="queued",
+                )
+                continue
+
+            if state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+                if state is TaskState.APPROVAL_REQUIRED:
+                    self._to(task_id, TaskState.WAITING_FOR_USER)
+
+                pending = self.store.pending_approval(task_id)
+                if pending is not None:
+                    expires_at = parse_dt(pending["expires_at"])
+                    if expires_at is not None and expires_at > utcnow():
+                        result["awaiting_approval"] += 1
+                        self.store.audit(
+                            "task.recovery_waiting",
+                            actor="system",
+                            task_id=task_id,
+                            status="awaiting_approval",
+                            detail={"approval_id": pending["id"]},
+                        )
+                        continue
+
+                    self.store.decide_approval(
+                        pending["id"],
+                        approved=False,
+                        decided_by="system",
+                        reason="approval expired or could not be validated during restart recovery",
+                    )
+                    self._fail_step(
+                        task_id,
+                        pending["step_idx"],
+                        "approval_expired",
+                        "approval expired while MATRIX was stopped",
+                    )
+                    self._abort(
+                        task_id,
+                        "approval_expired_on_restart",
+                        "The pending approval expired while MATRIX was stopped. Nothing was executed.",
+                    )
+                    result["failed"] += 1
+                    continue
+
+                outcome = await self._resolve_pending_approval(task_id)
+                if outcome == "approved":
+                    await self.enqueue(task_id)
+                    result["resumed"] += 1
+                    self.store.audit(
+                        "task.recovery_requeued",
+                        actor="system",
+                        task_id=task_id,
+                        status="approved_action_resumed",
+                    )
+                    continue
+
+                self._fail_step(
+                    task_id,
+                    self.store.next_pending_step_index(task_id),
+                    "approval_not_resumable",
+                    f"approval state could not be safely resumed ({outcome})",
+                )
+                self._abort(
+                    task_id,
+                    "approval_not_resumable",
+                    "The approval record was not in a resumable state. No action was executed.",
+                )
+                result["failed"] += 1
+                continue
+
+            message = (
+                f"MATRIX restarted while this task was in {state.value}. "
+                "Its outcome may be uncertain; interrupted tool calls were marked failed "
+                "and were not automatically retried. Review external effects before starting "
+                "a replacement task."
+            )
+            interrupted_calls = self.store.fail_running_tool_calls(task_id, message)
+            self.store.fail_running_steps(task_id, message)
+            self._abort(task_id, "interrupted_by_restart", message)
+            self.store.audit(
+                "task.recovery_stopped",
+                actor="system",
+                task_id=task_id,
+                status="manual_review_required",
+                detail={"previous_state": state.value, "interrupted_tool_calls": interrupted_calls},
+            )
+            result["failed"] += 1
+
+        self.store.audit(
+            "system.recovery_completed",
+            actor="system",
+            status="ok",
+            detail=result,
+        )
+        return result
 
     @property
     def running_count(self) -> int:
@@ -202,7 +331,11 @@ class Orchestrator:
     async def _prepare(self, task_id: str, ctx: ToolContext) -> None:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
-            plan, intent, model_name = await self._build_plan(task_id)
+            (
+                plan, intent, model_name, selected_agents, specialist_context_used,
+                worker_runs, selected_addons, addon_context_used,
+                selected_skills, skill_context_used,
+            ) = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
             return
@@ -226,6 +359,97 @@ class Orchestrator:
                 "plan_source": plan.source,
                 "steps": len(plan.steps),
                 "notes": plan.notes,
+            },
+        )
+
+        self.store.audit(
+            "task.specialists_selected",
+            actor="agency-router",
+            task_id=task_id,
+            status="context_injected" if specialist_context_used else (
+                "selected_without_model" if selected_agents else "no_specialist_needed"
+            ),
+            detail={
+                "routing_strategy": "hybrid_full_profile_search_v1",
+                "context_injected": specialist_context_used,
+                "selected_count": len(selected_agents),
+                "agents": [
+                    {
+                        "slug": agent.get("slug"),
+                        "name": agent.get("name"),
+                        "division": agent.get("division"),
+                        "routing_role": agent.get("routing_role"),
+                        "relevance_score": agent.get("relevance_score"),
+                        "matched_terms": agent.get("matched_terms", []),
+                        "selection_reason": agent.get("selection_reason"),
+                    }
+                    for agent in selected_agents
+                ],
+            },
+        )
+
+        self.store.audit(
+            "task.skills_selected",
+            actor="skills-router",
+            task_id=task_id,
+            status="context_injected" if skill_context_used else (
+                "selected_without_context" if selected_skills else "no_skill_needed"
+            ),
+            detail={
+                "context_injected": skill_context_used,
+                "selected_count": len(selected_skills),
+                "skills": [
+                    {
+                        "name": skill.get("name"),
+                        "description": skill.get("description"),
+                        "matched_terms": skill.get("matched_terms", []),
+                    }
+                    for skill in selected_skills[:3]
+                ],
+            },
+        )
+
+        for result in worker_runs:
+            self.store.audit(
+                "task.agent_worker_run",
+                actor=f"agent:{result.get('worker_slug', 'unknown')}",
+                task_id=task_id,
+                status=str(result.get("status") or "unknown"),
+                detail={
+                    "worker_slug": result.get("worker_slug"),
+                    "worker_name": result.get("worker_name"),
+                    "division": result.get("division"),
+                    "duration_ms": result.get("duration_ms"),
+                    "summary": result.get("summary", "")[:1200],
+                    "findings": result.get("findings", [])[:5],
+                    "risks": result.get("risks", [])[:4],
+                    "suggested_tools": result.get("suggested_tools", [])[:4],
+                    "error": result.get("error"),
+                },
+            )
+
+        self.store.audit(
+            "task.addons_selected",
+            actor="addon-router",
+            task_id=task_id,
+            status="context_injected" if addon_context_used else (
+                "selected_without_context" if selected_addons else "no_addon_needed"
+            ),
+            detail={
+                "context_injected": addon_context_used,
+                "selected_count": len(selected_addons),
+                "addons": [
+                    {
+                        "id": addon.get("id"),
+                        "name": addon.get("name"),
+                        "repository": addon.get("repository"),
+                        "kind": addon.get("kind"),
+                        "protocol": addon.get("protocol"),
+                        "installed": addon.get("installed"),
+                        "matched_terms": addon.get("matched_terms", []),
+                    }
+                    for addon in selected_addons
+                ],
             },
         )
 
@@ -255,7 +479,12 @@ class Orchestrator:
             detail={"risk": decision.risk.value, "approval_expected": decision.requires_approval},
         )
 
-    async def _build_plan(self, task_id: str) -> tuple[Plan, str, str | None]:
+    async def _build_plan(
+        self, task_id: str
+    ) -> tuple[
+        Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]],
+        list[dict[str, Any]], bool, list[dict[str, Any]], bool,
+    ]:
         row = self.store.get_task_row(task_id)
         model_name = self.models.model_name if self.models.configured else None
         if row["kind"] == "direct":
@@ -279,10 +508,15 @@ class Orchestrator:
                 ],
                 source="heuristic",
             )
-            return plan, "direct_tool", model_name
+            return plan, "direct_tool", model_name, [], False, [], [], False, [], False
 
         intent = await self.planner.plan(row["original_request"])
-        return intent.plan, intent.intent, model_name
+        return (
+            intent.plan, intent.intent, model_name, intent.selected_agents,
+            intent.specialist_context_used, intent.worker_runs,
+            intent.selected_addons, intent.addon_context_used,
+            intent.selected_skills, intent.skill_context_used,
+        )
 
     async def _execute_steps(self, task_id: str, ctx: ToolContext) -> None:
         while True:
@@ -348,7 +582,8 @@ class Orchestrator:
         self.store.update_step(
             task_id,
             step.idx,
-            status=StepStatus.COMPLETED.value,
+            status=StepStatus.COMPLETED.value if ok else StepStatus.FAILED.value,
+            error=None if ok else "answer_unavailable",
             finished_at=iso(),
             evidence_json=json.dumps(evidence.model_dump()),
         )
@@ -562,7 +797,16 @@ class Orchestrator:
 
             self._fail_step(task_id, step.idx, "tool_failed", error)
             self._to(task_id, TaskState.VERIFY)
-            self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(task_id, "tool_failed", f"{tool_name} failed: {error}")
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_failed",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self._to(task_id, TaskState.VERIFY)
@@ -584,11 +828,20 @@ class Orchestrator:
                 status="failed",
                 detail={"checks": evidence.checks},
             )
-            self._abort(
-                task_id,
-                "verification_failed",
-                f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
-            )
+            if self.store.next_pending_step_index(task_id) is None:
+                self._abort(
+                    task_id,
+                    "verification_failed",
+                    f"{tool_name} ran but its outcome could not be verified: {', '.join(evidence.checks)}",
+                )
+            else:
+                self.store.audit(
+                    "task.independent_steps_continued",
+                    actor="orchestrator",
+                    task_id=task_id,
+                    status="dependency_branch_unverified",
+                    detail={"failed_step": step.idx},
+                )
             return
 
         self.store.update_step(
@@ -709,6 +962,11 @@ class Orchestrator:
         runner = self._runners.get(task_id)
         if runner is not None and not runner.done():
             runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+            # A runner can be cancelled before its coroutine starts. Reconcile
+            # explicitly so callers never observe a permanently nonterminal task.
+            if not TaskStateMachine.is_terminal(self.store.get_task_row(task_id)["state"]):
+                self._mark_cancelled(task_id)
         else:
             self._mark_cancelled(task_id)
         return self.store.task_view(task_id)
@@ -839,6 +1097,8 @@ class Orchestrator:
             return
         if TaskStateMachine.can_transition(current, target):
             self.store.transition(task_id, target)
+            if TaskStateMachine.is_terminal(target):
+                self.store.sync_goal_for_task(task_id)
             return
         if TaskStateMachine.is_terminal(current):
             return
@@ -853,13 +1113,13 @@ class Orchestrator:
             self.store.transition(task_id, TaskState.FAILED)
         except IllegalTransition:  # pragma: no cover - impossible with current graph
             self.store.update_task(task_id, state=target.value)
+        self.store.sync_goal_for_task(task_id)
 
     # ------------------------------------------------------------------
     # summaries and helpers
     # ------------------------------------------------------------------
     def _summarize_task(self, task_id: str, row, steps, calls, all_done: bool) -> str:
         answer = (self.store.get_task_row(task_id)["summary"] or "").strip()
-        answer_steps = [step for step in steps if step.kind is StepKind.ANSWER and step.status is StepStatus.COMPLETED]
         parts: list[str] = []
         for step in steps:
             if step.kind is StepKind.ANSWER:
@@ -870,8 +1130,8 @@ class Orchestrator:
             elif step.status is StepStatus.FAILED:
                 parts.append(f"{step.tool_name or 'step'} failed: {step.error or 'unknown error'}")
         body = "; ".join(part for part in parts if part)
-        if answer_steps and answer:
-            return answer if all_done else f"{answer}\n\nNot fully verified: {body}"
+        if answer and any(step.kind is StepKind.ANSWER for step in steps):
+            return answer if all_done else f"{answer}\n\nNot fully verified: {body or 'the free-form answer could not be independently verified'}"
         if all_done:
             return f"Completed and verified: {body}" if body else "Completed."
         if parts:

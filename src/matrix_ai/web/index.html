@@ -40,6 +40,7 @@
         <button data-nav="vision"><span class="glyph">◐</span>Vision</button>
         <button data-nav="agents"><span class="glyph">⬡</span>Agents</button>
         <button data-nav="tools"><span class="glyph">⚙</span>Tools</button>
+        <button data-nav="engineering-coach"><span class="glyph">⌁</span>Engineering Coach</button>
         <button data-nav="devices"><span class="glyph">▭</span>Devices</button>
         <button data-nav="integrations"><span class="glyph">⧉</span>Integrations</button>
         <button data-nav="security"><span class="glyph">⛨</span>Security</button>
@@ -49,6 +50,7 @@
       <div class="sidebar-footer">
         <button id="stop-btn" class="danger">Emergency stop</button>
         <button id="lock-btn" class="ghost">Lock dashboard</button>
+        <a class="ghost" href="/studio/" style="display:block;text-align:center;padding:10px;text-decoration:none">Open Astryx Studio ↗</a>
       </div>
     </aside>
 
@@ -85,6 +87,17 @@
           </div>
 
           <div class="cards" id="health-cards"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Notifications <span id="notification-unread" class="pill">0 unread</span></h3>
+              <div class="row">
+                <button class="ghost" id="notifications-filter" type="button">Unread only</button>
+                <button class="ghost" id="notifications-refresh" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="notification-list" class="list"><div class="empty">Loading notifications…</div></div>
+          </div>
 
           <div class="panel">
             <div class="panel-head">
@@ -228,6 +241,27 @@
           </div>
         </section>
 
+        <!-- ENGINEERING COACH -->
+        <section class="view hidden" data-view="engineering-coach">
+          <div class="panel">
+            <div class="panel-head"><h3>Session analytics</h3><span class="pill">local · read-only</span></div>
+            <p class="muted">Analyze one session export inside an approved MATRIX filesystem root. Supported formats: MATRIX JSONL, Claude Code transcript JSONL, and Codex CLI rollout JSONL.</p>
+            <form id="engineering-coach-form" class="row">
+              <label class="sr-only" for="engineering-coach-path">Session file path</label>
+              <input id="engineering-coach-path" maxlength="1024" placeholder="workspace/session.jsonl" required>
+              <button type="submit">Analyze session</button>
+              <select id="engineering-coach-interval" aria-label="Recurring analysis interval">
+                <option value="3600">Every hour</option>
+                <option value="21600">Every 6 hours</option>
+                <option value="86400" selected>Daily</option>
+              </select>
+              <button type="button" class="ghost" id="engineering-coach-schedule">Schedule recurring analysis</button>
+            </form>
+            <p class="hint">Scheduling is opt-in and applies only to this exact file path. MATRIX does not watch directories or discover other logs. Raw prompts and tool arguments are not returned or stored.</p>
+            <div id="engineering-coach-result" class="result"><div class="empty">Choose a session export to view reliability metrics and reusable workflow candidates.</div></div>
+          </div>
+        </section>
+
         <!-- DEVICES -->
         <section class="view hidden" data-view="devices">
           <div class="split">
@@ -283,6 +317,15 @@
               <div id="model-status" class="list"></div>
               <pre id="hardware-json" class="code">Loading…</pre>
             </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Notification preferences</h3></div>
+              <form id="notification-preferences-form" class="stack">
+                <label class="check"><input type="checkbox" id="pref-health-recovered"> Notify me when MATRIX recovers</label>
+                <label class="check"><input type="checkbox" id="pref-daily-digest"> Daily summary at 09:00 (configured timezone)</label>
+                <p class="hint">Recovery preferences apply to enabled push channels and the inbox. Emergency-stop and degraded-state alerts cannot be disabled. Daily summaries remain in-app.</p>
+                <button type="submit">Save preferences</button>
+              </form>
+            </div>
           </div>
         </section>
       </div>
@@ -293,3 +336,5 @@
   <script src="/assets/app.js" defer></script>
 </body>
 </html>
+
+

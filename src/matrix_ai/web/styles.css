@@ -445,3 +445,12 @@ pre.code, .result pre {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+
+
+/* ---------- notification inbox ---------- */
+.notification-item.is-read { opacity: 0.68; }
+.notification-item .item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#notification-unread { margin-left: 6px; vertical-align: middle; }
+#notification-preferences-form .check { display: flex; align-items: center; gap: 9px; color: var(--text-dim); font-size: 13px; }
+#notification-preferences-form input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+
