@@ -5,6 +5,8 @@ MATRIX goals can be represented as bounded directed acyclic graphs (DAGs). The o
 - `POST /api/goals/plan` validates and persists a plan (1–64 nodes, at most 16 dependencies per node).
 - `POST /api/goals/{goal_id}/start` starts bounded dispatch (up to four ready nodes concurrently per goal).
 - `GET /api/goals/{goal_id}/graph` returns persisted node state and task links.
+- `POST /api/goals/{goal_id}/pause` stops new dispatch while already-running nodes finish.
+- `POST /api/goals/{goal_id}/resume` explicitly reopens dispatch for an owner-paused goal.
 - `POST /api/goals/{goal_id}/cancel` cancels the goal and any active node task.
 
 Every node is a normal MATRIX task. The GoalSupervisor does not call tools directly: it creates a `goal_node` task and sends it through the existing planner, policy engine, scope checks, approval workflow, orchestrator, task-level retries, verifier and audit trail. At most four ready nodes are dispatched concurrently per goal. A node is eligible only after every dependency is completed.
@@ -15,7 +17,7 @@ Every node is a normal MATRIX task. The GoalSupervisor does not call tools direc
 - Independent branches remain eligible and may complete.
 - An uncertain or terminal node is never blindly replayed.
 - A crash before task creation resets an orphaned dispatch claim; a persisted task link is reconciled against the task's durable state.
-- On startup, MATRIX reconciles ordinary tasks first, then resumes planned/running goal graphs.
+- On startup, MATRIX reconciles ordinary tasks first, then resumes planned/running goal graphs. Explicitly paused goals stay paused until the owner resumes them.
 - A node paused for owner approval remains pending in the graph; approving or denying its task resumes graph reconciliation.
 - Goal deadlines are enforced before each dispatch.
 
