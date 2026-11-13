@@ -10,6 +10,9 @@ MATRIX's private Telegram bridge uses long polling with a durable SQLite update 
 - Task creation uses MATRIX's durable idempotency table with scope `telegram.update` and the Telegram update ID as the key. Replayed messages return the original task rather than creating a second task.
 - Existing idempotency is checked before the emergency-stop gate so replaying an already-created task does not create a new task or lose the original acknowledgement while the stop is active.
 - Unauthorized chats and unsupported message shapes are ignored and acknowledged, so they do not block later owner messages.
+- After normal orchestrator restart recovery, the Telegram bridge scans a bounded recent set of Telegram-scoped idempotency records and reattaches result watchers for nonterminal tasks. Stale/missing records are audited and do not prevent polling from starting.
+- Task notifications retry transient Telegram delivery failures a bounded number of times. The owner can also retrieve a recorded result later with `/task <task-id>`; `/tasks` shows the five most recent Telegram tasks.
+- `/cancel <task-id>` is limited to Telegram-submitted task IDs. `/resume` clears the emergency-stop flag but does not revive tasks cancelled by `/stop`.
 
 ## Delivery guarantee
 
