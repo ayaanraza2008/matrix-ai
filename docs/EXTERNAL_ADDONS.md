@@ -206,6 +206,64 @@ must be explicitly configured by the owner.
 Example task: "Analyze workspace/session.jsonl and summarize recurring tool
 failures and reusable workflows."
 
+The analyzer has a 10 MiB and 50,000-line limit. It returns aggregate tool
+counts, failure rates, repeated failure patterns, and repeated successful
+two-step workflows as skill candidates. It never returns or persists prompt
+text, tool arguments, or raw records and performs no network requests.
+
+Supported inputs:
+- MATRIX-normalized JSONL: tool events use `type: "tool_call"` or
+  `type: "tool_result"` and a `tool_name` field.
+- Claude Code transcript JSONL: assistant `tool_use` blocks and user
+  `tool_result` blocks are reduced to tool names and error flags.
+- Codex CLI rollout JSONL: `response_item` function-call records are reduced
+  to tool names and error flags. Function-call output records are counted as
+  failures only when the export provides an explicit error flag/status.
+
+GitHub Copilot / VS Code session exports do not yet have a supported stable
+adapter in MATRIX; convert them to the normalized schema before analysis.
+Format adapters discard prompt text, tool arguments and tool output at the
+parsing boundary. The dashboard includes an owner-authenticated Engineering
+Coach view at **Engineering Coach**; enter one file path and select Analyze.
+The API endpoint is `POST /api/engineering-coach/analyze`.
+
+There is deliberately no directory watcher, log discovery, or
+silent ingestion. Analysis is on-demand against the one explicit file path
+inside an approved filesystem root. The dashboard also offers an owner-opt-in
+recurring job for that same exact file (hourly, every six hours, or daily);
+the path is validated before the job is created, each run still uses the
+read-only `files.read` tool and current filesystem-root policy, and the job
+can be paused through the dashboard or `PATCH /api/jobs/{job_id}`. This is
+periodic re-analysis of one known file, not automatic discovery or ingestion
+of new files.
+
+Repeated workflows are suggestions only: MATRIX does not automatically create
+or execute new skills. An owner can review a candidate and separately author
+a skill through the normal governed workflow. This avoids turning noisy or
+malicious session data into executable instructions.
+
+
+## AI Engineering Coach
+
+[Microsoft AI Engineering Coach](https://github.com/microsoft/AI-Engineering-Coach) is available as a pinned, source-only engineering-coach add-on. MATRIX can select it automatically for coding-quality, prompt-quality, agentic-workflow, anti-pattern and skill-discovery tasks, install its reviewed source snapshot lazily, and retrieve bounded Markdown references. Retrieved content remains untrusted guidance and cannot grant tools, change policy, approve actions or rewrite MATRIX configuration.
+
+**Important runtime boundary:** upstream currently ships as a VS Code extension and a GitHub Copilot app canvas, not as a headless service or documented standalone HTTP/MCP API. Its full session analytics and dashboard require VS Code 1.125+ and a locally built VSIX (or the supported Copilot canvas build). MATRIX therefore does **not** claim to run the upstream dashboard or invoke its internal analytics autonomously. This catalogue integration provides autonomous reference/skill guidance only; a future native bridge must be implemented and tested before claiming automated session ingestion or analytics inside MATRIX.
+
+The upstream extension is read-only with respect to coding-session logs and reports local processing/no proprietary telemetry. MATRIX must preserve those boundaries: do not upload raw transcripts, do not scan unrelated directories, and do not install the VSIX or run npm lifecycle/build scripts as part of task routing. Only the pinned source snapshot is fetched by MATRIX. To use the native dashboard separately, follow the upstream build instructions in its README and install the generated VSIX yourself.
+
+
+## Native MATRIX engineering coach
+
+MATRIX also ships a native, local analyzer exposed to the planner as
+`engineering_coach.analyze_session`. The tool is read-only and requires the
+existing `files.read` permission. It analyzes only an explicitly selected
+`.jsonl` or `.ndjson` session export inside one of MATRIX's configured
+filesystem roots. The default root is MATRIX_HOME/workspace; additional roots
+must be explicitly configured by the owner.
+
+Example task: "Analyze workspace/session.jsonl and summarize recurring tool
+failures and reusable workflows."
+
 The analyzer has a 10 MiB and 50,000-event limit. It returns aggregate tool
 counts, failure rates, repeated failure patterns, and repeated successful
 two-step workflows as skill candidates. It never returns or persists prompt
@@ -216,3 +274,4 @@ Exports must be normalized JSONL with one event object per line; recognizable
 tool events use `type: "tool_call"` or `type: "tool_result"` and a
 `tool_name` field. MATRIX only analyzes the file path explicitly supplied
 for that task.
+
