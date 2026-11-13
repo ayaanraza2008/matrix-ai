@@ -259,6 +259,124 @@ class Store:
         )
         return goal_id
 
+    def create_goal_graph(
+        self,
+        *,
+        owner_id: str,
+        title: str,
+        nodes: list[dict[str, Any]],
+        deadline_seconds: float | None = None,
+    ) -> str:
+        """Atomically persist a validated graph and its queued goal nodes."""
+        from ..core.goal_graph import GoalGraph, GoalNode
+
+        graph = GoalGraph(
+            GoalNode(str(node["node_id"]), tuple(node.get("depends_on", ())))
+            for node in nodes
+        )
+        if len(nodes) != len(graph.node_ids):
+            raise ValueError("goal graph nodes must have unique identifiers")
+        graph_id = uuid.uuid4().hex
+        now = iso()
+        deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO goal_graphs(id, owner_id, title, state, deadline, created_at, updated_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (graph_id, owner_id, title[:2000], "queued", deadline, now, now),
+            )
+            for node in nodes:
+                goal_id = uuid.uuid4().hex
+                conn.execute(
+                    "INSERT INTO goals(id, owner_id, title, success_criteria, state, deadline, created_at, updated_at) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (
+                        goal_id,
+                        owner_id,
+                        str(node["title"])[:2000],
+                        str(node["success_criteria"])[:2000],
+                        "queued",
+                        deadline,
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO goal_graph_nodes(graph_id, node_id, goal_id, depends_on_json) "
+                    "VALUES(?,?,?,?)",
+                    (graph_id, str(node["node_id"]), goal_id, canonical_json(node.get("depends_on", []))),
+                )
+        return graph_id
+
+    def get_goal_graph(self, graph_id: str) -> dict[str, Any]:
+        row = self.db.query_one("SELECT * FROM goal_graphs WHERE id=?", (graph_id,))
+        if row is None:
+            raise NotFoundError(f"goal graph {graph_id} not found")
+        result = dict(row)
+        result["nodes"] = self.goal_graph_nodes(graph_id)
+        return result
+
+    def list_goal_graphs(self, *, owner_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 100))
+        rows = self.db.query(
+            "SELECT id FROM goal_graphs WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+            (owner_id, limit),
+        )
+        return [self.get_goal_graph(row["id"]) for row in rows]
+
+    def active_goal_graphs(self) -> list[dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT id FROM goal_graphs WHERE state IN ('queued','running','awaiting_owner_confirmation') "
+            "ORDER BY created_at"
+        )
+        return [self.get_goal_graph(row["id"]) for row in rows]
+
+    def goal_graph_nodes(self, graph_id: str) -> list[dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT node_id, goal_id, depends_on_json FROM goal_graph_nodes "
+            "WHERE graph_id=? ORDER BY rowid",
+            (graph_id,),
+        )
+        return [
+            {
+                "node_id": row["node_id"],
+                "goal_id": row["goal_id"],
+                "depends_on": _json_load(row["depends_on_json"], []),
+                "goal": self.get_goal(row["goal_id"]),
+            }
+            for row in rows
+        ]
+
+    def update_goal_graph_state(self, graph_id: str, state: str) -> None:
+        allowed = {
+            "queued", "running", "awaiting_owner_confirmation",
+            "completed", "partial", "failed", "cancelled",
+        }
+        if state not in allowed:
+            raise ValueError("invalid goal graph state")
+        self.db.execute(
+            "UPDATE goal_graphs SET state=?, updated_at=?, finished_at=? WHERE id=?",
+            (state, iso(), iso() if state in {"completed", "partial", "failed", "cancelled"} else None, graph_id),
+        )
+
+    def block_goal_graph_nodes(self, graph_id: str, node_ids: list[str], reason: str) -> int:
+        if not node_ids:
+            return 0
+        rows = self.db.query(
+            "SELECT goal_id FROM goal_graph_nodes WHERE graph_id=? AND node_id IN ("
+            + ",".join("?" for _ in node_ids) + ")",
+            (graph_id, *node_ids),
+        )
+        changed = 0
+        for row in rows:
+            cursor = self.db.execute(
+                "UPDATE goals SET state='blocked', result_summary=?, updated_at=?, finished_at=? "
+                "WHERE id=? AND state='queued' AND task_id IS NULL",
+                (reason[:1000], iso(), iso(), row["goal_id"]),
+            )
+            changed += int(cursor.rowcount)
+        return changed
+
     def get_goal(self, goal_id: str) -> dict[str, Any]:
         row = self.db.query_one("SELECT * FROM goals WHERE id=?", (goal_id,))
         if row is None:
