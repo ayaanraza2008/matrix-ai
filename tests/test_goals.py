@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
+
+from matrix_ai.models.base import ModelResponse
 
 
 @pytest.mark.asyncio
@@ -222,9 +225,6 @@ def test_goal_cannot_attach_another_users_task(runtime):
 
 @pytest.mark.asyncio
 async def test_goal_is_verified_only_after_high_confidence_criteria_verdict(runtime, monkeypatch):
-    import json
-    from matrix_ai.models.base import ModelResponse
-
     async def judge(*_args, **_kwargs):
         return ModelResponse(
             text=json.dumps({
@@ -267,9 +267,6 @@ async def test_goal_is_verified_only_after_high_confidence_criteria_verdict(runt
 
 @pytest.mark.asyncio
 async def test_goal_criteria_verdict_with_missing_evidence_never_marks_success(runtime, monkeypatch):
-    import json
-    from matrix_ai.models.base import ModelResponse
-
     async def judge(*_args, **_kwargs):
         return ModelResponse(
             text=json.dumps({
