@@ -10,7 +10,7 @@ MATRIX uses the official YouTube Data API v3 and a user-owned Google OAuth Deskt
 4. Set `MATRIX_YOUTUBE_CLIENT_SECRETS` to that path.
 5. Install the optional API dependencies: `pip install -e ".[youtube]"`.
 6. Run `matrix youtube-auth` on the PC that will run MATRIX and complete Google's consent screen.
-7. MATRIX stores the refresh token under `MATRIX_HOME/youtube-token.json` by default. Keep this file private and never commit or send it.
+7. MATRIX stores the refresh token in the operating-system credential manager (Windows Credential Manager, macOS Keychain, or a SecretService-backed keyring). MATRIX refuses insecure fallback keyring backends and does not create a plaintext token file.
 
 The consent flow requests YouTube read, comment-management and upload scopes. The application permission system is narrower: `youtube.read` is enabled by default; `youtube.write` and `youtube.upload` must be explicitly added to `MATRIX_EXTRA_SCOPES`. Example:
 
@@ -18,7 +18,7 @@ The consent flow requests YouTube read, comment-management and upload scopes. Th
 MATRIX_EXTRA_SCOPES=youtube.write;youtube.upload
 ```
 
-The token is also checked for the actual OAuth scope granted by Google. An application-level scope alone cannot manufacture Google permissions.
+The token is also checked for the actual OAuth scope granted by Google. An application-level scope alone cannot manufacture Google permissions. The secure keyring backend must be available and unlocked when MATRIX starts; headless Linux deployments need a configured SecretService-compatible keyring.
 
 ## Available tools
 
@@ -39,3 +39,8 @@ Uploads default to **private**. Public or unlisted visibility must be specified 
 - Public comments, uploads and other writes remain approval-gated. No automatic reply or public publishing is enabled without an explicit owner-approved task.
 - OAuth setup requires the owner to create the Google Cloud OAuth client and complete the consent screen. MATRIX cannot authorize itself into a personal Google account.
 - This connector does not yet provide livestream management, YouTube Analytics reports, thumbnails, or playlist management. Scheduled uploads use the video resource's `publishAt` field.
+
+
+## Token storage and migration
+
+Older builds stored the refresh token in a JSON file under MATRIX_HOME. This build no longer reads or writes that file; run `matrix youtube-auth` again to place a fresh token in the OS credential manager. After confirming the new connection, securely remove any old `youtube-token.json` backup yourself. MATRIX does not claim secure erasure of old filesystem blocks.
