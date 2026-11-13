@@ -45,6 +45,13 @@ class GitHubPullRequestInput(StrictModel):
     repository: str = Field(min_length=3, max_length=201, description="owner/repository")
     number: int = Field(ge=1)
 
+    @field_validator("repository")
+    @classmethod
+    def validate_repository(cls, value: str) -> str:
+        if not _REPOSITORY.fullmatch(value):
+            raise ValueError("repository must use the owner/repository format")
+        return value
+
 
 class GitHubReadTool(Tool):
     """Shared transport and validation for GitHub read-only tools."""
