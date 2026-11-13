@@ -6,8 +6,8 @@ import socket
 
 import pytest
 
-from matrix_ai.errors import ModelUnavailable, PermissionDenied, ToolExecutionError
 from matrix_ai.config import MatrixConfig
+from matrix_ai.errors import ModelUnavailable, PermissionDenied, ToolExecutionError
 from matrix_ai.models.base import OpenAICompatibleProvider, is_local_endpoint
 from matrix_ai.tools.web_tools import html_to_text, resolve_and_validate
 
