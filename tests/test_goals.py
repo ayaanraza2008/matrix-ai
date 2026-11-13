@@ -223,6 +223,7 @@ def test_goal_cannot_attach_another_users_task(runtime):
         runtime.store.attach_goal_task(goal_id, task_id)
     assert runtime.store.get_goal(goal_id)["task_id"] is None
 
+
 @pytest.mark.asyncio
 async def test_goal_is_verified_only_after_high_confidence_criteria_verdict(runtime, monkeypatch):
     async def judge(*_args, **_kwargs):
