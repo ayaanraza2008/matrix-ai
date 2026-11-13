@@ -48,9 +48,9 @@ The source and CI integration are complete; the following cannot be honestly mar
 | Operations | Backup/restore rehearsal, audit retention, monitoring, incident recovery and rollback rehearsal | Pending deployment |
 | Security review | Review residual DNS-rebinding/TOCTOU ([tracked in issue #74](https://github.com/ayaanraza2008/matrix-ai/issues/74)) risk in public web fetch, data-at-rest protection and release supply-chain posture | Follow-up required |
 
-## Security follow-up applied
+## Security follow-up in progress
 
-The public web research fetch is now disabled by default in both `MatrixConfig` and `.env.example`. Explicitly setting `MATRIX_ALLOW_WEB_FETCH=true` opts back in; do not do so in production until connection-level DNS/IP pinning closes the documented DNS-rebinding/TOCTOU gap. Regression tests cover the secure default and explicit opt-in. The change is committed to `main`; the merged PR #72 CI result predates this follow-up, so a fresh push-triggered CI result must be checked before certifying this change.
+The public web research fetch remains disabled by default in both `MatrixConfig` and `.env.example`. Explicitly setting `MATRIX_ALLOW_WEB_FETCH=true` is still unsafe until the connection-level DNS/IP pinning work is merged and reviewed. [PR #75](https://github.com/ayaanraza2008/matrix-ai/pull/75) now proposes connecting directly to a previously validated numeric IPv4/IPv6 address, preserving the original hostname for TLS SNI/certificate verification and HTTP Host, and verifying the connected peer. It adds deterministic network tests. The first PR CI attempt exposed a pre-existing import-order lint failure in `tests/test_web_and_providers.py`; that was corrected on the PR branch. The latest CI run is pending. Do not enable public web fetch until all CI jobs pass and the security review accepts the implementation.
 
 ## Safety invariants
 
