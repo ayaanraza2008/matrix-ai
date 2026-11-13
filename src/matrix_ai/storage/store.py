@@ -503,6 +503,40 @@ class Store:
         if cursor.rowcount != 1:
             raise ValueError("goal is already attached to a task or is not queued")
 
+    def attach_goal_graph_task(
+        self, graph_id: str, node_id: str, goal_id: str, task_id: str
+    ) -> int:
+        """Atomically attach a node task and record its attempt."""
+        task = self.get_task_row(task_id)
+        goal = self.get_goal(goal_id)
+        if task["goal_id"] != goal_id or task["user_id"] != goal["owner_id"]:
+            raise ValueError("task owner or goal linkage does not match")
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE goals SET task_id=?, deadline=(SELECT deadline FROM tasks WHERE id=?), "
+                "state='running', updated_at=? WHERE id=? AND task_id IS NULL AND state='queued'",
+                (task_id, task_id, iso(), goal_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("goal is already attached to a task or is not queued")
+            row = conn.execute(
+                "SELECT retry_count, goal_id FROM goal_graph_nodes WHERE graph_id=? AND node_id=?",
+                (graph_id, node_id),
+            ).fetchone()
+            if row is None or row["goal_id"] != goal_id:
+                raise NotFoundError(f"goal graph node {node_id} not found")
+            attempt = int(row["retry_count"]) + 1
+            conn.execute(
+                "INSERT INTO goal_graph_node_attempts(id, graph_id, node_id, goal_id, task_id, attempt, outcome, started_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (uuid.uuid4().hex, graph_id, node_id, goal_id, task_id, attempt, "running", iso()),
+            )
+            conn.execute(
+                "UPDATE goal_graph_nodes SET retry_count=? WHERE graph_id=? AND node_id=?",
+                (attempt, graph_id, node_id),
+            )
+        return attempt
+
     def fail_goal_start(self, goal_id: str, summary: str) -> None:
         self.db.execute(
             "UPDATE goals SET state='failed', result_summary=?, updated_at=?, finished_at=? "
@@ -531,20 +565,21 @@ class Store:
         verification_status = "task_steps_verified" if verified else (
             "task_steps_not_verified" if state in {"partial", "failed"} else "not_applicable"
         )
-        self.db.execute(
-            "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
-            "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
-            "WHERE id=? AND task_id=?",
-            (
-                state, task["summary"] or task["error"], verification_status,
-                json.dumps(evidence), iso(), iso(), goal_id, task_id,
-            ),
-        )
-        self.db.execute(
-            "UPDATE goal_graph_node_attempts SET outcome=?, finished_at=? "
-            "WHERE task_id=? AND finished_at IS NULL",
-            (task["state"], iso(), task_id),
-        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE goals SET state=?, result_summary=?, verification_status=?, "
+                "criteria_status='not_evaluated', evidence_json=?, updated_at=?, finished_at=? "
+                "WHERE id=? AND task_id=?",
+                (
+                    state, task["summary"] or task["error"], verification_status,
+                    json.dumps(evidence), iso(), iso(), goal_id, task_id,
+                ),
+            )
+            conn.execute(
+                "UPDATE goal_graph_node_attempts SET outcome=?, finished_at=? "
+                "WHERE task_id=? AND finished_at IS NULL",
+                (task["state"], iso(), task_id),
+            )
 
     def save_goal_criteria_review(self, goal_id: str, review: dict[str, Any]) -> None:
         goal = self.get_goal(goal_id)
