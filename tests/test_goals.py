@@ -598,3 +598,25 @@ async def test_goal_graph_retry_refuses_previous_successful_tool_side_effects(cl
     )
     assert refused.status_code == 409
     assert "successful tool calls" in refused.json()["detail"]
+
+
+def test_schema_v5_adds_retry_count_and_attempt_history(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "schema-v5.sqlite"
+    initial = Database(path)
+    initial.execute("DROP TABLE goal_graph_node_attempts")
+    initial.execute("ALTER TABLE goal_graph_nodes DROP COLUMN retry_count")
+    initial.execute("PRAGMA user_version=5")
+    initial.close()
+
+    upgraded = Database(path)
+    columns = {row["name"] for row in upgraded.query("PRAGMA table_info(goal_graph_nodes)")}
+    tables = {
+        row["name"]
+        for row in upgraded.query("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert "retry_count" in columns
+    assert "goal_graph_node_attempts" in tables
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
