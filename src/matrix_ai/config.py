@@ -138,14 +138,12 @@ class MatrixConfig:
     max_file_bytes: int = 1_000_000
     max_listing_entries: int = 200
 
-    model_provider: str = "none"  # none | ollama | openai | freellmapi
+    model_provider: str = "none"  # none | ollama | openai
     model_name: str = "qwen2.5:0.5b-instruct-q4_K_M"
     ollama_url: str = "http://127.0.0.1:11434"
     openai_base_url: str = "http://127.0.0.1:8080/v1"
     openai_api_key: str | None = None
     allow_cloud_models: bool = False
-    freellmapi_api_key: str | None = None
-    freellmapi_url: str = "https://api.freellmapi.example"
     model_ram_budget_mb: int = 2500
     model_request_timeout_s: float = 60.0
     model_idle_unload_s: int = 900
@@ -257,7 +255,7 @@ class MatrixConfig:
             or not _is_local_host(parsed_youtube_url.hostname)
         ):
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
-        if self.model_provider not in {"none", "ollama", "openai", "freellmapi"}:
+        if self.model_provider not in {"none", "ollama", "openai"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi")
         if bool(self.notification_quiet_hours_start) != bool(self.notification_quiet_hours_end):
             raise ConfigError("notification quiet hours require both start and end times")

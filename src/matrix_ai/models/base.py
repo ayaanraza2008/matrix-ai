@@ -273,93 +273,11 @@ class OpenAICompatibleProvider(ModelProvider):
         return ProviderHealth(configured=True, reachable=True, status="working")
 
 
-class FreeLLMAPIProvider(ModelProvider):
-    provider_name = "freellmapi"
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.config.freellmapi_api_key or self.config.freellmapi_url)
-
-    def _guard_cloud(self) -> None:
-        # FreeLLMAPI always requires explicit cloud opt-in, even when localhost.
-        if not self.config.allow_cloud_models:
-            raise ModelUnavailable(
-                "FreeLLMAPI cloud routes require MATRIX_ALLOW_CLOUD_MODELS=true. "
-                "This is a hard boundary: prompts must not leave the device without explicit consent."
-            )
-
-    async def complete(self, messages, *, temperature=0.2, max_tokens=512, json_mode=False):
-        self._guard_cloud()
-        headers = {"Content-Type": "application/json"}
-        if self.config.freellmapi_api_key:
-            headers["Authorization"] = f"Bearer {self.config.freellmapi_api_key}"
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": [message.to_dict() for message in messages],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
-        started = time.perf_counter()
-        try:
-            async with httpx.AsyncClient(timeout=self.config.model_request_timeout_s) as client:
-                response = await client.post(
-                    f"{self.config.freellmapi_url.rstrip('/')}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-        except httpx.HTTPError as exc:
-            raise ModelUnavailable(f"FreeLLMAPI is unreachable: {type(exc).__name__}") from exc
-        if response.status_code != 200:
-            raise ModelUnavailable(f"FreeLLMAPI returned HTTP {response.status_code}")
-        data = response.json()
-        try:
-            text = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ModelUnavailable("FreeLLMAPI returned an unexpected payload") from exc
-        latency = (time.perf_counter() - started) * 1000
-        self.last_latency_ms = latency
-        if not isinstance(text, str) or not text.strip():
-            raise ModelUnavailable("FreeLLMAPI returned an empty completion")
-        return ModelResponse(text=text, provider="freellmapi", model=self.model, latency_ms=latency)
-
-    async def _probe(self) -> ProviderHealth:
-        if not self.config.allow_cloud_models:
-            return ProviderHealth(
-                configured=True,
-                reachable=False,
-                status="blocked",
-                detail="FreeLLMAPI cloud routes require MATRIX_ALLOW_CLOUD_MODELS=true.",
-            )
-        # When cloud opt-in is active, probe the local FreeLLMAPI router.
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                response = await client.get(
-                    f"{self.config.freellmapi_url.rstrip('/')}/models",
-                )
-        except httpx.HTTPError as exc:
-            return ProviderHealth(
-                configured=True,
-                reachable=False,
-                status="unavailable",
-                detail=f"FreeLLMAPI not reachable ({type(exc).__name__})",
-            )
-        if response.status_code != 200:
-            return ProviderHealth(
-                configured=True, reachable=False, status="degraded", detail=f"HTTP {response.status_code}"
-            )
-        return ProviderHealth(configured=True, reachable=True, status="working")
-
-
 def build_provider(config: MatrixConfig) -> ModelProvider:
     if config.model_provider == "ollama":
         return OllamaProvider(config)
     if config.model_provider == "openai":
         return OpenAICompatibleProvider(config)
-    if config.model_provider == "freellmapi":
-        return FreeLLMAPIProvider(config)
     return NoModelProvider(config)
 
 
