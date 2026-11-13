@@ -60,4 +60,5 @@ reproducible demonstration — not when code exists.
 - [x] Add persistent owner-goal update, pause/resume and deletion operations with audit records; keep autonomy bounded by the global ceiling.
 - [x] Add timezone-aware quiet hours for routine recovery alerts, urgent degradation/emergency-stop bypass and retryable delivery.
 - [x] Add an authenticated, bounded in-app notification inbox for health transitions, with read acknowledgements and audit records.
-- [ ] Add multi-channel push routing, owner-configurable event preferences and proactive digests before broader proactive behavior.
+- [x] Add owner-configurable recovery/digest preferences and a timezone-aware once-daily aggregate digest.
+- [ ] Add multi-channel push routing and broader owner-configurable event preferences before broader proactive behavior.
