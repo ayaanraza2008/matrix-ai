@@ -354,7 +354,7 @@ class TelegramChatBridge:
             active = self.store.nonterminal_tasks()
             waiting = sum(
                 1 for task in active
-                if task.get("state") in {
+                if task["state"] in {
                     TaskState.APPROVAL_REQUIRED.value,
                     TaskState.WAITING_FOR_USER.value,
                 }
