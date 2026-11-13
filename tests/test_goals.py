@@ -648,3 +648,59 @@ async def test_cancel_goal_graph_stops_running_nodes_and_closes_queued_nodes(cli
         json={"reason": "I want to resume the cancelled graph."},
     )
     assert retry.status_code == 409
+
+
+def test_goal_graph_notification_claims_deduplicate_and_back_off(runtime):
+    graph_id = runtime.store.create_goal_graph(
+        owner_id="owner",
+        title="Notification test",
+        nodes=[{"node_id": "one", "title": "One", "success_criteria": "Done", "depends_on": []}],
+    )
+    assert runtime.store.claim_goal_graph_notification(graph_id, "running") is True
+    assert runtime.store.claim_goal_graph_notification(graph_id, "running") is False
+
+    runtime.store.db.execute(
+        "UPDATE goal_graphs SET notification_attempted_at='2000-01-01T00:00:00+00:00' WHERE id=?",
+        (graph_id,),
+    )
+    assert runtime.store.claim_goal_graph_notification(graph_id, "running") is True
+    runtime.store.mark_goal_graph_notified(graph_id, "running")
+    assert runtime.store.claim_goal_graph_notification(graph_id, "running") is False
+    assert runtime.store.claim_goal_graph_notification(graph_id, "failed") is True
+
+
+@pytest.mark.asyncio
+async def test_goal_supervisor_sends_deduplicated_graph_progress_notifications(client, runtime, monkeypatch):
+    messages = []
+
+    async def notify(message):
+        messages.append(message)
+        return True
+
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.telegram, "notify_owner", notify)
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    response = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Notify on progress",
+            "nodes": [{"node_id": "root", "title": "Root", "success_criteria": "Done"}],
+        },
+    )
+    assert response.status_code == 202, response.text
+    graph = response.json()
+    assert len(messages) == 1
+    assert "RUNNING" in messages[0]
+
+    task_id = graph["nodes"][0]["goal"]["task_id"]
+    runtime.store.update_task(
+        task_id, state="FAILED", summary="Task failed", evidence_json='{"verified":false}'
+    )
+    runtime.store.sync_goal_for_task(task_id)
+    await runtime.goal_supervisor.tick()
+    await runtime.goal_supervisor.tick()
+
+    assert len(messages) == 2
+    assert "FAILED" in messages[1]
