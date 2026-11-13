@@ -70,17 +70,17 @@ async def test_recovery_notification_waits_until_quiet_hours_end(tmp_path, monke
 
     await scheduler.monitor_health()  # First degraded observation is urgent.
     assert sent == ["degraded"]
-    assert store.get_flag("pending_health_notification") == ""
+    assert store.get_flag("pending_health_notifications") == ""
 
     models.current_status = "working"
     await scheduler.monitor_health()  # Recovery is routine and is deferred.
     assert sent == ["degraded"]
-    assert '"state":"healthy"' in store.get_flag("pending_health_notification")
+    assert '"state":"healthy"' in store.get_flag("pending_health_notifications")
 
     monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
     await scheduler.monitor_health()  # Flushes even without another state transition.
     assert sent == ["degraded", "healthy"]
-    assert store.get_flag("pending_health_notification") == ""
+    assert store.get_flag("pending_health_notifications") == ""
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_degraded_alert_bypasses_quiet_hours(tmp_path, monkeypatch):
     await scheduler.monitor_health()
 
     assert sent == ["degraded"]
-    assert store.get_flag("pending_health_notification") == ""
+    assert store.get_flag("pending_health_notifications") == ""
 
 
 @pytest.mark.asyncio
@@ -115,11 +115,37 @@ async def test_failed_notification_is_retried_on_later_health_tick(tmp_path, mon
 
     monkeypatch.setattr(scheduler, "_send_health_notification", send)
     await scheduler.monitor_health()
-    assert store.get_flag("pending_health_notification")
+    assert store.get_flag("pending_health_notifications")
     await scheduler.monitor_health()
 
     assert attempts == ["degraded", "degraded"]
-    assert store.get_flag("pending_health_notification") == ""
+    assert store.get_flag("pending_health_notifications") == ""
+
+
+@pytest.mark.asyncio
+async def test_failed_degradation_is_not_lost_when_recovery_occurs_in_quiet_hours(tmp_path, monkeypatch):
+    scheduler, store, models = make_scheduler(tmp_path, model_status="degraded")
+    sent = []
+    outcomes = iter([False, True, True])
+
+    async def send(state, components):
+        sent.append(state)
+        return next(outcomes)
+
+    monkeypatch.setattr(scheduler, "_send_health_notification", send)
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: True)
+
+    await scheduler.monitor_health()  # Degraded alert fails and remains queued.
+    models.current_status = "working"
+    await scheduler.monitor_health()  # Recovery is appended behind the urgent alert.
+    queued = store.get_flag("pending_health_notifications")
+    assert '"state":"degraded"' in queued
+    assert '"state":"healthy"' in queued
+
+    monkeypatch.setattr(scheduler, "_quiet_hours_active", lambda: False)
+    await scheduler.monitor_health()
+    assert sent == ["degraded", "degraded", "healthy"]
+    assert store.get_flag("pending_health_notifications") == ""
 
 
 @pytest.mark.asyncio
