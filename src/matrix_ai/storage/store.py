@@ -356,28 +356,6 @@ class Store:
             for row in rows
         ]
 
-    def record_goal_graph_node_attempt(
-        self, graph_id: str, node_id: str, goal_id: str, task_id: str
-    ) -> int:
-        row = self.db.query_one(
-            "SELECT retry_count, goal_id FROM goal_graph_nodes WHERE graph_id=? AND node_id=?",
-            (graph_id, node_id),
-        )
-        if row is None or row["goal_id"] != goal_id:
-            raise NotFoundError(f"goal graph node {node_id} not found")
-        attempt = int(row["retry_count"]) + 1
-        with self.db.transaction() as conn:
-            conn.execute(
-                "INSERT INTO goal_graph_node_attempts(id, graph_id, node_id, goal_id, task_id, attempt, outcome, started_at) "
-                "VALUES(?,?,?,?,?,?,?,?)",
-                (uuid.uuid4().hex, graph_id, node_id, goal_id, task_id, attempt, "running", iso()),
-            )
-            conn.execute(
-                "UPDATE goal_graph_nodes SET retry_count=? WHERE graph_id=? AND node_id=?",
-                (attempt, graph_id, node_id),
-            )
-        return attempt
-
     def retry_goal_graph_node(
         self, graph_id: str, node_id: str, *, owner_id: str, max_attempts: int = 3
     ) -> dict[str, Any]:
