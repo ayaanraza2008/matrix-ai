@@ -14,7 +14,8 @@ from .config import MatrixConfig
 from .core.goal_graph import GoalGraph, GoalGraphError
 from .core.models import parse_dt, utcnow
 from .core.orchestrator import Orchestrator
-from .storage.store import Store\nfrom .telegram import TelegramChatBridge
+from .storage.store import Store
+from .telegram import TelegramChatBridge
 
 log = logging.getLogger("matrix.goal_supervisor")
 FAILED_STATES = {"partial", "failed", "cancelled", "blocked", "needs_attention"}
