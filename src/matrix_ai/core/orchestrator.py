@@ -327,7 +327,10 @@ class Orchestrator:
     async def _prepare(self, task_id: str, ctx: ToolContext) -> None:
         self._to(task_id, TaskState.UNDERSTAND)
         try:
-            plan, intent, model_name, selected_agents, specialist_context_used, worker_runs = await self._build_plan(task_id)
+            (
+                plan, intent, model_name, selected_agents, specialist_context_used, worker_runs,
+                selected_addons, addon_context_used, selected_skills, skill_context_used,
+            ) = await self._build_plan(task_id)
         except (ToolNotFound, ValidationFailure, ModelUnavailable, ValueError) as exc:
             self._abort(task_id, "plan_invalid", f"Could not build a valid plan: {exc}")
             return
@@ -380,6 +383,34 @@ class Orchestrator:
             },
         )
 
+        self.store.audit(
+            "task.addons_selected",
+            actor="addon-router",
+            task_id=task_id,
+            status="context_injected" if addon_context_used else (
+                "selected_without_context" if selected_addons else "no_addon_needed"
+            ),
+            detail={
+                "context_injected": addon_context_used,
+                "addons": [item.get("id") for item in selected_addons[:3]],
+            },
+        )
+        self.store.audit(
+            "task.skills_selected",
+            actor="skills-router",
+            task_id=task_id,
+            status="context_injected" if skill_context_used else (
+                "selected_without_context" if selected_skills else "no_skill_needed"
+            ),
+            detail={
+                "context_injected": skill_context_used,
+                "skills": [
+                    {"name": item.get("name"), "description": item.get("description"), "matched_terms": item.get("matched_terms", [])}
+                    for item in selected_skills[:3]
+                ],
+            },
+        )
+
         for result in worker_runs:
             self.store.audit(
                 "task.agent_worker_run",
@@ -427,7 +458,10 @@ class Orchestrator:
 
     async def _build_plan(
         self, task_id: str
-    ) -> tuple[Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]]]:
+    ) -> tuple[
+        Plan, str, str | None, list[dict[str, Any]], bool, list[dict[str, Any]],
+        list[dict[str, Any]], bool, list[dict[str, Any]], bool,
+    ]:
         row = self.store.get_task_row(task_id)
         model_name = self.models.model_name if self.models.configured else None
         if row["kind"] == "direct":
@@ -451,12 +485,14 @@ class Orchestrator:
                 ],
                 source="heuristic",
             )
-            return plan, "direct_tool", model_name, [], False, []
+            return plan, "direct_tool", model_name, [], False, [], [], False, [], False
 
         intent = await self.planner.plan(row["original_request"])
         return (
             intent.plan, intent.intent, model_name, intent.selected_agents,
             intent.specialist_context_used, intent.worker_runs,
+            intent.selected_addons, intent.addon_context_used,
+            intent.selected_skills, intent.skill_context_used,
         )
 
     async def _execute_steps(self, task_id: str, ctx: ToolContext) -> None:
