@@ -171,20 +171,29 @@ class GoalSupervisor:
                         deadline_seconds=remaining,
                     )
                     self.store.attach_goal_task(goal["id"], task_id)
+                    attempt = self.store.record_goal_graph_node_attempt(
+                        graph_id, node_id, goal["id"], task_id
+                    )
                     await self.orchestrator.enqueue(task_id)
                     self.store.audit(
                         "goal_graph.node_dispatched",
                         actor="goal-supervisor",
                         task_id=task_id,
                         status="running",
-                        detail={"graph_id": graph_id, "node_id": node_id, "goal_id": goal["id"]},
+                        detail={"graph_id": graph_id, "node_id": node_id, "goal_id": goal["id"], "attempt": attempt},
                     )
                     results.append({"graph_id": graph_id, "node_id": node_id, "task_id": task_id, "status": "dispatched"})
                 except Exception as exc:  # isolate one node failure from independent branches
-                    self.store.fail_goal_start(
-                        goal["id"],
-                        f"Goal node could not be started ({type(exc).__name__}).",
-                    )
+                    if task_id:
+                        try:
+                            await self.orchestrator.cancel(task_id)
+                        except Exception:  # noqa: BLE001 - preserve the original start failure
+                            pass
+                    if self.store.get_goal(goal["id"])["state"] == "queued":
+                        self.store.fail_goal_start(
+                            goal["id"],
+                            f"Goal node could not be started ({type(exc).__name__}).",
+                        )
                     self.store.audit(
                         "goal_graph.node_start_failed",
                         actor="goal-supervisor",
