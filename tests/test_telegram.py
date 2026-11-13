@@ -22,6 +22,22 @@ class FakeStore:
         self.nonterminal = []
         self.goals = {}
         self.goal_nodes = {}
+        self.idempotent_goals = {}
+
+    def create_goal_task(
+        self, *, owner_id, title, success_criteria, autonomy_level,
+        deadline_seconds, idempotency_key,
+    ):
+        if idempotency_key in self.idempotent_goals:
+            return self.idempotent_goals[idempotency_key]
+        goal_id = self.create_goal(
+            owner_id=owner_id, title=title, success_criteria=success_criteria,
+            deadline_seconds=deadline_seconds,
+        )
+        task_id = f"goal-task-{len(self.idempotent_goals) + 1}"
+        self.idempotent_goals[idempotency_key] = (goal_id, task_id)
+        self.goals[goal_id]["pending_task_id"] = task_id
+        return goal_id, task_id
 
     def create_goal(self, *, owner_id, title, success_criteria, deadline_seconds=None):
         goal_id = f"goal-{len(self.goals) + 1}"
@@ -620,12 +636,10 @@ async def test_telegram_creates_bounded_autonomous_goal(tmp_path):
     assert goal["owner_id"] == "owner"
     assert goal["title"] == "Prepare monthly report"
     assert goal["success_criteria"] == "Verify totals and include all required sections"
-    assert goal["task_id"] == "task-123"
-    assert orchestrator.created[0]["kind"] == "goal"
-    assert orchestrator.created[0]["goal_id"] == "goal-1"
-    assert orchestrator.created[0]["autonomy_level"] == bridge.config.autonomy_level
-    assert orchestrator.enqueued == ["task-123"]
-    assert "Autonomous goal started" in sent[0]
+    assert goal["task_id"] == "goal-task-1"
+    assert not orchestrator.created
+    assert orchestrator.enqueued == ["goal-task-1"]
+    assert "Autonomous goal accepted" in sent[0]
     assert "Use /goal-status goal-1" in sent[0]
 
 
@@ -689,3 +703,20 @@ async def test_telegram_rejects_goal_commands_from_unauthorized_sender(tmp_path)
     assert not store.goals
     assert not orchestrator.created
     assert sent == []
+
+
+
+async def test_telegram_goal_replay_reuses_atomic_goal_and_task(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    incoming = update(
+        text="/goal Prepare quarterly report | Verify all figures",
+        update_id=9123,
+    )
+
+    await bridge._process_update(incoming)
+    await bridge._process_update(incoming)
+
+    assert len(store.goals) == 1
+    assert len(store.idempotent_goals) == 1
+    assert orchestrator.enqueued == ["goal-task-1", "goal-task-1"]
+    assert store.flags["telegram_update_offset"] == "9123"
