@@ -260,10 +260,10 @@ class TelegramChatBridge:
             if view is None or view.state is TaskState.RECEIVED:
                 await self.orchestrator.enqueue(task_id)
             await self._send(f"Received. MATRIX task: {task_id}")
-            if view.state in TERMINAL_TASK_STATES:
+            if view is not None and view.state in TERMINAL_TASK_STATES:
                 result = view.summary or view.error or f"Task finished: {view.state.value}"
                 await self._send(f"MATRIX {view.state.value}:\\n{result}")
-            elif view.state is not TaskState.RECEIVED:
+            elif view is not None and view.state is not TaskState.RECEIVED:
                 await self._send(
                     f"Task {task_id} already exists and is {view.state.value}; "
                     "MATRIX will not start it again."
