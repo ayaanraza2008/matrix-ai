@@ -26,13 +26,14 @@ class TelegramChatBridge:
     def __init__(
         self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
         rate_limiter: RateLimiter | None = None,
+        voice_manager: Any | None = None,
     ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
         # Share the runtime limiter so Telegram cannot bypass API task throttling.
         self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
-        self.voice_manager = None
+        self.voice_manager = voice_manager
         self._task: asyncio.Task | None = None
         self._offset: int | None = None
         self._client: httpx.AsyncClient | None = None
