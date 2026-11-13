@@ -448,4 +448,5 @@ DEFAULT_SCOPES: tuple[str, ...] = (
     "web.read",
     "vision.read",
     "youtube.read",
+    "github.read",
 )
