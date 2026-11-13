@@ -76,6 +76,14 @@ def resolve_and_validate(url: str, resolver: Resolver | None = None) -> list[str
                 continue
     if not addresses:
         raise ToolExecutionError("host did not resolve to an IP address")
+    # Normalise IPv4-mapped IPv6 answers to plain IPv4: is_global semantics for
+    # ::ffff:0:0/96 differ across Python versions (see CVE-2024-4032), so decide
+    # based on the embedded IPv4 address and connect via AF_INET consistently.
+    addresses = [
+        address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped
+        else address
+        for address in addresses
+    ]
     for address in addresses:
         if not address.is_global:
             raise PermissionDenied(
@@ -97,8 +105,16 @@ def _fetch_from_pinned_address(
     host = parsed.hostname
     if not host:
         raise ValidationFailure("url has no hostname")
+    if any(character in host for character in "\r\n\t\x00 "):
+        # Defence in depth: control characters must never reach the Host header,
+        # the request target or the TLS server-name extension.
+        raise ValidationFailure("url hostname contains forbidden characters")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     ip = ipaddress.ip_address(address)
+    # IPv4-mapped IPv6 answers are normalized at validation time; connect via
+    # AF_INET so the peer comparison below stays unambiguous on every platform.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
     family = socket.AF_INET6 if ip.version == 6 else socket.AF_INET
     raw_sock = socket.socket(family, socket.SOCK_STREAM)
     response: http.client.HTTPResponse | None = None

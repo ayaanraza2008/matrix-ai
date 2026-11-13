@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from matrix_ai.errors import PermissionDenied
+from matrix_ai.errors import PermissionDenied, ValidationFailure
 from matrix_ai.tools import web_tools
 
 
@@ -155,3 +155,46 @@ def test_fetch_pinned_tries_next_prevalidated_address(monkeypatch):
     assert body == b"hello"
     assert connected == "1.1.1.1"
     assert socket_factory.call_count == 2
+
+
+def test_resolver_normalizes_ipv4_mapped_ipv6_to_plain_ipv4():
+    mapped_public = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::ffff:8.8.8.8", 80, 0, 0))]
+    assert web_tools.resolve_and_validate("https://example.com", lambda *a, **k: mapped_public) == [
+        "8.8.8.8"
+    ]
+
+
+def test_resolver_rejects_mapped_private_ipv4_via_ipv6_form():
+    # ::ffff:10.0.0.9 must be judged by its embedded IPv4 address, not by
+    # version-dependent ::ffff:0:0/96 is_global semantics (CVE-2024-4032).
+    mapped_private = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::ffff:10.0.0.9", 443, 0, 0))]
+    with pytest.raises(PermissionDenied):
+        web_tools.resolve_and_validate("https://example.com", lambda *a, **k: mapped_private)
+
+
+def test_mapped_public_ipv6_connects_over_af_INET_with_matching_peer(monkeypatch):
+    fake = FakeSocket("8.8.8.8")
+    socket_factory = Mock(return_value=fake)
+    monkeypatch.setattr(web_tools.socket, "socket", socket_factory)
+    web_tools._fetch_from_pinned_address("http://example.com/", "::ffff:8.8.8.8")
+    socket_factory.assert_called_once_with(socket.AF_INET, socket.SOCK_STREAM)
+    assert fake.connected_to == ("8.8.8.8", 80)
+
+
+def test_mapped_private_peer_form_is_rejected(monkeypatch):
+    # Connecting to the public address while the kernel reports the IPv4-mapped
+    # peer form must not silently pass; it is treated as a peer mismatch.
+    fake = FakeSocket("::ffff:1.1.1.1")
+    monkeypatch.setattr(web_tools.socket, "socket", Mock(return_value=fake))
+    with pytest.raises(PermissionDenied, match="differs from validated address"):
+        web_tools._fetch_from_pinned_address("http://example.com/", "1.1.1.1")
+
+
+def test_pinned_fetch_rejects_hostname_with_control_characters(monkeypatch):
+    monkeypatch.setattr(web_tools.socket, "socket", Mock())
+    # CR/LF/TAB are stripped by urllib.parse itself; NUL and space survive
+    # parsing and must still never reach the Host header or TLS SNI.
+    for character in ("\x00", " "):
+        url = f"http://example{character}com/"
+        with pytest.raises(ValidationFailure):
+            web_tools._fetch_from_pinned_address(url, "8.8.8.8")
