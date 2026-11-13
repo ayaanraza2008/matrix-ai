@@ -991,6 +991,7 @@ async def automation_status(principal: PrincipalDep, runtime: RuntimeDep) -> dic
         "maximum_scheduled_job_autonomy": min(runtime.config.autonomy_level, 2),
         "notification_routing": runtime.config.public_dict()["notification_routing"],
         "notification_routing": runtime.config.public_dict()["notification_routing"],
+        "notification_routing": runtime.config.public_dict()["notification_routing"],
         "jobs_total": len(jobs),
         "jobs_enabled": sum(1 for job in jobs if job.enabled),
         "policy": {
