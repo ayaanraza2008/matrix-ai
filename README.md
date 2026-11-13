@@ -27,14 +27,16 @@ One orchestrator, typed tools, a real policy engine, and an honest dashboard —
 | Hardware-aware model manager (8 GB RAM discipline) | **Implemented** | `models/manager.py`, `test_a24_resource_budget.py` |
 | Local model benchmark (English/Hindi, schema, tool choice, latency, RSS) | **Implemented** | `models/benchmark.py`, `test_model_benchmark.py` |
 | 283 independent specialist worker instances (bounded parallel analysis and task reports) | **Implemented** | `core/worker_pool.py`, `test_agent_workers.py` |
+| Vercel Agent Skills discovery and bounded routing | **Implemented, optional** | `docs/VERCEL_SKILLS.md`; SKILL.md is untrusted context only; Node.js 22.20+ required for CLI installs |
+| Engineering Coach session analytics | **Implemented** | Native privacy-preserving analyzer, Claude Code/Codex adapters and authenticated dashboard; explicit local-file analysis only |
 | JARVIS dashboard (chat, tasks, memory, devices, security) | **Implemented** | `src/matrix_ai/web/` |
 | Voice session control: mute, barge-in, push-to-talk state | **Implemented (control layer)** | `voice/manager.py`, `test_a11_voice_mute.py` |
-| Speech-to-text / text-to-speech engines | **Blocked** | No engine installed; API returns `503` honestly |
+| Offline speech-to-text / text-to-speech engines | **Implemented, optional** | faster-whisper + Piper adapters; real Windows microphone/speaker acceptance and local engine setup remain pending |
 | Vision capture sessions + stop semantics | **Implemented** | `vision/manager.py`, `test_a13_vision_permission.py` |
 | OCR | **Implemented, environment-dependent** | Needs Tesseract + `pip install 'matrix-ai[vision]'` |
 | Device pairing, revocation, rate limits, audit | **Implemented** | `security/auth.py`, `test_a19_device_pairing.py` |
-| Optional integrations with health checks | **Adapters implemented** | Google/Twilio/Tailscale/FCM not configured |
-| Android companion | **Scaffolded** | `android/` — needs Android SDK; not built in CI |
+| Optional integrations | **Partial / provider-dependent** | Adapters and setup guides exist; each account, scope, credential and live action still requires separate acceptance |
+| Android companion | **Scaffolded** | `android/` — physical-device acceptance, signed release and production distribution remain pending |
 | Signed release / installer | **Planned** | Phase 9 |
 
 Full evidence and the exact pass/skip/blocked counts: [`docs/ACCEPTANCE_REPORT.md`](docs/ACCEPTANCE_REPORT.md).
@@ -102,7 +104,6 @@ Everything is environment-driven; `.env.example` documents every knob. Secrets a
 | `MATRIX_YOUTUBE_AUTOMATION_ENABLED` | `false` | Explicitly expose the local YouTube Automation Agent service tools |
 | `MATRIX_YOUTUBE_AUTOMATION_URL` | `http://127.0.0.1:3456` | Loopback/private service endpoint; public hosts are refused |
 | `MATRIX_ADDON_MCP_SERVERS` | unset | Owner-only JSON config of local MCP processes / verified OpenWhispr endpoint |
-| `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
 | `MATRIX_ADDON_AUTO_INSTALL_SOURCES` | `true` | Task-selected safe repositories up to 200 MB are sparse-fetched at pinned commits (source only) |
 | `MATRIX_HEXSTRIKE_ALLOWED_TARGETS` | empty | Exact owner-approved hosts/IPs; HexStrike target tools are blocked until set |
 | `MATRIX_ALLOW_CLOUD_MODELS` | `false` | Must be explicitly enabled for any non-local endpoint |
@@ -204,11 +205,11 @@ Tests are hermetic: no network, temporary SQLite, generated tokens, no audio or 
 
 ## Known limitations (v0.1.0)
 
-- **No speech engines yet.** Voice session state, mute and barge-in are real and tested; STT/TTS adapters return `503` until you install faster-whisper / Piper.
+- **Voice requires optional local engines.** STT/TTS adapters are implemented with faster-whisper and Piper, but the owner must install/configure model files and complete real microphone/speaker acceptance on the target Windows PC.
 - **OCR needs Tesseract** on `PATH` plus the `vision` extra.
 - **No UI screenshot automation yet** — `pywinauto`/`Playwright` adapters are Phase 5.
-- **Android app is a scaffold** and has not been built here (no Android SDK on the build machine).
-- **Remote access is not exposed.** Use Tailscale/WireGuard; do not port-forward the API.
+- **Android app is still a scaffold.** CI/device acceptance and an unsigned build do not equal a signed, physically tested production release; pairing, reconnect and revocation must be verified on a real handset.
+- **Private remote access is not yet integrated into `main`.** Keep MATRIX loopback-bound; do not port-forward the API. The private Tailscale/Windows startup work remains in an unmerged integration PR and needs target-PC acceptance.
 - **`web.fetch_public` re-resolves DNS** rather than pinning the vetted IP for the TCP connection; redirects are disabled and only public addresses are allowed, but the TOCTOU gap is documented in `docs/SECURITY.md`.
 - Auto-retry covers idempotent, low/medium-risk tools with exponential backoff and jitter; non-idempotent actions never retry blindly.
 
