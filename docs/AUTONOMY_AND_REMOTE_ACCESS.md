@@ -166,3 +166,13 @@ matrix remote-access status
 python -m pytest -q
 python -m ruff check .
 ```
+
+
+## 5. Authenticated in-app notification inbox
+
+Health transitions are also written to a bounded local inbox, even when Telegram is not configured. The inbox stores at most 100 recent events and exposes only authenticated owner/device API routes:
+
+- `GET /api/notifications?limit=50&unread_only=false` — newest notifications first, plus unread count.
+- `POST /api/notifications/{id}/read` — mark one notification as read; the action is audited.
+
+The inbox includes the core health component summary only. It does not include task prompts, file contents, tokens or integration credentials. Critical emergency-stop events are labelled critical. The inbox is local persistence, not a substitute for an external alert: it cannot notify a device while MATRIX is offline, and push delivery remains optional.
