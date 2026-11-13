@@ -9,7 +9,11 @@ so optional Telegram alerts are sent once per transition, not on every poll.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import datetime
+from datetime import time as datetime_time
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -100,6 +104,18 @@ class Scheduler:
             "model": model_status,
             "emergency_stop": "active" if emergency_stop else "off",
         }
+        previous_components_raw = self.store.get_flag("health_monitor_components", "{}")
+        try:
+            previous_components = json.loads(previous_components_raw or "{}")
+        except (TypeError, ValueError):
+            previous_components = {}
+        self.store.set_flag(
+            "health_monitor_components",
+            json.dumps(components, separators=(",", ":")),
+        )
+        emergency_stop_activated = (
+            emergency_stop and previous_components.get("emergency_stop") != "active"
+        )
 
         if current != previous:
             self.store.set_flag("health_monitor_state", current)
@@ -113,15 +129,129 @@ class Scheduler:
                     detail={"previous": previous, "components": components},
                 )
             if current == "degraded" or previous == "degraded":
-                await self._send_health_notification(current, components)
+                self._queue_health_notification(current, components)
 
+        # A newly activated emergency stop is an urgent event even if another
+        # degraded component had already put the overall system in that state.
+        if emergency_stop_activated and current == previous:
+            self.store.audit(
+                "notification.emergency_stop_alert",
+                actor="health-monitor",
+                status="active",
+            )
+            self._queue_health_notification("degraded", components)
+
+        # Retry failed delivery on later health ticks. Routine recovery messages
+        # remain queued until the configured local quiet-hours window ends.
+        await self._flush_pending_health_notification()
         return {"status": current, **components}
 
-    async def _send_health_notification(self, state: str, components: dict[str, str]) -> None:
+    def _quiet_hours_active(self) -> bool:
+        start = self.config.notification_quiet_hours_start
+        end = self.config.notification_quiet_hours_end
+        if not start or not end:
+            return False
+        local_now = datetime.now(ZoneInfo(self.config.notification_timezone)).time()
+        quiet_start = datetime_time.fromisoformat(start)
+        quiet_end = datetime_time.fromisoformat(end)
+        if quiet_start < quiet_end:
+            return quiet_start <= local_now < quiet_end
+        return local_now >= quiet_start or local_now < quiet_end
+
+    def _queue_health_notification(self, state: str, components: dict[str, str]) -> None:
+        if not self.config.telegram_bot_token or not self.config.telegram_chat_id:
+            return
+        raw = self.store.get_flag("pending_health_notifications", "[]")
+        try:
+            pending = json.loads(raw or "[]")
+            if not isinstance(pending, list):
+                pending = [pending] if isinstance(pending, dict) else []
+        except (TypeError, ValueError):
+            pending = []
+        if len(pending) >= 25:
+            self.store.audit(
+                "notification.health_queue_full",
+                actor="health-monitor",
+                status="dropped",
+                detail={"new_state": state},
+            )
+            return
+        pending.append({"state": state, "components": components})
+        self.store.set_flag(
+            "pending_health_notifications",
+            json.dumps(pending, separators=(",", ":")),
+        )
+
+    async def _flush_pending_health_notification(self) -> None:
+        raw = self.store.get_flag("pending_health_notifications")
+        if not raw:
+            return
+        try:
+            pending = json.loads(raw)
+            if not isinstance(pending, list):
+                raise ValueError("notification queue must be a list")
+        except (TypeError, ValueError):
+            self.store.set_flag("pending_health_notifications", "")
+            self.store.audit(
+                "notification.health_queue_invalid",
+                actor="health-monitor",
+                status="discarded",
+            )
+            return
+
+        while pending:
+            item = pending[0]
+            try:
+                state = item["state"]
+                components = item["components"]
+                if state not in {"healthy", "degraded"} or not isinstance(components, dict):
+                    raise ValueError("invalid queued health notification")
+            except (TypeError, ValueError, KeyError):
+                pending.pop(0)
+                self.store.audit(
+                    "notification.health_queue_invalid",
+                    actor="health-monitor",
+                    status="discarded",
+                )
+                continue
+            # Degradation alerts (including emergency-stop state) always bypass quiet hours.
+            if state == "healthy" and self._quiet_hours_active():
+                break
+
+            # Persist the head before attempting delivery. A failed or interrupted
+            # send must never erase an urgent alert when a later state is queued.
+            self.store.set_flag(
+                "pending_health_notifications",
+                json.dumps(pending, separators=(",", ":")),
+            )
+            try:
+                delivered = await self._send_health_notification(state, components)
+            except Exception as exc:  # noqa: BLE001 - keep queued alerts for retry
+                self.store.audit(
+                    "notification.health_failed",
+                    actor="health-monitor",
+                    status="failed",
+                    detail={"error": type(exc).__name__},
+                )
+                delivered = False
+            if not delivered:
+                break
+            pending.pop(0)
+            self.store.set_flag(
+                "pending_health_notifications",
+                json.dumps(pending, separators=(",", ":")) if pending else "",
+            )
+
+        self.store.set_flag(
+            "pending_health_notifications",
+            json.dumps(pending, separators=(",", ":")) if pending else "",
+        )
+
+    async def _send_health_notification(self, state: str, components: dict[str, str]) -> bool:
         token = self.config.telegram_bot_token
         chat_id = self.config.telegram_chat_id
         if not token or not chat_id:
-            return
+            return True
 
         headline = "MATRIX needs attention" if state == "degraded" else "MATRIX has recovered"
         lines = [
@@ -140,6 +270,7 @@ class Scheduler:
                 payload = response.json()
                 if not payload.get("ok"):
                     raise RuntimeError("Telegram did not confirm the message.")
+            return True
         except Exception as exc:  # noqa: BLE001 - notification failure must not stop MATRIX
             self.store.audit(
                 "notification.health_failed",
@@ -148,6 +279,7 @@ class Scheduler:
                 detail={"error": type(exc).__name__},
             )
             log.warning("health notification failed: %s", type(exc).__name__)
+            return False
 
     async def background_loop(self, interval_seconds: float = 60.0) -> None:
         while True:
