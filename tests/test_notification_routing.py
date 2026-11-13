@@ -28,6 +28,11 @@ class FakeStore:
         return {"health_recovered": True, "daily_digest": True} if raw is None else raw
 
     def create_notification(self, **item):
+        preferences = self.notification_preferences()
+        if item.get("event_type") == "health.recovered" and not preferences["health_recovered"]:
+            return ""
+        if item.get("event_type") == "daily.digest" and not preferences["daily_digest"]:
+            return ""
         self.notifications.append(item)
         return "notification-" + str(len(self.notifications))
 
