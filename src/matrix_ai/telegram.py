@@ -208,20 +208,20 @@ class TelegramChatBridge:
         if not callable(list_task_ids):
             return 0
         restored = 0
-        try:
-            task_ids = list_task_ids(
-                "telegram.update", limit=TELEGRAM_REPORT_RESTORE_LIMIT
-            )
-        except Exception as exc:  # noqa: BLE001 - notification recovery must not stop polling
-            self.store.audit(
-                "telegram.report_restore_failed",
-                actor="telegram",
-                status="failed",
-                detail={"error": type(exc).__name__},
-            )
-            return 0
-
-        for task_id in task_ids:
+        task_ids: list[str] = []
+        for scope in ("telegram.update", "telegram.goal"):
+            try:
+                task_ids.extend(
+                    list_task_ids(scope, limit=TELEGRAM_REPORT_RESTORE_LIMIT)
+                )
+            except Exception as exc:  # noqa: BLE001 - notification recovery must not stop polling
+                self.store.audit(
+                    "telegram.report_restore_failed",
+                    actor="telegram",
+                    status="failed",
+                    detail={"scope": scope, "error": type(exc).__name__},
+                )
+        for task_id in dict.fromkeys(task_ids):
             try:
                 view = self.store.task_view(task_id)
             except Exception as exc:  # noqa: BLE001 - one stale task must not block others
@@ -422,45 +422,30 @@ class TelegramChatBridge:
                 await self._send("Goal title and success criteria must each contain 1–2000 characters.")
                 return
             deadline_seconds = max(1.0, min(float(self.config.task_deadline_seconds), 86400.0))
-            goal_id = self.store.create_goal(
+            goal_id, task_id = self.store.create_goal_task(
                 owner_id="owner",
                 title=title,
                 success_criteria=criteria,
+                autonomy_level=self.config.autonomy_level,
                 deadline_seconds=deadline_seconds,
+                idempotency_key=str(update["update_id"]),
             )
-            task_id = None
-            try:
-                task_id = self.orchestrator.create_task(
-                    request=f"Goal: {title}\nSuccess criteria: {criteria}",
-                    user_id="owner",
-                    autonomy_level=self.config.autonomy_level,
-                    kind="goal",
-                    goal_id=goal_id,
-                    deadline_seconds=deadline_seconds,
-                )
+            goal = self.store.get_goal(goal_id)
+            if not goal.get("task_id"):
                 self.store.attach_goal_task(goal_id, task_id)
+            task_view = self.store.task_view(task_id)
+            if task_view.state is TaskState.RECEIVED:
                 await self.orchestrator.enqueue(task_id)
-            except Exception as exc:  # noqa: BLE001 - keep partially created goals visible and audited
-                self.store.fail_goal_start(
-                    goal_id, "MATRIX could not start this goal; inspect system health and retry."
-                )
-                self.store.audit(
-                    "telegram.goal_start_failed", actor="telegram",
-                    task_id=task_id, status="failed",
-                    detail={"goal_id": goal_id, "error": type(exc).__name__},
-                )
-                await self._send(
-                    f"Goal could not be started. Goal ID: {goal_id}. Check MATRIX health before retrying."
-                )
-                return
             self.store.audit(
                 "telegram.goal_created", actor="telegram", task_id=task_id,
-                status="running", detail={"goal_id": goal_id},
+                status="accepted", detail={"goal_id": goal_id, "replayed": bool(goal.get("task_id"))},
             )
             await self._send(
-                f"Autonomous goal started.\nGoal ID: {goal_id}\nTask ID: {task_id}\n"
+                f"Autonomous goal accepted.\nGoal ID: {goal_id}\nTask ID: {task_id}\n"
                 f"Deadline: {int(deadline_seconds)} seconds\nUse /goal-status {goal_id} to track it."
             )
+            if task_view.state not in TERMINAL_TASK_STATES:
+                self._ensure_report_task(task_id)
             return
         if command == "/goals":
             goals = self.store.list_goals(owner_id="owner", limit=5)
@@ -545,7 +530,11 @@ class TelegramChatBridge:
             )
             return
         if command == "/tasks":
-            task_ids = self.store.list_idempotent_task_ids("telegram.update", limit=5)
+            task_ids = (
+                self.store.list_idempotent_task_ids("telegram.update", limit=5)
+                + self.store.list_idempotent_task_ids("telegram.goal", limit=5)
+            )
+            task_ids = list(dict.fromkeys(task_ids))[:5]
             if not task_ids:
                 await self._send("No Telegram tasks have been recorded yet.")
                 return
@@ -561,7 +550,11 @@ class TelegramChatBridge:
             if not command_args or len(command_args) > 128 or any(ch.isspace() for ch in command_args):
                 await self._send(f"Usage: {command} <task-id>")
                 return
-            if not self.store.is_idempotent_task("telegram.update", command_args):
+            is_telegram_task = (
+                self.store.is_idempotent_task("telegram.update", command_args)
+                or self.store.is_idempotent_task("telegram.goal", command_args)
+            )
+            if not is_telegram_task:
                 await self._send("That task ID does not belong to a task submitted through this Telegram chat.")
                 return
             if command == "/cancel":
