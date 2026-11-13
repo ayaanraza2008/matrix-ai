@@ -22,6 +22,14 @@ from .system_tools import SystemStatusTool
 from .vision_tools import OcrImageTool
 from .web_tools import FetchPublicUrlTool
 from .youtube_tools import build_youtube_tools
+from .github_tools import (
+    GitHubCommentIssueTool,
+    GitHubCreateIssueTool,
+    GitHubGetPullRequestTool,
+    GitHubGetRepositoryTool,
+    GitHubListIssuesTool,
+    GitHubWhoAmITool,
+)
 
 
 class ToolRegistry:
@@ -82,5 +90,11 @@ def build_registry() -> ToolRegistry:
             FetchPublicUrlTool(),
             OcrImageTool(),
             *build_youtube_tools(),
+            GitHubWhoAmITool(),
+            GitHubGetRepositoryTool(),
+            GitHubListIssuesTool(),
+            GitHubGetPullRequestTool(),
+            GitHubCreateIssueTool(),
+            GitHubCommentIssueTool(),
         ]
     )
