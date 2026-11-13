@@ -44,6 +44,7 @@ class FakeStore:
 
     def set_emergency_stop(self, active, *, actor):
         self.stopped = active
+        self.emergency_stop = active
 
     def task_view(self, task_id):
         if task_id in self.task_views:
@@ -442,6 +443,7 @@ async def test_telegram_resume_command_clears_only_existing_emergency_stop(tmp_p
     await bridge._handle_update(update(text="/resume"))
 
     assert store.stopped is False
+    assert store.emergency_stop is False
     assert sent == [
         "Emergency stop cleared. New tasks may be accepted under the configured policy."
     ]
