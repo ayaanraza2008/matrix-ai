@@ -123,6 +123,21 @@ class GoalGraph:
                     break
         return tuple(selected)
 
+    def blocked_nodes(self, failed: Iterable[str]) -> tuple[str, ...]:
+        """Return all descendants of failed nodes in stable topological order."""
+        failed_set = set(failed)
+        if not failed_set <= self._nodes.keys():
+            raise GoalGraphError("failed state contains a node outside this goal graph")
+        blocked = set(failed_set)
+        changed = True
+        while changed:
+            changed = False
+            for node in self._nodes.values():
+                if node.node_id not in blocked and set(node.depends_on) & blocked:
+                    blocked.add(node.node_id)
+                    changed = True
+        return tuple(node_id for node_id in self._topological_order if node_id in blocked - failed_set)
+
     def _sort(self) -> list[str]:
         indegree = {node_id: len(node.depends_on) for node_id, node in self._nodes.items()}
         dependents: dict[str, list[str]] = {node_id: [] for node_id in self._nodes}
