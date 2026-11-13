@@ -92,7 +92,7 @@ async def test_orchestrator_continues_independent_branch_after_tool_failure(runt
     )
 
     async def build_plan(_task_id):
-        return plan, "dependency_test", "none", [], False, []
+        return plan, "dependency_test", "none", [], False, [], [], False, [], False
 
     async def fail_tool(_arguments, _ctx):
         raise RuntimeError("simulated tool failure")
