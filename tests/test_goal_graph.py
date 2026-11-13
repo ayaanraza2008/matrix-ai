@@ -79,3 +79,15 @@ def test_goal_graph_rejects_string_as_dependency_sequence_and_invalid_ids():
         GoalGraph([GoalNode("a", (" ",))])
     with pytest.raises(GoalGraphError, match="node IDs"):
         GoalGraph([GoalNode("   ")])
+
+
+def test_blocked_nodes_returns_transitive_descendants_in_topological_order():
+    graph = GoalGraph([
+        GoalNode("publish", ("review",)),
+        GoalNode("review", ("render",)),
+        GoalNode("render"),
+        GoalNode("independent"),
+    ])
+    assert graph.blocked_nodes(["render"]) == ("review", "publish")
+    with pytest.raises(GoalGraphError, match="outside"):
+        graph.blocked_nodes(["missing"])
