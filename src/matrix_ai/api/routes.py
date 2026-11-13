@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..access import RemoteAccessManager
@@ -38,7 +38,7 @@ from ..core.models import (
     VisionStatusView,
     VoiceStatusView,
 )
-from ..errors import AuthenticationError, NotFoundError
+from ..errors import AuthenticationError, ModelUnavailable, NotFoundError\nfrom ..core.goal_verifier import review_goal_criteria
 from ..models.planner import PROMPT_VERSION
 from ..runtime import MatrixRuntime
 
@@ -119,6 +119,10 @@ class GoalCreateBody(BaseModel):
 
 class ApprovalDecisionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+class GoalCriteriaConfirmationBody(BaseModel):
+    outcome: str = Field(pattern="^(met|not_met)$")
+    reason: str = Field(min_length=8, max_length=500)
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +348,70 @@ async def cancel_goal(
     if goal["task_id"] and goal["state"] in {"queued", "running"}:
         await runtime.orchestrator.cancel(goal["task_id"])
     return runtime.store.get_goal(goal_id)
+
+@router.post("/goals/{goal_id}/evaluate", tags=["goals"])
+async def evaluate_goal_criteria(
+    goal_id: str, principal: PrincipalDep, runtime: RuntimeDep
+) -> dict[str, Any]:
+    """Create a model-assisted review candidate; never mark a goal verified."""
+    goal = runtime.store.get_goal(goal_id)
+    if goal["owner_id"] != principal.user_id:
+        raise NotFoundError(f"goal {goal_id} not found")
+    if goal["state"] != "awaiting_verification" or not goal["task_id"]:
+        raise HTTPException(status_code=409, detail="goal must finish successfully before criteria evaluation")
+    task = runtime.store.get_task_row(goal["task_id"])
+    try:
+        task_evidence = json.loads(task["evidence_json"] or "{}")
+    except (TypeError, ValueError):
+        task_evidence = {}
+    try:
+        review = await review_goal_criteria(
+            runtime.models,
+            title=goal["title"],
+            success_criteria=goal["success_criteria"],
+            result_summary=goal["result_summary"] or "",
+            task_evidence=task_evidence,
+        )
+    except ModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail="a configured model is required for criteria review") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    runtime.store.save_goal_criteria_review(goal_id, review.model_dump(mode="json"))
+    runtime.store.audit(
+        "goal.criteria_reviewed",
+        actor="model",
+        task_id=goal["task_id"],
+        status=review.outcome,
+        detail={"goal_id": goal_id, "confidence": review.confidence},
+    )
+    return runtime.store.get_goal(goal_id)
+
+
+@router.post("/goals/{goal_id}/confirm", tags=["goals"])
+async def confirm_goal_criteria(
+    goal_id: str, body: GoalCriteriaConfirmationBody,
+    principal: PrincipalDep, runtime: RuntimeDep,
+) -> dict[str, Any]:
+    """Record the authenticated owner's explicit final criteria decision."""
+    try:
+        goal = runtime.store.confirm_goal_criteria(
+            goal_id,
+            owner_id=principal.user_id,
+            outcome=body.outcome,
+            reason=body.reason,
+        )
+    except NotFoundError:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runtime.store.audit(
+        "goal.criteria_owner_confirmed",
+        actor=principal.user_id,
+        task_id=goal["task_id"],
+        status=body.outcome,
+        detail={"goal_id": goal_id, "reason": body.reason[:500]},
+    )
+    return goal
 
 
 # ---------------------------------------------------------------------------
