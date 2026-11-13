@@ -169,6 +169,21 @@ class Store:
         )
         return task_id
 
+    def get_system_flag(self, name: str, default: str | None = None) -> str | None:
+        """Read a small durable runtime cursor or setting."""
+        row = self.db.query_one("SELECT value FROM system_flags WHERE name=?", (name,))
+        return str(row["value"]) if row is not None else default
+
+    def set_system_flag(self, name: str, value: str) -> None:
+        """Persist a small durable runtime cursor or setting."""
+        if not name or len(name) > 128 or len(value) > 512:
+            raise ValueError("system flag name and value must be non-empty and bounded")
+        self.db.execute(
+            "INSERT INTO system_flags(name, value, updated_at) VALUES(?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (name, value, iso()),
+        )
+
     def claim_idempotency(self, scope: str, key: str) -> bool:
         """Atomically claim an external delivery ID so webhook retries do not duplicate tasks."""
         if not scope or not key or len(scope) > 100 or len(key) > 512:
