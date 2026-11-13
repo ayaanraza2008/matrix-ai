@@ -117,3 +117,41 @@ def test_redirect_is_returned_not_followed(monkeypatch):
     assert status == 302
     assert headers["location"] == "https://127.0.0.1/"
     assert body == b""
+
+
+
+def test_resolver_rejects_mixed_public_and_private_answers():
+    infos = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443)),
+    ]
+    with pytest.raises(PermissionDenied):
+        web_tools.resolve_and_validate("https://example.com", lambda *a, **k: infos)
+
+
+def test_response_read_is_bounded_to_limit_plus_one(monkeypatch):
+    fake = FakeSocket("8.8.8.8")
+    monkeypatch.setattr(web_tools.socket, "socket", Mock(return_value=fake))
+    _, _, body = web_tools._fetch_from_pinned_address(
+        "http://example.com/", "8.8.8.8", max_bytes=3
+    )
+    assert body == b"hell"
+    assert len(body) <= 4
+
+
+def test_fetch_pinned_tries_next_prevalidated_address(monkeypatch):
+    class UnreachableSocket(FakeSocket):
+        def connect(self, target):
+            raise OSError("simulated connect failure")
+
+    first = UnreachableSocket("8.8.8.8")
+    second = FakeSocket("1.1.1.1")
+    socket_factory = Mock(side_effect=[first, second])
+    monkeypatch.setattr(web_tools.socket, "socket", socket_factory)
+    status, _, body, connected = web_tools.fetch_pinned(
+        "http://example.com/", ["8.8.8.8", "1.1.1.1"]
+    )
+    assert status == 200
+    assert body == b"hello"
+    assert connected == "1.1.1.1"
+    assert socket_factory.call_count == 2
