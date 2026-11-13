@@ -31,6 +31,7 @@ from .social_tools import (
     InstagramPublishImageTool,
     InstagramReplyCommentTool,
     LinkedInCreatePostTool,
+    WhatsAppSendTemplateTool,
     WhatsAppSendTextTool,
 )
 from .system_tools import SystemStatusTool
@@ -104,6 +105,7 @@ def build_registry() -> ToolRegistry:
             InstagramPublishImageTool(),
             InstagramReplyCommentTool(),
             WhatsAppSendTextTool(),
+            WhatsAppSendTemplateTool(),
             GitHubWhoAmITool(),
             GitHubGetRepositoryTool(),
             GitHubListIssuesTool(),
