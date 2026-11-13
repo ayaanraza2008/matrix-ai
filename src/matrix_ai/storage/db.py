@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS goal_graphs (
     title TEXT NOT NULL,
     state TEXT NOT NULL DEFAULT 'queued',
     deadline TEXT,
+    last_notified_state TEXT,
+    notification_attempted_state TEXT,
+    notification_attempted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     finished_at TEXT
@@ -322,6 +325,12 @@ class Database:
                     self._conn.execute(
                         "ALTER TABLE goal_graph_nodes ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
                     )
+                graph_columns = {
+                    row[1] for row in self._conn.execute("PRAGMA table_info(goal_graphs)").fetchall()
+                }
+                for name in ("last_notified_state", "notification_attempted_state", "notification_attempted_at"):
+                    if name not in graph_columns:
+                        self._conn.execute(f"ALTER TABLE goal_graphs ADD COLUMN {name} TEXT")
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def _ensure_fts(self) -> None:
