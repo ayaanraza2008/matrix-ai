@@ -519,7 +519,7 @@ class MatrixConfig:
             approval_ttl_seconds=_env_int("MATRIX_APPROVAL_TTL_SECONDS", 300),
             rate_limit_per_minute=_env_int("MATRIX_RATE_LIMIT_PER_MINUTE", 240),
             additional_scopes=tuple(part.strip() for part in (_env("MATRIX_EXTRA_SCOPES", "") or "").split(";") if part.strip()),
-            allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", True),
+            allow_web_fetch=_env_bool("MATRIX_ALLOW_WEB_FETCH", False),
             file_roots=roots,
             allowed_apps=apps,
             addon_mcp_servers=addon_servers,
