@@ -132,6 +132,12 @@ class Store:
         ]
 
     # -- tasks ------------------------------------------------------------
+    def task_for_source_update(self, source_update_id: str) -> str | None:
+        row = self.db.query_one(
+            "SELECT id FROM tasks WHERE source_update_id=?", (source_update_id,)
+        )
+        return str(row["id"]) if row is not None else None
+
     def create_task(
         self,
         *,
@@ -146,11 +152,9 @@ class Store:
         source_update_id: str | None = None,
     ) -> str:
         if source_update_id:
-            existing = self.db.query_one(
-                "SELECT id FROM tasks WHERE source_update_id=?", (source_update_id,)
-            )
+            existing = self.task_for_source_update(source_update_id)
             if existing is not None:
-                return str(existing["id"])
+                return existing
         task_id = uuid.uuid4().hex
         now = iso()
         deadline = iso(utcnow() + timedelta(seconds=deadline_seconds)) if deadline_seconds else None
