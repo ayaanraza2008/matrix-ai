@@ -371,6 +371,38 @@ class Scheduler:
             log.warning("webhook health notification failed: %s", type(exc).__name__)
             return False
 
+    def maybe_create_daily_digest(self) -> bool:
+        """Create one local daily summary after 09:00 in the configured timezone."""
+        preferences = self.store.notification_preferences()
+        if not preferences.get("daily_digest", True):
+            return False
+        local_now = datetime.now(ZoneInfo(self.config.notification_timezone))
+        if local_now.hour < 9:
+            return False
+        digest_date = local_now.date().isoformat()
+        if self.store.get_flag("notification_daily_digest_date") == digest_date:
+            return False
+        tasks = self.store.list_tasks(limit=200)
+        counts: dict[str, int] = {}
+        for task in tasks:
+            state = str(task.get("state") or "UNKNOWN").upper()
+            counts[state] = counts.get(state, 0) + 1
+        active_states = {
+            "RECEIVED", "UNDERSTAND", "POLICY_CHECK", "PLAN", "TOOL_SELECTION",
+            "EXECUTE", "VERIFY", "RETRY_SAFE", "WAITING_FOR_USER", "APPROVAL_REQUIRED",
+        }
+        running = sum(count for state, count in counts.items() if state in active_states)
+        message = (
+            f"Recent tasks: {len(tasks)}; running or awaiting action: {running}; "
+            f"completed: {counts.get('COMPLETE', 0)}; failed: {counts.get('FAILED', 0)}; "
+            f"emergency stop: {'active' if self.store.emergency_stop else 'off'}"
+        )
+        notification_id = self.store.create_notification(
+            title="Your MATRIX daily summary", message=message, severity="info", event_type="daily.digest"
+        )
+        self.store.set_flag("notification_daily_digest_date", digest_date)
+        return bool(notification_id)
+
     async def background_loop(self, interval_seconds: float = 60.0) -> None:
         while True:
             try:
