@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 
 def utcnow() -> datetime:
@@ -432,6 +432,19 @@ class JobUpdate(BaseModel):
     interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
     autonomy_level: int | None = Field(default=None, ge=0, le=2)
     enabled: bool | None = None
+
+    @field_validator("name", "prompt")
+    @classmethod
+    def _reject_blank_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _require_non_null_update(self):
+        if not self.model_fields_set or any(getattr(self, name) is None for name in self.model_fields_set):
+            raise ValueError("at least one non-null field must be supplied")
+        return self
 
 
 class JobCreate(BaseModel):
