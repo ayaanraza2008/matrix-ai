@@ -76,3 +76,15 @@ These changes were subsequently split into the restart-safe Telegram cursor work
 - PR #67 is a temporary review candidate created from an older stacked branch; it is not a replacement for PR #65 and is not a release candidate while merge conflicts remain.
 
 The current release remains **NOT READY**. Required owner-environment evidence still includes real private Telegram pairing/chat/stop/restart/replay, Windows startup and recovery, microphone/speaker voice, Tailscale ACL isolation, physical Android pairing/network checks and signing, plus any provider OAuth/webhook smoke tests. Keep all high/critical writes behind exact owner approval and retain the emergency stop.
+
+## Telegram restart-safety integration (2026-11-13)
+
+The preferred PR #65 branch now also contains the durable Telegram update handling from PR #60, adapted to the current schema-v6 idempotency table rather than copying PR #60's older schema-v4 migration:
+
+- Restore the Telegram polling offset from SQLite at startup; do not drain queued owner messages.
+- Persist the update watermark only after successful handling.
+- Use the existing durable idempotency table keyed by `telegram.update` + Telegram `update_id` to prevent duplicate task creation.
+- Check for an existing idempotent task before the emergency-stop gate, so a replay of a task already created before a crash returns the original task ID without creating new work.
+- Add regression tests for cursor restoration, success-only offset persistence, failed-update retry, and duplicate replay while emergency stop is active.
+
+This is an automated implementation on PR #65's branch, not yet release evidence. Fresh CI on the updated PR #65 head and real bot restart/replay acceptance remain required.
