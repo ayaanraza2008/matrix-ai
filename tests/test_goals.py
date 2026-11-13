@@ -368,3 +368,125 @@ async def test_completed_goal_gets_advisory_review_automatically(runtime, monkey
     assert goal["criteria_status"] == "candidate_met"
     assert goal["state"] == "awaiting_verification"
     assert goal["criteria_confirmed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_goal_graph_dispatches_roots_and_unlocks_dependents_after_owner_confirmation(client, runtime, monkeypatch):
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    response = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Prepare then publish",
+            "nodes": [
+                {"node_id": "publish", "title": "Publish", "success_criteria": "The post is published.", "depends_on": ["prepare"]},
+                {"node_id": "prepare", "title": "Prepare", "success_criteria": "The draft is prepared."},
+                {"node_id": "independent", "title": "Independent check", "success_criteria": "The check is complete."},
+            ],
+        },
+    )
+    assert response.status_code == 202, response.text
+    graph = response.json()
+    by_id = {node["node_id"]: node for node in graph["nodes"]}
+    assert by_id["prepare"]["goal"]["task_id"]
+    assert by_id["independent"]["goal"]["task_id"]
+    assert by_id["publish"]["goal"]["task_id"] is None
+    assert graph["state"] == "running"
+
+    for node_id in ("prepare", "independent"):
+        goal_id = by_id[node_id]["goal_id"]
+        task_id = by_id[node_id]["goal"]["task_id"]
+        runtime.store.update_task(
+            task_id,
+            state="COMPLETE",
+            summary=f"{node_id} finished",
+            evidence_json='{"verified":true,"steps":[{"verified":true}]}',
+        )
+        runtime.store.sync_goal_for_task(task_id)
+        confirmed = await client.post(
+            f"/api/goals/{goal_id}/confirm",
+            json={"outcome": "met", "reason": f"I reviewed the {node_id} evidence."},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+
+    latest = await client.get(f"/api/goal-graphs/{graph['id']}")
+    assert latest.status_code == 200, latest.text
+    refreshed = {node["node_id"]: node for node in latest.json()["nodes"]}
+    assert refreshed["prepare"]["goal"]["state"] == "verified"
+    assert refreshed["independent"]["goal"]["state"] == "verified"
+    assert refreshed["publish"]["goal"]["task_id"]
+    assert refreshed["publish"]["goal"]["state"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_goal_graph_rejects_cycles_and_hides_other_owners(client, runtime):
+    invalid = await client.post(
+        "/api/goal-graphs",
+        json={
+            "title": "Cycle",
+            "nodes": [
+                {"node_id": "a", "title": "A", "success_criteria": "A done", "depends_on": ["b"]},
+                {"node_id": "b", "title": "B", "success_criteria": "B done", "depends_on": ["a"]},
+            ],
+        },
+    )
+    assert invalid.status_code == 422
+
+    graph_id = runtime.store.create_goal_graph(
+        owner_id="another-user",
+        title="Private graph",
+        nodes=[{"node_id": "one", "title": "Private", "success_criteria": "Done", "depends_on": []}],
+    )
+    hidden = await client.get(f"/api/goal-graphs/{graph_id}")
+    assert hidden.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_goal_graph_failure_blocks_only_descendants_and_runs_independent_nodes(runtime, monkeypatch):
+    async def no_enqueue(_task_id):
+        return None
+
+    monkeypatch.setattr(runtime.orchestrator, "enqueue", no_enqueue)
+    graph_id = runtime.store.create_goal_graph(
+        owner_id="owner",
+        title="Failure isolation",
+        nodes=[
+            {"node_id": "root", "title": "Root", "success_criteria": "Root succeeds", "depends_on": []},
+            {"node_id": "dependent", "title": "Dependent", "success_criteria": "Depends on root", "depends_on": ["root"]},
+            {"node_id": "independent", "title": "Independent", "success_criteria": "Independent succeeds", "depends_on": []},
+        ],
+    )
+    graph = runtime.store.get_goal_graph(graph_id)
+    by_id = {node["node_id"]: node for node in graph["nodes"]}
+    runtime.store.db.execute(
+        "UPDATE goals SET state='failed', result_summary='root failed' WHERE id=?",
+        (by_id["root"]["goal_id"],),
+    )
+
+    await runtime.goal_supervisor.tick()
+    refreshed = {node["node_id"]: node for node in runtime.store.get_goal_graph(graph_id)["nodes"]}
+    assert refreshed["dependent"]["goal"]["state"] == "blocked"
+    assert refreshed["independent"]["goal"]["state"] == "running"
+    assert refreshed["independent"]["goal"]["task_id"]
+
+
+def test_schema_v4_migrates_goal_graph_tables(tmp_path):
+    from matrix_ai.storage.db import Database
+
+    path = tmp_path / "schema-v4.sqlite"
+    initial = Database(path)
+    initial.execute("DROP TABLE goal_graph_nodes")
+    initial.execute("DROP TABLE goal_graphs")
+    initial.execute("PRAGMA user_version=4")
+    initial.close()
+
+    upgraded = Database(path)
+    tables = {
+        row["name"]
+        for row in upgraded.query("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert {"goal_graphs", "goal_graph_nodes"} <= tables
+    assert upgraded.integrity_check() == "ok"
+    upgraded.close()
