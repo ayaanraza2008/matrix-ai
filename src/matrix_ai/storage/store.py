@@ -485,7 +485,7 @@ class Store:
             raise NotFoundError(f"goal {goal_id} not found")
         if goal["state"] != "awaiting_verification":
             raise ValueError("only a fully completed goal can be owner-confirmed")
-                if outcome not in {"met", "not_met"}:
+        if outcome not in {"met", "not_met"}:
             raise ValueError("outcome must be met or not_met")
         if len(reason.strip()) < 8:
             raise ValueError("confirmation reason must contain at least 8 characters")
