@@ -15,10 +15,10 @@ from typing import Any, Literal
 import httpx
 from pydantic import Field
 
-from .base import StrictModel, Tool, ToolContext
 from ..config import MatrixConfig
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError
+from .base import StrictModel, Tool, ToolContext
 
 
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
