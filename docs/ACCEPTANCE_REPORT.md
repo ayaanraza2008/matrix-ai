@@ -13,7 +13,7 @@
 
 - Commit `29ab5477aef9690d49c82ce77a287b6aab08ab01` removes the obsolete FreeLLMAPI implementation from PR #82, updates the provider-boundary test file, and corrects the earlier future-dated report snapshot.
 - PR #82 remains a **draft** and is **not merged**.
-- At the time of this GitHub review, GitHub's compare API reports the PR #82 branch as **10 commits ahead and 0 behind** current remote `main`. The local handoff's `git rev-list` reported 2 commits ahead. These counts do not agree; refresh local remote-tracking refs and reconcile the discrepancy before merging. Do not use the local count as the remote comparison result.
+- GitHub's compare API reports the PR #82 branch ahead of current remote `main` with **0 commits behind**. The API's ahead-count is materially larger than the local handoff's `git rev-list` report of 2 commits ahead. This discrepancy must be reconciled by refreshing local remote-tracking refs and checking the exact local and remote SHAs before merging; do not assume either count without that comparison.
 - No GitHub Actions workflow run was returned for handoff commit `29ab547`. The local report's CI result on `67b75ef` is historical and must not be attributed to this commit.
 - PR #84 contains the separate FreeLLMAPI implementation. Its exact-head run [#43485194295](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43485194295) completed **7/7 jobs successfully**. PR #84 is ready for human review but is not merged.
 
