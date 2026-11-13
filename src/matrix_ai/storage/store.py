@@ -58,6 +58,7 @@ TASK_COLUMNS = {
     "kind",
     "device_id",
     "goal_id",
+    "source_update_id",
 }
 
 
