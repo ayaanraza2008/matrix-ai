@@ -1,128 +1,56 @@
 # MATRIX release status — 2026-11-13
 
-## Current engineering state
+## Authoritative repository state
 
-MATRIX has gained several real implementation layers, but it is **not yet a production release**. Changes are stacked as draft pull requests and have not been merged to the default branch. A green CI run proves repository tests/build checks, not live provider access or operation on the owner's Windows/Android devices.
+**Production status: NOT CERTIFIED.** The integrated repository candidate is merged to `main`, and exact-head CI passed. This is a repository/CI milestone, not proof of deployment or live operation on the owner's Windows PC, Telegram account, Android handset or provider accounts.
 
-## Feature and validation matrix
+- Integrated release PR: [#72](https://github.com/ayaanraza2008/matrix-ai/pull/72) — merged.
+- Merge commit: `f472e0e9f164c0f15bfc2a72b3288f073109f704`.
+- Exact candidate CI: [workflow run #43424775584](https://github.com/ayaanraza2008/matrix-ai/actions/runs/43424775584).
+- Exact-head jobs: Windows Python 3.11/3.12; Ubuntu Python 3.11/3.12; Android debug + unsigned release assembly; Astryx frontend; blocking pip-audit; CycloneDX SBOM generation/upload. All seven jobs passed.
+- PRs #68 and #69 were superseded and closed; PR #72 is the integrated source of truth. Historical candidate references earlier in this document are not current merge instructions.
+- PR #10 remains an optional, conflicted Windows SAPI/browser push-to-talk follow-up. It is not required for the integrated core and must not be merged without reconciliation and fresh CI. Core optional voice adapters are already in main.
+- PR #36 (NVIDIA PersonaPlex/Nemotron setup documentation/scripts) is merged. It does not download model weights, provision a GPU, or activate a runtime adapter.
 
-| Area | Implementation in current PR stack | Automated validation | Live acceptance |
-|---|---|---|---|
-| Task dependency execution | Planner preserves `depends_on`; executor gates on prerequisites and blocks descendants after failure | PR #29: all 6 CI jobs passed | Not yet |
-| Persistent goal DAGs | Persistent nodes, bounded dispatch, recovery, verification state | PR #31: all 6 CI jobs passed | Not yet |
-| Goal controls | Owner pause/resume/cancel; paused goals stay paused after restart | PR #35: all 6 CI jobs passed | Not yet |
-| YouTube | Official OAuth; channel/video/comment reads; approval-gated comment replies, metadata updates, private uploads and scheduling | PR #33: all 6 CI jobs passed | OAuth consent and channel smoke test required |
-| GitHub | Account/repository/issues/PR reads; approval-gated issue creation/comments | PR #35: all 6 CI jobs passed | Fine-grained token and repository smoke test required |
-| Weather | Free Open-Meteo current conditions and 1–7 day forecast | PR #35: all 6 CI jobs passed | No key; network availability still applies |
-| LinkedIn | Approval-gated text posts through official Posts API | PR #38: all 6 CI jobs passed | Developer app permission and token required |
-| Instagram | Comment listing/replies and approval-gated image publishing | PR #38 and #39: all 6 CI jobs passed | Professional account, Meta app permissions, token and public image URL required |
-| WhatsApp outbound | Approval-gated text and approved template messages | PR #38: all 6 CI jobs passed; PR #41 latest-head CI pending | Business Cloud API token, phone-number ID, opt-in and approved templates required |
-| WhatsApp inbound | HMAC-signed webhook, GET verification, sender allowlist, message-ID deduplication and ordinary owner-task intake | PR #40: all 6 CI jobs passed | Public HTTPS endpoint and Meta app configuration required |
-| Telegram | Private two-way text bot, bounded polling and voice-note input | Included in PR #31 CI | Bot token and owner chat ID required |
-| Local voice | Self-hosted Whisper/Piper path | Earlier PR #14/PR #31 CI coverage | Real microphone/speaker, driver, model download and interruption tests required |
-| Android | Debug and release APK assembly | CI Android build | Physical device, pairing, signing and permission acceptance required |
+## Integrated capabilities
 
-## Approval and permission model
+- Private Telegram chat bridge with durable update cursor, idempotent task creation, task recovery/result reporting, rate limits and emergency-stop handling.
+- Persistent goal execution, dependency-aware scheduling, owner controls and explicit owner confirmation for goal completion.
+- Private Tailscale Serve and Windows current-user startup helpers.
+- Android companion scaffold with Android Keystore token storage and strict release network policy.
+- Optional local speech adapters, voice session controls and browser voice experience.
+- GitHub, YouTube, weather, LinkedIn, Instagram and WhatsApp integration adapters, guarded by scopes and action approvals.
+- Authenticated notification inbox, owner preferences, daily digest and optional signed HTTPS health webhook.
+- Blocking dependency audit, SBOM publication and multi-platform Python CI.
 
-- Read-only scopes are enabled selectively by default.
-- Provider writes are non-idempotent and require exact owner approval; high-risk/critical writes are not blindly retried.
-- Optional write scopes are explicitly configured through `MATRIX_EXTRA_SCOPES`.
-- Provider tokens are read from local environment or the OS credential manager; do not paste tokens into chat or commit them.
-- Incoming WhatsApp messages are accepted only from `MATRIX_WHATSAPP_ALLOWED_SENDERS`, authenticated using the Meta app secret, and routed through the ordinary task policy. They do not auto-approve actions.
+Capabilities remain conditional on configuration. A provider adapter in the repository does not mean an account is connected or live writes have been tested.
 
-## Still-open production blockers
+## Remaining production certification gates
 
-1. Merge the stacked draft PRs in dependency order only after final CI and code review.
-2. Complete owner-controlled OAuth/token setup and live smoke tests for YouTube, GitHub, LinkedIn, Instagram and WhatsApp.
-3. Deploy WhatsApp inbound webhook behind a deliberately configured public HTTPS endpoint. A private Tailscale-only service cannot receive Meta callbacks.
-4. Test Telegram text and voice notes with the real bot, private chat and audio devices.
-5. Test Windows microphone capture, Whisper transcription, Piper playback, cancellation, device sleep/restart and low-memory operation.
-6. Install and test the Android app on physical devices; configure production signing and secure backup/recovery.
-7. Complete installer, upgrade/rollback, backup/restore, logs/telemetry, incident recovery and production security review.
-8. Implement or explicitly defer remaining platform capabilities: Instagram Reels/Stories/DMs, LinkedIn media uploads/analytics, WhatsApp media/interactive messages and inbound media handling, YouTube Analytics/playlists/thumbnails/livestreams.
-9. Complete persistent multi-process goal leases and bounded goal-level replanning/recovery. Current goal supervisor does not claim unrestricted self-modification or unlimited autonomous recovery.
-10. Decide and document data-at-rest encryption, retention and deletion. Local SQLite content relies on host OS disk/account protections unless separately encrypted.
+These require the owner's target devices, accounts, credentials or operational decisions; repository CI cannot complete them by itself.
 
-## Cost and provider constraints
+1. **Windows installation and recovery:** install from the intended environment; verify current-user sign-in startup, process restart, sleep/wake recovery, upgrade and rollback.
+2. **Private remote access:** verify Tailscale Serve from an enrolled remote device, review restrictive tailnet ACLs, test revocation, and confirm no Funnel/public port forwarding.
+3. **Telegram:** configure a fresh bot token and numeric private owner chat ID locally; verify Start, private chat, task results, voice-note path, restart/replay, rate limiting and emergency stop. Never put tokens in Git or chat.
+4. **Local audio:** install/select an STT/TTS engine and verify microphone capture, English/Hindi recognition as needed, speaker output, interruption, cancellation, latency and RAM on the actual PC.
+5. **Android:** install the debug build on a physical handset; verify pairing, reconnect, clear-local-session and server-side revocation over HTTPS; configure protected signing and produce an owner-signed release APK.
+6. **Provider accounts:** connect least-privilege GitHub/Google/Meta/LinkedIn credentials and run read-only smoke tests first. Test each write only with explicit owner approval and a harmless target. WhatsApp inbound additionally requires a public HTTPS callback, HMAC secret and sender allowlist.
+7. **Operations:** rehearse backup/restore, upgrade/rollback, audit retention, incident recovery and emergency-stop recovery.
+8. **Security review:** independently review the merged code and residual risks, especially DNS rebinding/TOCTOU in public web fetching, host compromise, token storage and provider scopes.
 
-The core is free-first and can use local models, but “completely free” cannot be guaranteed. Provider API quotas, app reviews, business messaging, public HTTPS hosting/tunnels, cloud compute, telephony and storage can incur charges or require approval. WhatsApp business messaging pricing and Meta/LinkedIn/Google usage policies remain authoritative.
+## Known technical and product limits
+
+- Telegram update handling provides at-least-once processing with idempotent task creation; reply delivery and external provider side effects are not exactly-once.
+- The HTTP fetch SSRF defence validates DNS before requesting, but the HTTP client resolves the hostname again when connecting. DNS-rebinding/TOCTOU remains a documented residual risk; do not describe this as fully mitigated.
+- Android release assembly produces an **unsigned** APK. It is not distributable until owner-controlled signing and device acceptance are complete.
+- MATRIX requires the host PC to be powered on, the Windows user signed in, network connected and the service running. Tailscale does not make a powered-off PC reachable.
+- HIGH/CRITICAL actions still require exact owner approval. Telegram cannot approve them, and MATRIX must not grant itself permissions or bypass emergency stop.
+- Social/media capabilities are limited to implemented provider APIs and scopes. Reels/Stories/DMs, LinkedIn media/analytics, WhatsApp media/interactive messages and other absent features are not implied.
+- PersonaPlex/Nemotron weights and production runtime are not installed by the setup documentation alone.
+- The optional PR #10 Windows SAPI/browser push-to-talk work remains a separate, non-blocking follow-up and is not merged.
 
 ## Release decision
 
-**Status: NOT READY FOR PRODUCTION.**
+**Repository integration: COMPLETE. Exact-head CI: PASS. Production certification: NOT COMPLETE.**
 
-CI-passing PRs are still draft and unmerged. No real personal accounts, live webhook, local microphone, Android handset or public production endpoint were connected or tested in this work session. Do not describe MATRIX as 100% autonomous or production-ready until the owner-environment acceptance gates above are evidenced.
-
-
-## Follow-up engineering changes (2026-11-13)
-
-The current consolidated branch adds two important correctness fixes after the previously recorded CI run:
-
-- Telegram startup no longer drains pending updates. Its last successfully handled update offset is persisted in SQLite, and a failed update retains the offset for retry. This avoids silently discarding a legitimate owner message during MATRIX restart.
-- Telegram delivery is currently **at-least-once**, not exactly-once. A crash after task creation but before cursor persistence may replay an update; task creation idempotency keyed to Telegram update ID is still required.
-- Goal model assessment is advisory only. Goals remain `awaiting_verification` until the authenticated owner submits `POST /api/goals/{goal_id}/confirm`; owner identity, timestamp, reason and decision are persisted in schema v6 and audited.
-- Regression tests and migration coverage were added for these paths.
-
-These changes were subsequently split into the restart-safe Telegram cursor work in PR #60 and consolidated into the current-main integration candidates. PR #65 is the preferred private Telegram / remote access / Android / voice foundation, but it remains a draft and is currently behind current `main`; PR #60 remains stacked on the YouTube integration branch. Neither should be treated as released until rebased, reviewed and tested on its exact final head. No live Telegram, device, OAuth or webhook acceptance is claimed.
-
-## Live integration snapshot (2026-11-13 09:55 UTC)
-
-- PR #61 (Vercel Skills rebased onto current main) is merged.
-- PR #66 (Engineering Coach session adapters) is merged.
-- PR #65 is the preferred foundation for private Telegram, Tailscale access, Android hardening, local voice and persistent goals. It is a draft, non-mergeable, and behind current main; the exact intervening main commits and overlapping files must be reconciled.
-- PR #60 adds persisted Telegram update offsets and replay idempotency, but is stacked on the YouTube integration branch rather than current main.
-- PR #58/#62 and #63 are older, non-mergeable integration candidates. Prefer the #65 line for the Telegram/Android foundation and port only independently reviewed missing changes from other branches.
-- PR #55/#64 contain notification inbox and signed webhook work on a separate stack. Do not assume webhook support is in PR #65; integrate it only after reviewing the exact diff and dependencies.
-- PR #67 is a temporary review candidate created from an older stacked branch; it is not a replacement for PR #65 and is not a release candidate while merge conflicts remain.
-
-The current release remains **NOT READY**. Required owner-environment evidence still includes real private Telegram pairing/chat/stop/restart/replay, Windows startup and recovery, microphone/speaker voice, Tailscale ACL isolation, physical Android pairing/network checks and signing, plus any provider OAuth/webhook smoke tests. Keep all high/critical writes behind exact owner approval and retain the emergency stop.
-
-## Telegram restart-safety integration (2026-11-13)
-
-The preferred PR #65 branch now also contains the durable Telegram update handling from PR #60, adapted to the current schema-v6 idempotency table rather than copying PR #60's older schema-v4 migration:
-
-- Restore the Telegram polling offset from SQLite at startup; do not drain queued owner messages.
-- Persist the update watermark only after successful handling.
-- Use the existing durable idempotency table keyed by `telegram.update` + Telegram `update_id` to prevent duplicate task creation.
-- Check for an existing idempotent task before the emergency-stop gate, so a replay of a task already created before a crash returns the original task ID without creating new work.
-- Add regression tests for cursor restoration, success-only offset persistence, failed-update retry, and duplicate replay while emergency stop is active.
-
-This is an automated implementation on PR #65's branch, not yet release evidence. Fresh CI on the updated PR #65 head and real bot restart/replay acceptance remain required.
-
-
-## Consolidated candidate update (2026-11-13 11:46 UTC)
-
-PR #68 is the current-main integration candidate for the capabilities listed above. Its latest changes restore and register the GitHub, Open-Meteo, YouTube, LinkedIn, Instagram and WhatsApp tool modules, and add Telegram task idempotency/recovery before rate limiting. The exact current head is validated only by the CI run attached to that commit; older stacked-PR CI results are not substitutes.
-
-The consolidated candidate is still a **draft and unmerged**. The latest CI run must pass on its final head, then receive independent review. This document's earlier PR #65/#60 references describe historical branch topology, not the current merge target. The web-fetch SSRF control validates DNS answers but the HTTP client resolves the hostname again for the TCP connection; a DNS-rebinding/TOCTOU gap remains documented and is not claimed as fully mitigated.
-
-No owner-host, real Telegram bot, OAuth account, public WhatsApp webhook, microphone/speaker, or physical Android device acceptance has been performed in this session. Android release signing, installer/upgrade/rollback, backup/restore and production operations evidence remain release gates.
-
-
-## Authoritative main snapshot (2026-11-13 12:30 UTC)
-
-This section supersedes the earlier PR #65/#68/#69 stacked-branch snapshots above.
-
-- Current `main`: `03ae2b3b67ce114871f68b733e1b5f9ef1389259`.
-- Integrated release candidate PR #72 was squash-merged as `f472e0e9f164c0f15bfc2a72b3288f073109f704`.
-- The merged main tree is identical to the exact candidate tree validated by GitHub Actions run #43424775584.
-- Exact-head validation passed: Windows and Ubuntu on Python 3.11 and 3.12 (lint, secret scan, full tests, byte-compile, CLI smoke); Android debug and unsigned release assemble; Astryx frontend build; blocking pip-audit; CycloneDX SBOM generation and upload.
-- The dependency refresh is included: httpx 0.28.1+, psutil 7.2.2+, Playwright 1.65.0+, pytest-asyncio 1.4.1.post1+, Ruff 0.17.4+, tzdata 2024.1+, checkout v7 and setup-python v7.
-- PR #36 was squash-merged as `03ae2b3b67ce114871f68b733e1b5f9ef1389259`. It adds isolated setup scripts and documentation for NVIDIA PersonaPlex and Nemotron. It does not download model weights, provision a GPU, or provide a production runtime adapter; do not claim either model is installed or active.
-- PR #10 remains open as an optional Windows SAPI/browser push-to-talk follow-up. It has merge conflicts against current main and is not part of the integrated release.
-
-### Current production certification gates
-
-The repository implementation and CI are integrated, but production certification is **not complete** until the owner environment provides evidence for:
-
-1. Windows target-PC installation, sign-in startup, restart/recovery, upgrade and rollback.
-2. Private Tailscale Serve access with verified ACL isolation; no public Funnel or port forwarding.
-3. Fresh owner-controlled Telegram credentials, owner pairing, live send/receive, restart/replay and emergency-stop acceptance.
-4. Local microphone/speaker acceptance and confirmation that a speech engine is installed and selected.
-5. Physical Android pairing, token revocation/session clearing, network-security checks, and owner-signed release APK.
-6. Provider OAuth and live GitHub/YouTube/LinkedIn/Instagram/WhatsApp account/webhook smoke tests with least-privilege scopes.
-7. Backup/restore, audit-log retention, monitoring and rollback rehearsal.
-
-High/critical provider writes remain behind exact owner approval; Telegram cannot approve them. Telegram task creation is idempotent by update ID, while external delivery and provider side effects remain at-least-once. The Android release APK remains unsigned and is not distributable. NVIDIA model weights/runtime integration remain uninstalled and require compatible GPU capacity, licensing review and target-machine validation.
-
-Historical references to PRs #65, #68, #69, #70 and #71 above describe superseded candidate branches; PR #72 is the merged integration source of truth.
+Do not advertise MATRIX as 100% autonomous or production-ready until the owner-environment gates above have reproducible evidence. Keep the emergency stop and exact-action approval requirements enabled throughout acceptance.
