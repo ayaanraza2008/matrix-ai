@@ -102,6 +102,37 @@ def test_install_uses_pinned_cli_and_never_shell_executes(tmp_path, monkeypatch)
     assert result["code_executed"] is False
 
 
+def test_update_uses_restricted_environment_and_shell_free_cli(tmp_path, monkeypatch):
+    manager = make_manager(tmp_path)
+    add_skill(manager, "python-testing", "python-testing", "Python pytest testing.")
+    monkeypatch.setattr(SkillsManager, "_node_ready", staticmethod(lambda: True))
+    node = tmp_path / ("node.exe" if __import__("os").name == "nt" else "node")
+    npx = tmp_path / ("npx.cmd" if __import__("os").name == "nt" else "npx")
+    node.touch()
+    npx.touch()
+    npx_cli = node.resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+    npx_cli.parent.mkdir(parents=True)
+    npx_cli.touch()
+    monkeypatch.setattr(
+        "matrix_ai.integrations.skills.shutil.which",
+        lambda name: str(node if name == "node" else npx),
+    )
+    monkeypatch.setenv("MATRIX_OWNER_TOKEN", "test-only-secret")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, "updated", "")
+
+    monkeypatch.setattr("matrix_ai.integrations.skills.subprocess.run", fake_run)
+    result = manager.update()
+    command, kwargs = calls[0]
+    assert result["status"] == "updated"
+    assert "skills@1.8.1" in command
+    assert kwargs["shell"] is False
+    assert "MATRIX_OWNER_TOKEN" not in kwargs["env"]
+
+
 @pytest.mark.asyncio
 async def test_prepare_for_task_uses_existing_skills_without_network_when_discovery_disabled(tmp_path, monkeypatch):
     manager = make_manager(tmp_path)
