@@ -242,6 +242,12 @@ class MatrixConfig:
 
     def public_dict(self) -> dict:
         """Safe-to-render configuration (never includes tokens/keys)."""
+        try:
+            from .integrations.youtube_auth import has_youtube_credentials
+
+            youtube_connected = has_youtube_credentials(self)
+        except Exception:  # noqa: BLE001 - public config rendering must fail closed
+            youtube_connected = False
         return {
             "home": str(self.home),
             "host": self.host,
@@ -271,7 +277,7 @@ class MatrixConfig:
                 "home_assistant": bool(self.home_assistant_url and self.home_assistant_token),
                 "telephony": bool(self.twilio_account_sid and self.twilio_auth_token),
                 "firebase_push": bool(self.firebase_credentials_path),
-                "youtube": bool(self.youtube_token_path and Path(self.youtube_token_path).is_file()),
+                "youtube": youtube_connected,
                 "linkedin": bool(self.linkedin_access_token and self.linkedin_author_urn),
                 "instagram": bool(self.instagram_access_token and self.instagram_user_id and self.meta_graph_version),
                 "whatsapp": bool(self.whatsapp_access_token and self.whatsapp_phone_number_id and self.meta_graph_version),
