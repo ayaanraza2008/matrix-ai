@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from matrix_ai.core.models import Plan, PlanStep
 from matrix_ai.models.base import ModelResponse
 
 
@@ -241,6 +242,16 @@ async def test_goal_is_verified_only_after_high_confidence_criteria_verdict(runt
         )
 
     monkeypatch.setattr(runtime.models, "complete", judge)
+
+    async def build_plan(_task_id):
+        return (
+            Plan(goal="Read current system status", steps=[
+                PlanStep(idx=0, title="Read system status", tool_name="system.get_status")
+            ]),
+            "system_status", "test", [], False, [],
+        )
+
+    monkeypatch.setattr(runtime.orchestrator, "_build_plan", build_plan)
     goal_id = runtime.store.create_goal(
         owner_id="owner",
         title="Check system status",
@@ -283,6 +294,16 @@ async def test_goal_criteria_verdict_with_missing_evidence_never_marks_success(r
         )
 
     monkeypatch.setattr(runtime.models, "complete", judge)
+
+    async def build_plan(_task_id):
+        return (
+            Plan(goal="Read current system status", steps=[
+                PlanStep(idx=0, title="Read system status", tool_name="system.get_status")
+            ]),
+            "system_status", "test", [], False, [],
+        )
+
+    monkeypatch.setattr(runtime.orchestrator, "_build_plan", build_plan)
     goal_id = runtime.store.create_goal(
         owner_id="owner",
         title="Check complete status",
