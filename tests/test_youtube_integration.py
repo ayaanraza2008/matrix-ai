@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from matrix_ai.config import MatrixConfig
+from matrix_ai.errors import ToolExecutionError
 from matrix_ai.integrations import adapters
 from matrix_ai.integrations.adapters import YouTubeIntegration
 from matrix_ai.integrations.base import STATUS_DENIED, STATUS_MISSING, STATUS_OK
-from matrix_ai.errors import ToolExecutionError
 
 
 @pytest.mark.asyncio
