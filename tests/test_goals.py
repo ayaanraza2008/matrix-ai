@@ -37,8 +37,9 @@ async def test_goal_api_persists_task_link_and_terminal_result(client):
     assert latest["finished_at"]
     assert latest["result_summary"]
     assert latest["verification_status"] == "task_steps_verified"
-    # Semantic success criteria are not yet evaluated; never infer them from task completion.
-    assert latest["criteria_status"] == "not_evaluated"
+    # The local model is disabled in the hermetic fixture, so no criteria pass is inferred.
+    assert latest["criteria_status"] == "criteria_verifier_unavailable"
+    assert latest["verification_status"] == "task_steps_verified"
     assert latest["evidence_json"]
 
 
@@ -218,3 +219,89 @@ def test_goal_cannot_attach_another_users_task(runtime):
     with pytest.raises(ValueError, match="owner does not match"):
         runtime.store.attach_goal_task(goal_id, task_id)
     assert runtime.store.get_goal(goal_id)["task_id"] is None
+
+@pytest.mark.asyncio
+async def test_goal_is_verified_only_after_high_confidence_criteria_verdict(runtime, monkeypatch):
+    import json
+    from matrix_ai.models.base import ModelResponse
+
+    async def judge(*_args, **_kwargs):
+        return ModelResponse(
+            text=json.dumps({
+                "decision": "met",
+                "confidence": 0.96,
+                "evidence": ["The system status tool returned CPU and memory status."],
+                "missing": [],
+                "summary": "The requested system status is supported by verified tool evidence.",
+            }),
+            provider="test",
+            model="criteria-judge",
+            latency_ms=1.0,
+        )
+
+    monkeypatch.setattr(runtime.models, "complete", judge)
+    goal_id = runtime.store.create_goal(
+        owner_id="owner",
+        title="Check system status",
+        success_criteria="Return the current system status with CPU and memory details.",
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="what is my system status?",
+        user_id="owner",
+        kind="goal",
+        goal_id=goal_id,
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+    await runtime.orchestrator.enqueue(task_id)
+    runner = runtime.orchestrator._runners[task_id]
+    await runner
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "verified"
+    assert goal["criteria_status"] == "criteria_verified"
+    assert goal["verification_status"] == "task_steps_verified"
+    evidence = json.loads(goal["evidence_json"])
+    assert evidence["task_evidence"]["verified"] is True
+    assert evidence["criteria_verification"]["confidence"] == 0.96
+
+
+@pytest.mark.asyncio
+async def test_goal_criteria_verdict_with_missing_evidence_never_marks_success(runtime, monkeypatch):
+    import json
+    from matrix_ai.models.base import ModelResponse
+
+    async def judge(*_args, **_kwargs):
+        return ModelResponse(
+            text=json.dumps({
+                "decision": "met",
+                "confidence": 0.99,
+                "evidence": ["Only CPU status was returned."],
+                "missing": ["Memory details are absent."],
+                "summary": "The full criteria are not supported.",
+            }),
+            provider="test",
+            model="criteria-judge",
+            latency_ms=1.0,
+        )
+
+    monkeypatch.setattr(runtime.models, "complete", judge)
+    goal_id = runtime.store.create_goal(
+        owner_id="owner",
+        title="Check complete status",
+        success_criteria="Return both CPU and memory details.",
+    )
+    task_id = runtime.orchestrator.create_task(
+        request="what is my system status?",
+        user_id="owner",
+        kind="goal",
+        goal_id=goal_id,
+    )
+    runtime.store.attach_goal_task(goal_id, task_id)
+    await runtime.orchestrator.enqueue(task_id)
+    runner = runtime.orchestrator._runners[task_id]
+    await runner
+
+    goal = runtime.store.get_goal(goal_id)
+    assert goal["state"] == "awaiting_verification"
+    assert goal["criteria_status"] == "criteria_uncertain"
+    assert json.loads(goal["evidence_json"])["criteria_verification"]["missing"]
