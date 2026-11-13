@@ -1,278 +1,153 @@
 from __future__ import annotations
 
-import pytest
-from matrix_ai.tools.youtube_tools import (
-    YouTubeGetChannelTool,
-    YouTubeListCommentsTool,
-    YouTubeUpdateVideoTool,
-    YouTubeUploadVideoInput,
-)
-from pydantic import ValidationError
+import json
 
+import pytest
+
+from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import Risk
 from matrix_ai.core.policy import PolicyEngine
-from matrix_ai.errors import ToolExecutionError
-from matrix_ai.integrations.youtube_auth import YOUTUBE_READ_SCOPE, build_youtube_service, connect_youtube
-from matrix_ai.tools.base import ToolContext
+from matrix_ai.errors import ConfigError, PermissionDenied, ToolExecutionError
+from matrix_ai.tools.registry import build_registry
+from matrix_ai.tools.youtube_tools import (
+    YouTubeClient,
+    YouTubeGetChannelTool,
+    YouTubeReplyCommentTool,
+    YouTubeUploadVideoTool,
+)
 
 
-class FakeRequest:
-    def __init__(self, payload):
-        self.payload = payload
+def test_youtube_tools_are_registered_and_writes_are_gated(tmp_path):
+    config = MatrixConfig(home=tmp_path)
+    registry = build_registry(config)
 
-    def execute(self):
-        return self.payload
+    assert {
+        "youtube.get_channel",
+        "youtube.list_videos",
+        "youtube.list_comments",
+        "youtube.reply_to_comment",
+        "youtube.upload_video",
+    } <= set(registry.names())
+    assert registry.get("youtube.get_channel").permission_scope == "youtube.read"
+    assert registry.get("youtube.get_channel").risk is Risk.LOW
+    assert registry.get("youtube.reply_to_comment").permission_scope == "youtube.write"
+    assert registry.get("youtube.reply_to_comment").risk is Risk.HIGH
+    assert registry.get("youtube.upload_video").risk is Risk.HIGH
 
-class FakeChannels:
-    def list(self, **kwargs):
-        assert kwargs["mine"] is True
-        return FakeRequest({
-            "items": [{
+
+def test_youtube_write_scope_is_opt_in_and_no_wildcards(tmp_path):
+    default = MatrixConfig(home=tmp_path / "default")
+    engine = PolicyEngine(default)
+    assert "youtube.read" in engine.task_scopes(None)
+    assert "youtube.write" not in engine.task_scopes(None)
+
+    enabled = MatrixConfig(home=tmp_path / "enabled", additional_scopes=("youtube.write",))
+    assert "youtube.write" in PolicyEngine(enabled).task_scopes(None)
+
+    with pytest.raises(ConfigError):
+        MatrixConfig(home=tmp_path / "wildcard", additional_scopes=("*",))
+
+
+def test_youtube_oauth_missing_credentials_fails_without_leaking_secrets(tmp_path):
+    client = YouTubeClient(MatrixConfig(home=tmp_path))
+    with pytest.raises(ToolExecutionError, match="MATRIX_GOOGLE_CLIENT_ID"):
+        client._token()
+
+
+def test_youtube_channel_tool_returns_minimal_channel_metadata(tmp_path):
+    class FakeClient:
+        def request(self, method, endpoint, *, params=None, payload=None):
+            assert method == "GET"
+            assert endpoint == "channels"
+            assert params["mine"] == "true"
+            return {"items": [{
                 "id": "channel-123",
-                "snippet": {"title": "HOWTIVO", "description": "Channel"},
-                "statistics": {"videoCount": "12", "viewCount": "340"},
+                "snippet": {"title": "Example channel", "description": "about"},
                 "contentDetails": {"relatedPlaylists": {"uploads": "uploads-123"}},
-            }]
-        })
+                "statistics": {"subscriberCount": "42", "videoCount": "9", "viewCount": "1000"},
+            }]}
 
-class FakeVideos:
-    def list(self, **kwargs):
-        return FakeRequest({
-            "items": [{
-                "id": kwargs["id"],
-                "snippet": {
-                    "channelId": "channel-123",
-                    "title": "Old title",
-                    "description": "Old description",
-                    "categoryId": "22",
-                    "tags": ["old"],
-                },
-                "status": {"privacyStatus": "private", "license": "youtube"},
-            }]
-        })
+    tool = YouTubeGetChannelTool(FakeClient())
+    output = tool.run_sync(tool.validate({}), None)
+    assert output == {
+        "channel_id": "channel-123",
+        "title": "Example channel",
+        "description": "about",
+        "uploads_playlist_id": "uploads-123",
+        "subscriber_count": "42",
+        "video_count": "9",
+        "view_count": "1000",
+    }
+    assert tool.verify(tool.validate({}), output).ok
 
-    def update(self, **kwargs):
-        return FakeRequest({
-            "id": kwargs["body"]["id"],
-            "snippet": kwargs["body"].get("snippet", {}),
-            "status": kwargs["body"].get("status", {}),
-        })
 
-class FakeComments:
-    def list(self, **kwargs):
-        assert kwargs["videoId"] == "abcdefghijk"
-        return FakeRequest({
-            "items": [{
-                "id": "thread-1",
-                "snippet": {
-                    "topLevelComment": {
-                        "id": "comment-1",
-                        "snippet": {
-                            "textDisplay": "Nice video",
-                            "authorDisplayName": "Viewer",
-                            "publishedAt": "2026-01-01T00:00:00Z",
-                            "likeCount": 2,
-                        },
-                    },
-                    "totalReplyCount": 0,
-                },
-            }]
-        })
+def test_youtube_reply_is_a_non_idempotent_high_risk_write(tmp_path):
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
 
-class FakeService:
-    def channels(self):
-        return FakeChannels()
+        def request(self, method, endpoint, *, params=None, payload=None):
+            self.calls.append((method, endpoint, params, payload))
+            return {"id": "reply-123"}
 
-    def commentThreads(self):
-        return FakeComments()
+    client = FakeClient()
+    tool = YouTubeReplyCommentTool(client)
+    args = tool.validate({"parent_id": "parent-123", "text": "Thanks for watching!"})
+    output = tool.run_sync(args, None)
 
-    def videos(self):
-        return FakeVideos()
+    assert tool.risk is Risk.HIGH
+    assert tool.idempotent is False
+    assert output["posted"] is True
+    assert client.calls[0][0:2] == ("POST", "comments")
+    assert client.calls[0][3]["snippet"]["parentId"] == "parent-123"
 
-def test_youtube_read_tools_use_authenticated_channel_service(runtime, monkeypatch):
-    import matrix_ai.tools.youtube_tools as youtube_tools
 
-    monkeypatch.setattr(youtube_tools, "build_youtube_service", lambda config, scope: FakeService())
-    tool = YouTubeGetChannelTool()
-    output = tool.run_sync(tool.validate({}), ToolContext(
-        task_id="test", config=runtime.config, store=runtime.store
-    ))
-    assert output["channel_id"] == "channel-123"
-    assert output["title"] == "HOWTIVO"
-    assert tool.verify({}, output).ok
-
-def test_youtube_comment_reader_returns_bounded_comment_metadata(runtime, monkeypatch):
-    import matrix_ai.tools.youtube_tools as youtube_tools
-
-    monkeypatch.setattr(youtube_tools, "build_youtube_service", lambda config, scope: FakeService())
-    tool = YouTubeListCommentsTool()
-    args = tool.validate({"video_id": "abcdefghijk", "max_results": 10})
-    output = tool.run_sync(args, ToolContext(
-        task_id="test", config=runtime.config, store=runtime.store
-    ))
-    assert output["comments"][0]["text"] == "Nice video"
-    assert output["comments"][0]["author"] == "Viewer"
-
-def test_youtube_write_tools_are_opt_in_and_approval_gated(runtime):
-    registry = runtime.registry
-    reply = registry.get("youtube.reply_comment")
-    update = registry.get("youtube.update_video")
-    upload = registry.get("youtube.upload_video")
-    assert reply.risk is Risk.HIGH
-    assert update.risk is Risk.HIGH
-    assert upload.risk is Risk.CRITICAL
-    assert "youtube.read" in runtime.policy.task_scopes(None)
-    assert "youtube.write" not in runtime.policy.task_scopes(None)
-    assert "youtube.upload" not in runtime.policy.task_scopes(None)
-
-    config = runtime.config.model_copy() if hasattr(runtime.config, "model_copy") else runtime.config
-    config.additional_scopes = ("youtube.write", "youtube.upload")
-    policy = PolicyEngine(config, runtime.store)
-    decision = policy.evaluate_call(
-        reply.spec(),
-        scopes=policy.task_scopes(["youtube.write"]),
-        autonomy=2,
-    )
-    assert decision.allowed is True
-    assert decision.requires_approval is True
-    upload_decision = policy.evaluate_call(
-        upload.spec(),
-        scopes=policy.task_scopes(["youtube.upload"]),
-        autonomy=2,
-    )
-    assert upload_decision.allowed is True
-    assert upload_decision.requires_approval is True
-
-def test_youtube_oauth_fails_closed_without_a_saved_token(runtime, monkeypatch):
-    import matrix_ai.integrations.youtube_auth as auth
-
-    class EmptySecureKeyring:
-        @staticmethod
-        def get_password(_service, _username):
-            return None
-
-    monkeypatch.setattr(auth, "_credential_store", lambda: EmptySecureKeyring())
-    with pytest.raises(ToolExecutionError, match="not connected"):
-        build_youtube_service(runtime.config, YOUTUBE_READ_SCOPE)
-
-def test_youtube_auth_requires_owner_supplied_google_client_file(runtime):
-    with pytest.raises(ToolExecutionError, match="MATRIX_YOUTUBE_CLIENT_SECRETS"):
-        connect_youtube(runtime.config)
-
-@pytest.mark.asyncio
-async def test_youtube_integration_is_reported_unconfigured_without_token(runtime):
-    integration = runtime.integrations.get("youtube")
-    result = await integration.safe_check()
-    assert result.status == "missing_credentials"
-
-def test_youtube_update_video_preserves_existing_metadata_and_confirms_owner(runtime, monkeypatch):
-    import matrix_ai.tools.youtube_tools as youtube_tools
-
-    monkeypatch.setattr(youtube_tools, "build_youtube_service", lambda config, scope: FakeService())
-    tool = YouTubeUpdateVideoTool()
-    args = tool.validate({"video_id": "abcdefghijk", "title": "New title"})
-    output = tool.run_sync(args, ToolContext(
-        task_id="test", config=runtime.config, store=runtime.store
-    ))
-    assert output["video_id"] == "abcdefghijk"
-    assert output["title"] == "New title"
-    assert tool.verify(args, output).ok
-
-def test_youtube_scheduled_upload_requires_private_visibility_and_timezone():
-    with pytest.raises(ValidationError, match="private"):
-        YouTubeUploadVideoInput.model_validate({
-            "path": "video.mp4",
-            "title": "Scheduled video",
-            "privacy_status": "public",
-            "publish_at": "2030-01-01T12:00:00Z",
-        })
-    with pytest.raises(Exception, match="timezone"):
-        YouTubeUploadVideoInput.model_validate({
-            "path": "video.mp4",
-            "title": "Scheduled video",
-            "publish_at": "2030-01-01T12:00:00",
-        })
-
-def test_youtube_upload_defaults_to_private():
-    args = YouTubeUploadVideoInput.model_validate({
-        "path": "approved/video.mp4",
-        "title": "Draft upload",
+def test_youtube_upload_rejects_paths_outside_approved_roots(tmp_path):
+    approved = tmp_path / "approved"
+    approved.mkdir()
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"video")
+    config = MatrixConfig(home=tmp_path / "home", file_roots=(approved,))
+    tool = YouTubeUploadVideoTool(YouTubeClient(config))
+    args = tool.validate({
+        "file_path": str(outside),
+        "title": "Demo",
+        "privacy_status": "private",
     })
-    assert args.privacy_status == "private"
-    assert args.publish_at is None
 
-def test_youtube_credentials_fail_closed_without_secure_keyring(runtime, monkeypatch):
-    import matrix_ai.integrations.youtube_auth as auth
+    class Context:
+        def resolve_path(self, raw, *, must_exist=False):
+            from matrix_ai.tools.base import ToolContext
+            return ToolContext(
+                task_id="test", config=config
+            ).resolve_path(raw, must_exist=must_exist)
 
-    class InsecureKeyring:
-        __module__ = "keyrings.alt.file"
-        priority = 1
+    with pytest.raises(PermissionDenied):
+        tool.run_sync(args, Context())
 
-    class FakeKeyringModule:
-        @staticmethod
-        def get_keyring():
-            return InsecureKeyring()
 
-    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
-    with pytest.raises(ToolExecutionError, match="secure OS credential manager"):
-        auth.load_youtube_credentials(runtime.config, YOUTUBE_READ_SCOPE)
+def test_google_oauth_secrets_are_not_exposed_in_public_config(tmp_path):
+    config = MatrixConfig(
+        home=tmp_path,
+        google_client_id="client-id",
+        google_client_secret="client-secret",
+        google_refresh_token="refresh-secret",
+    )
+    public = json.dumps(config.public_dict())
+    assert "client-secret" not in public
+    assert "refresh-secret" not in public
+    assert config.public_dict()["integrations_configured"]["youtube"] is True
 
-def test_youtube_keyring_storage_round_trips_credentials(runtime, monkeypatch):
-    import matrix_ai.integrations.youtube_auth as auth
+def test_youtube_oauth_and_extra_scopes_load_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("MATRIX_HOME", str(tmp_path))
+    monkeypatch.setenv("MATRIX_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("MATRIX_GOOGLE_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("MATRIX_GOOGLE_REFRESH_TOKEN", "refresh-secret")
+    monkeypatch.setenv("MATRIX_EXTRA_SCOPES", "youtube.write,github.write")
 
-    class SecureKeyring:
-        __module__ = "keyring.backends.Windows"
-        priority = 1
-        values = {}
+    config = MatrixConfig.from_env()
 
-        @classmethod
-        def get_password(cls, service, username):
-            return cls.values.get((service, username))
-
-        @classmethod
-        def set_password(cls, service, username, value):
-            cls.values[(service, username)] = value
-
-    class FakeKeyringModule:
-        @staticmethod
-        def get_keyring():
-            return SecureKeyring()
-
-        get_password = SecureKeyring.get_password
-        set_password = SecureKeyring.set_password
-
-    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
-    class Credentials:
-        def to_json(self):
-            return '{"refresh_token":"test-only"}'
-
-    auth._persist_credentials(runtime.config, Credentials())
-    assert auth.has_youtube_credentials(runtime.config)
-
-def test_public_config_reports_youtube_keyring_state_not_legacy_file(runtime, monkeypatch):
-    import matrix_ai.integrations.youtube_auth as auth
-
-    class SecureKeyring:
-        __module__ = "keyring.backends.Windows"
-        priority = 1
-        values = {}
-
-        @classmethod
-        def get_password(cls, service, username):
-            return cls.values.get((service, username))
-
-        @classmethod
-        def set_password(cls, service, username, value):
-            cls.values[(service, username)] = value
-
-    class FakeKeyringModule:
-        @staticmethod
-        def get_keyring():
-            return SecureKeyring()
-
-        get_password = SecureKeyring.get_password
-        set_password = SecureKeyring.set_password
-
-    monkeypatch.setitem(__import__("sys").modules, "keyring", FakeKeyringModule())
-    SecureKeyring.values[(auth._KEYRING_SERVICE, auth._credential_user(runtime.config))] = '{"token":"test"}'
-    assert runtime.config.public_dict()["integrations_configured"]["youtube"] is True
+    assert config.google_client_id == "client-id"
+    assert config.google_client_secret == "client-secret"
+    assert config.google_refresh_token == "refresh-secret"
+    assert set(config.additional_scopes) == {"youtube.write", "github.write"}
