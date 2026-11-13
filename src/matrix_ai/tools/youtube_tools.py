@@ -5,7 +5,7 @@ from pydantic import Field, field_validator, model_validator
 from ..core.models import Risk, VerificationEvidence
 from ..errors import ToolExecutionError, ToolUnavailable
 from ..integrations.youtube_auth import YOUTUBE_READ_SCOPE,YOUTUBE_WRITE_SCOPE,YOUTUBE_UPLOAD_SCOPE,build_youtube_service
-from .base import StrictModel,Tool,ToolContext
+from .base import StrictModel,Tool
 
 class EmptyInput(StrictModel): pass
 class VideoIdInput(StrictModel):
