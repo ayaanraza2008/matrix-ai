@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from matrix_ai.integrations.skills import SkillsError, SkillsManager
+from matrix_ai.integrations.skills import SkillsError, SkillsManager, _safe_search_query
 
 
 def make_manager(tmp_path: Path) -> SkillsManager:
@@ -105,3 +105,15 @@ async def test_prepare_for_task_uses_existing_skills_without_network_when_discov
     selected, context = await manager.prepare_for_task("write Python pytest tests")
     assert selected[0]["name"] == "python-testing"
     assert "UNTRUSTED SKILL INSTRUCTIONS" in context
+
+
+def test_search_query_removes_urls_emails_and_inline_secrets():
+    query = _safe_search_query(
+        "build a React app api_key=sk-abcdefghijklmnopqrstuvwxyz0123456789 "
+        "for user@example.com using https://private.example/path"
+    )
+    assert "sk-" not in query
+    assert "example.com" not in query
+    assert "user" not in query
+    assert "https" not in query
+    assert "react" in query
