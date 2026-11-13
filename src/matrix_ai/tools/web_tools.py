@@ -1,4 +1,4 @@
-"""Public web fetch for research, with SSRF protection.
+"""Public web fetch for research, with connection-pinned SSRF protection.
 
 Only http(s), only public addresses (private/loopback/link-local/reserved are
 refused), redirects are *not* followed automatically, response size is bounded,
@@ -8,14 +8,15 @@ and the body is returned as untrusted data with injection markers surfaced.
 from __future__ import annotations
 
 import html as html_module
+import http.client
 import ipaddress
 import re
 import socket
+import ssl
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
-import httpx
 from pydantic import Field
 
 from ..core.models import Risk, VerificationEvidence
@@ -41,7 +42,7 @@ Resolver = Callable[..., list]
 
 
 def resolve_and_validate(url: str, resolver: Resolver | None = None) -> list[str]:
-    """Validate a URL can only reach the public internet. Returns resolved IPs."""
+    """Validate a URL can only reach the public internet. Returns validated IPs."""
     resolver = resolver or socket.getaddrinfo
     if not isinstance(url, str) or len(url) > 2000:
         raise ValidationFailure("url must be a string shorter than 2000 characters")
@@ -70,17 +71,126 @@ def resolve_and_validate(url: str, resolver: Resolver | None = None) -> list[str
             raise ToolExecutionError(f"could not resolve host: {host}") from exc
         for info in infos:
             try:
-                addresses.append(ipaddress.ip_address(info[4][0]))
-            except (ValueError, IndexError):
+                addresses.append(ipaddress.ip_address(info[4][0].split("%", 1)[0]))
+            except (ValueError, IndexError, AttributeError):
                 continue
     if not addresses:
         raise ToolExecutionError("host did not resolve to an IP address")
+    # Normalise IPv4-mapped IPv6 answers to plain IPv4: is_global semantics for
+    # ::ffff:0:0/96 differ across Python versions (see CVE-2024-4032), so decide
+    # based on the embedded IPv4 address and connect via AF_INET consistently.
+    addresses = [
+        address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped
+        else address
+        for address in addresses
+    ]
     for address in addresses:
         if not address.is_global:
             raise PermissionDenied(
                 f"refusing to fetch non-public address ({address}); SSRF protection is active"
             )
-    return [str(address) for address in addresses]
+    # Preserve resolver order while avoiding duplicate connection attempts.
+    return list(dict.fromkeys(str(address) for address in addresses))
+
+
+def _fetch_from_pinned_address(
+    url: str,
+    address: str,
+    *,
+    timeout: float = 15.0,
+    max_bytes: int = 400_000,
+) -> tuple[int, dict[str, str], bytes]:
+    """Connect to a numeric IP while retaining hostname-based HTTP Host and TLS SNI."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise ValidationFailure("url has no hostname")
+    if any(character in host for character in "\r\n\t\x00 "):
+        # Defence in depth: control characters must never reach the Host header,
+        # the request target or the TLS server-name extension.
+        raise ValidationFailure("url hostname contains forbidden characters")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    ip = ipaddress.ip_address(address)
+    # IPv4-mapped IPv6 answers are normalized at validation time; connect via
+    # AF_INET so the peer comparison below stays unambiguous on every platform.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    family = socket.AF_INET6 if ip.version == 6 else socket.AF_INET
+    raw_sock = socket.socket(family, socket.SOCK_STREAM)
+    response: http.client.HTTPResponse | None = None
+    connected_sock: socket.socket = raw_sock
+    try:
+        raw_sock.settimeout(timeout)
+        target = (str(ip), port, 0, 0) if ip.version == 6 else (str(ip), port)
+        raw_sock.connect(target)
+        peer = ipaddress.ip_address(raw_sock.getpeername()[0].split("%", 1)[0])
+        if peer != ip:
+            raise PermissionDenied(
+                f"connected peer {peer} differs from validated address {ip}; request blocked"
+            )
+        sock: socket.socket = raw_sock
+        if parsed.scheme == "https":
+            # Default trust roots and hostname verification remain enabled. Passing
+            # the original hostname preserves SNI and certificate identity checks.
+            context = ssl.create_default_context()
+            sock = context.wrap_socket(raw_sock, server_hostname=host)
+            connected_sock = sock
+        path = quote(parsed.path or "/", safe="/%:@-._~!()*+,;=")
+        if parsed.query:
+            path += "?" + quote(parsed.query, safe="/%:@-._~!()*+,;=?&")
+        try:
+            host_header = host.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValidationFailure("URL hostname is invalid") from exc
+        if ":" in host_header and not host_header.startswith("["):
+            host_header = f"[{host_header}]"
+        if port != (443 if parsed.scheme == "https" else 80):
+            host_header = f"{host_header}:{port}"
+        request = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host_header}\r\n"
+            "User-Agent: MATRIX/0.1 (+local-first assistant)\r\n"
+            "Accept: text/html,text/plain\r\n"
+            "Accept-Encoding: identity\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii")
+        sock.sendall(request)
+        response = http.client.HTTPResponse(sock)
+        response.begin()
+        headers = {key.lower(): value for key, value in response.getheaders()}
+        body = response.read(max_bytes + 1)
+        return response.status, headers, body
+    except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+        raise ToolExecutionError(f"public web fetch failed: {type(exc).__name__}") from exc
+    finally:
+        if response is not None:
+            response.close()
+        connected_sock.close()
+
+
+def fetch_pinned(
+    url: str,
+    addresses: list[str],
+    *,
+    timeout: float = 15.0,
+    max_bytes: int = 400_000,
+) -> tuple[int, dict[str, str], bytes, str]:
+    """Try only the already-validated numeric addresses; never resolve the host again."""
+    last_error: Exception | None = None
+    for address in addresses:
+        try:
+            status, headers, body = _fetch_from_pinned_address(
+                url, address, timeout=timeout, max_bytes=max_bytes
+            )
+            return status, headers, body, address
+        except PermissionDenied:
+            # A peer mismatch is a security violation, not a recoverable address failure.
+            raise
+        except ToolExecutionError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    raise ToolExecutionError("host did not resolve to a validated IP address")
 
 
 def html_to_text(raw: str) -> str:
@@ -115,39 +225,26 @@ class FetchPublicUrlTool(Tool):
         if not ctx.config.allow_web_fetch:
             raise ToolUnavailable("web fetch is disabled by configuration")
         resolved = resolve_and_validate(args.url)
-        limits = httpx.Limits(max_connections=2, max_keepalive_connections=0)
-        headers = {"User-Agent": "MATRIX/0.1 (+local-first assistant)", "Accept": "text/html,text/plain"}
-        with httpx.Client(
-            timeout=httpx.Timeout(15.0, connect=8.0),
-            follow_redirects=False,
-            limits=limits,
-            headers=headers,
-        ) as client:
-            with client.stream("GET", args.url) as response:
-                status = response.status_code
-                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                location = response.headers.get("location")
-                if status != 200:
-                    return {
-                        "url": args.url,
-                        "status_code": status,
-                        "location": location,
-                        "text": "",
-                        "content_type": content_type,
-                        "untrusted": True,
-                        "injection_markers": [],
-                    }
-                if content_type and not content_type.startswith(ALLOWED_CONTENT_TYPES):
-                    raise ToolExecutionError(f"unsupported content type: {content_type}")
-                chunks: list[bytes] = []
-                total = 0
-                limit = ctx.config.web_fetch_max_bytes
-                for chunk in response.iter_bytes():
-                    chunks.append(chunk)
-                    total += len(chunk)
-                    if total >= limit:
-                        break
-        raw = b"".join(chunks)[:limit].decode("utf-8", errors="replace")
+        status, response_headers, body, connected_address = fetch_pinned(
+            args.url, resolved, max_bytes=ctx.config.web_fetch_max_bytes
+        )
+        content_type = response_headers.get("content-type", "").split(";")[0].strip().lower()
+        location = response_headers.get("location")
+        if status != 200:
+            return {
+                "url": args.url,
+                "status_code": status,
+                "location": location,
+                "text": "",
+                "content_type": content_type,
+                "untrusted": True,
+                "injection_markers": [],
+                "resolved_addresses": resolved,
+                "connected_address": connected_address,
+            }
+        if content_type and not content_type.startswith(ALLOWED_CONTENT_TYPES):
+            raise ToolExecutionError(f"unsupported content type: {content_type}")
+        raw = body[: ctx.config.web_fetch_max_bytes].decode("utf-8", errors="replace")
         text = html_to_text(raw) if "html" in content_type or "<html" in raw[:2000].lower() else raw.strip()
         markers = detect_injection(text)
         return {
@@ -158,6 +255,7 @@ class FetchPublicUrlTool(Tool):
             "text": self.truncate(text),
             "characters": len(text),
             "resolved_addresses": resolved,
+            "connected_address": connected_address,
             "untrusted": True,
             "suspicious": bool(markers),
             "injection_markers": markers,
