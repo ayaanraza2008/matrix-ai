@@ -20,6 +20,48 @@ class FakeStore:
         self.task_views = {}
         self.telegram_task_ids = []
         self.nonterminal = []
+        self.goals = {}
+        self.goal_nodes = {}
+
+    def create_goal(self, *, owner_id, title, success_criteria, deadline_seconds=None):
+        goal_id = f"goal-{len(self.goals) + 1}"
+        self.goals[goal_id] = {
+            "id": goal_id,
+            "owner_id": owner_id,
+            "title": title,
+            "success_criteria": success_criteria,
+            "state": "queued",
+            "task_id": None,
+            "task": None,
+            "result_summary": None,
+        }
+        return goal_id
+
+    def attach_goal_task(self, goal_id, task_id):
+        self.goals[goal_id]["task_id"] = task_id
+        self.goals[goal_id]["task"] = {
+            "id": task_id,
+            "state": TaskState.RECEIVED.value,
+        }
+        self.goals[goal_id]["state"] = "running"
+
+    def fail_goal_start(self, goal_id, summary):
+        self.goals[goal_id]["state"] = "failed"
+        self.goals[goal_id]["result_summary"] = summary
+
+    def get_goal(self, goal_id):
+        if goal_id not in self.goals:
+            raise KeyError(goal_id)
+        return dict(self.goals[goal_id])
+
+    def list_goals(self, *, owner_id, limit=50):
+        return [
+            dict(goal) for goal in list(self.goals.values())[:limit]
+            if goal["owner_id"] == owner_id
+        ]
+
+    def get_goal_graph(self, goal_id):
+        return list(self.goal_nodes.get(goal_id, []))
 
     def get_idempotent_task_id(self, scope, key):
         return self.idempotent_tasks.get((scope, key))
@@ -94,6 +136,17 @@ def update(chat_id=123456789, sender_id=123456789, chat_type="private", text="/h
     }}
 
 
+class FakeGoalSupervisor:
+    async def pause(self, goal_id):
+        return {"id": goal_id, "state": "paused"}
+
+    async def resume(self, goal_id):
+        return {"id": goal_id, "state": "running"}
+
+    async def cancel(self, goal_id):
+        return {"id": goal_id, "state": "cancelled"}
+
+
 async def make_bridge(tmp_path):
     config = MatrixConfig(
         home=tmp_path,
@@ -102,7 +155,10 @@ async def make_bridge(tmp_path):
     )
     store = FakeStore()
     orchestrator = FakeOrchestrator()
-    bridge = TelegramChatBridge(config=config, orchestrator=orchestrator, store=store)
+    bridge = TelegramChatBridge(
+        config=config, orchestrator=orchestrator, store=store,
+        goal_supervisor=FakeGoalSupervisor(),
+    )
     sent = []
     async def send(message):
         sent.append(message)
@@ -549,4 +605,87 @@ async def test_telegram_wrong_sender_cannot_resume_emergency_stop(tmp_path):
 
     assert store.emergency_stop is True
     assert store.stopped is True
+    assert sent == []
+
+
+
+async def test_telegram_creates_bounded_autonomous_goal(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    await bridge._handle_update(
+        update(text="/goal Prepare monthly report | Verify totals and include all required sections")
+    )
+
+    goal = store.get_goal("goal-1")
+    assert goal["owner_id"] == "owner"
+    assert goal["title"] == "Prepare monthly report"
+    assert goal["success_criteria"] == "Verify totals and include all required sections"
+    assert goal["task_id"] == "task-123"
+    assert orchestrator.created[0]["kind"] == "goal"
+    assert orchestrator.created[0]["goal_id"] == "goal-1"
+    assert orchestrator.created[0]["autonomy_level"] == bridge.config.autonomy_level
+    assert orchestrator.enqueued == ["task-123"]
+    assert "Autonomous goal started" in sent[0]
+    assert "Use /goal-status goal-1" in sent[0]
+
+
+async def test_telegram_lists_and_inspects_only_owner_goals(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    goal_id = store.create_goal(
+        owner_id="owner", title="Owner goal", success_criteria="Check the outcome"
+    )
+    store.attach_goal_task(goal_id, "task-123")
+    store.create_goal(
+        owner_id="someone-else", title="Other owner's goal", success_criteria="Private"
+    )
+
+    await bridge._handle_update(update(text="/goals"))
+    await bridge._handle_update(update(text=f"/goal-status {goal_id}"))
+    await bridge._handle_update(update(text="/goal-status goal-2"))
+
+    assert "Owner goal" in sent[0]
+    assert "Other owner's goal" not in sent[0]
+    assert "Success criteria: Check the outcome" in sent[1]
+    assert "not found for this owner" in sent[2]
+
+
+async def test_telegram_goal_graph_controls_call_supervisor(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    goal_id = store.create_goal(
+        owner_id="owner", title="Graph goal", success_criteria="Finish every node"
+    )
+    store.goal_nodes[goal_id] = [{"node_id": "one", "state": "running"}]
+
+    await bridge._handle_update(update(text=f"/goal-pause {goal_id}"))
+    await bridge._handle_update(update(text=f"/goal-resume {goal_id}"))
+    await bridge._handle_update(update(text=f"/goal-cancel {goal_id}"))
+
+    assert "Goal paused" in sent[0]
+    assert "Goal resumed" in sent[1]
+    assert "Goal cancellation processed" in sent[2]
+
+
+async def test_telegram_cancels_simple_goal_task(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    goal_id = store.create_goal(
+        owner_id="owner", title="Simple goal", success_criteria="Complete the task"
+    )
+    store.attach_goal_task(goal_id, "task-123")
+
+    await bridge._handle_update(update(text=f"/goal-cancel {goal_id}"))
+
+    assert orchestrator.cancelled == ["task-123"]
+    assert "Goal cancellation processed" in sent[0]
+    assert "Task state: CANCELLED" in sent[0]
+
+
+async def test_telegram_rejects_goal_commands_from_unauthorized_sender(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    await bridge._handle_update(
+        update(chat_id=123456789, sender_id=999999, text="/goal Unauthorized | should not start")
+    )
+
+    assert not store.goals
+    assert not orchestrator.created
     assert sent == []
