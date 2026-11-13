@@ -3,7 +3,7 @@
 MATRIX goals can be represented as bounded directed acyclic graphs (DAGs). The owner creates a plan, reviews it, and starts it explicitly:
 
 - `POST /api/goals/plan` validates and persists a plan (1–64 nodes, at most 16 dependencies per node).
-- `POST /api/goals/{goal_id}/start` starts sequential dispatch.
+- `POST /api/goals/{goal_id}/start` starts bounded dispatch (up to four ready nodes concurrently per goal).
 - `GET /api/goals/{goal_id}/graph` returns persisted node state and task links.
 - `POST /api/goals/{goal_id}/cancel` cancels the goal and any active node task.
 
@@ -27,7 +27,7 @@ The assessment does not execute tools, approve actions, or override tool evidenc
 
 ## Current limits
 
-- Dispatch is deliberately sequential (one active node per goal).
+- Dispatch is deliberately bounded (up to four active nodes per goal); dependencies still gate each node.
 - Goal-level automatic replanning is not enabled. Tool-level retries remain bounded by the orchestrator and its idempotency/risk rules. This avoids replaying side effects when an external provider's outcome is uncertain.
 - The model-based criteria pass is not an external auditor. Goals without sufficient evidence require owner review.
 - Live integration credentials, provider quotas, local model availability, Windows audio hardware and Android devices are environment-dependent and must be acceptance-tested separately.
