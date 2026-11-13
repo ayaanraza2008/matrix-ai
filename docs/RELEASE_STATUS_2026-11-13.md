@@ -16,8 +16,8 @@ MATRIX has gained several real implementation layers, but it is **not yet a prod
 | Weather | Free Open-Meteo current conditions and 1–7 day forecast | PR #35: all 6 CI jobs passed | No key; network availability still applies |
 | LinkedIn | Approval-gated text posts through official Posts API | PR #38: all 6 CI jobs passed | Developer app permission and token required |
 | Instagram | Comment listing/replies and approval-gated image publishing | PR #38 and #39: all 6 CI jobs passed | Professional account, Meta app permissions, token and public image URL required |
-| WhatsApp outbound | Approval-gated text and approved template messages | PR #38: all 6 CI jobs passed; PR #41 pending | Business Cloud API token, phone-number ID, opt-in and approved templates required |
-| WhatsApp inbound | HMAC-signed webhook, GET verification, sender allowlist, message-ID deduplication and ordinary owner-task intake | PR #40: Python tests and dependency audit passed; Android build still running at report time | Public HTTPS endpoint and Meta app configuration required |
+| WhatsApp outbound | Approval-gated text and approved template messages | PR #38: all 6 CI jobs passed; PR #41 latest-head CI pending | Business Cloud API token, phone-number ID, opt-in and approved templates required |
+| WhatsApp inbound | HMAC-signed webhook, GET verification, sender allowlist, message-ID deduplication and ordinary owner-task intake | PR #40: all 6 CI jobs passed | Public HTTPS endpoint and Meta app configuration required |
 | Telegram | Private two-way text bot, bounded polling and voice-note input | Included in PR #31 CI | Bot token and owner chat ID required |
 | Local voice | Self-hosted Whisper/Piper path | Earlier PR #14/PR #31 CI coverage | Real microphone/speaker, driver, model download and interruption tests required |
 | Android | Debug and release APK assembly | CI Android build | Physical device, pairing, signing and permission acceptance required |
