@@ -258,7 +258,12 @@ class TelegramChatBridge:
                 idempotency_scope="telegram.update",
                 idempotency_key=idempotency_key,
             )
-            await self.orchestrator.enqueue(task_id)
+            # Telegram may replay an update after a crash between task creation
+            # and cursor persistence. Reuse the durable task, but never re-enqueue
+            # work that is already running or terminal.
+            view = self.store.task_view(task_id)
+            if view.state is TaskState.RECEIVED:
+                await self.orchestrator.enqueue(task_id)
         except Exception as exc:  # noqa: BLE001 - keep update retryable
             self.store.audit(
                 "telegram.task_submission_failed", actor="telegram", status="failed",
@@ -269,9 +274,15 @@ class TelegramChatBridge:
         # Acknowledge only after durable task creation and queue submission.
         # If Telegram send fails, replay resolves to this same task ID.
         await self._send(f"Received. MATRIX task: {task_id}")
-        report = asyncio.create_task(self._report_task(task_id), name=f"telegram-task-{task_id}")
-        self._report_tasks.add(report)
-        report.add_done_callback(self._report_tasks.discard)
+        if view.state in TERMINAL_TASK_STATES:
+            result = view.summary or view.error or f"Task finished: {view.state.value}"
+            await self._send(f"MATRIX {view.state.value}:\\n{result}")
+        else:
+            reporter_name = f"telegram-task-{task_id}"
+            if not any(task.get_name() == reporter_name for task in self._report_tasks):
+                report = asyncio.create_task(self._report_task(task_id), name=reporter_name)
+                self._report_tasks.add(report)
+                report.add_done_callback(self._report_tasks.discard)
 
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
