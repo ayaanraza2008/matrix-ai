@@ -374,6 +374,79 @@ class Store:
         )
         return goal_id
 
+    def create_goal_task(
+        self,
+        *,
+        owner_id: str,
+        title: str,
+        success_criteria: str,
+        autonomy_level: int,
+        deadline_seconds: float,
+        idempotency_key: str,
+    ) -> tuple[str, str]:
+        """Atomically create a Telegram goal, its task, and a replay-safe key."""
+        if not owner_id or not title.strip() or not success_criteria.strip():
+            raise ValueError("goal owner, title, and success criteria must be non-empty")
+        if len(title) > 2000 or len(success_criteria) > 2000:
+            raise ValueError("goal title and success criteria exceed 2000 characters")
+        if not idempotency_key or len(idempotency_key) > 512:
+            raise ValueError("goal idempotency key must be non-empty and bounded")
+        if deadline_seconds <= 0:
+            raise ValueError("goal deadline must be positive")
+
+        goal_id = uuid.uuid4().hex
+        task_id = uuid.uuid4().hex
+        now = iso()
+        deadline = iso(utcnow() + timedelta(seconds=deadline_seconds))
+        scope = "telegram.goal"
+        with self.db.transaction() as conn:
+            existing = conn.execute(
+                "SELECT result_json FROM idempotency WHERE scope=? AND key=?",
+                (scope, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                result = _json_load(existing["result_json"], {})
+                existing_task_id = result.get("task_id") if isinstance(result, dict) else None
+                if not isinstance(existing_task_id, str) or not existing_task_id:
+                    raise ValueError("stored Telegram goal idempotency result is invalid")
+                task_row = conn.execute(
+                    "SELECT goal_id FROM tasks WHERE id=?", (existing_task_id,)
+                ).fetchone()
+                if task_row is None or not task_row["goal_id"]:
+                    raise ValueError("stored Telegram goal task is missing its goal")
+                return str(task_row["goal_id"]), existing_task_id
+
+            conn.execute(
+                "INSERT INTO goals(id, owner_id, title, success_criteria, state, deadline, created_at, updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (goal_id, owner_id, title.strip(), success_criteria.strip(), "queued", deadline, now, now),
+            )
+            conn.execute(
+                "INSERT INTO tasks(id, user_id, device_id, kind, goal_id, goal_node_id, state, original_request, "
+                "autonomy_level, scopes_json, created_at, updated_at, deadline) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    task_id,
+                    owner_id,
+                    None,
+                    "goal",
+                    goal_id,
+                    None,
+                    TaskState.RECEIVED.value,
+                    f"Goal: {title.strip()}\nSuccess criteria: {success_criteria.strip()}",
+                    int(autonomy_level),
+                    canonical_json([]),
+                    now,
+                    now,
+                    deadline,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO idempotency(scope, key, result_json, created_at) VALUES(?,?,?,?)",
+                (scope, idempotency_key, canonical_json({"task_id": task_id}), now),
+            )
+        return goal_id, task_id
+
     def get_goal(self, goal_id: str) -> dict[str, Any]:
         row = self.db.query_one("SELECT * FROM goals WHERE id=?", (goal_id,))
         if row is None:
