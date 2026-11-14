@@ -346,6 +346,7 @@ class TelegramChatBridge:
             {"command": "start", "description": "Connect to MATRIX"},
             {"command": "help", "description": "Show Telegram controls"},
             {"command": "status", "description": "Show system and task status"},
+            {"command": "health", "description": "Show system and model health"},
             {"command": "tasks", "description": "List recent Telegram tasks"},
             {"command": "task", "description": "Inspect a task by ID"},
             {"command": "cancel", "description": "Cancel a Telegram task by ID"},
@@ -539,6 +540,7 @@ class TelegramChatBridge:
             await self._send(
                 "Send any task as a normal message.\n"
                 "/status — system health and active task counts\n"
+                "/health — system health and model status\n"
                 "/tasks — recent Telegram tasks\n"
                 "/task <task-id> — inspect one of your Telegram tasks\n"
                 "/cancel <task-id> — cancel one of your Telegram tasks\n"
@@ -774,6 +776,22 @@ class TelegramChatBridge:
             self.store.set_emergency_stop(True, actor="telegram-owner")
             cancelled = await self.orchestrator.cancel_all()
             await self._send(f"Emergency stop activated. Cancelled tasks: {cancelled}.")
+            return
+        if command == "/health":
+            health = await self.orchestrator.models.status()
+            active_count = len(self.store.nonterminal_tasks())
+            memory_svc = getattr(self.orchestrator, "memory", None)
+            memory_count = (
+                len(memory_svc.list(limit=1000))
+                if memory_svc is not None and hasattr(memory_svc, "list")
+                else 0
+            )
+            await self._send(
+                f"MATRIX health: running={self.running}, emergency_stop={self.store.emergency_stop}\n"
+                f"Model: {health.status} (provider={health.provider}, model={health.model})\n"
+                f"Active tasks: {active_count}\n"
+                f"Memory: {memory_count} entries"
+            )
             return
         if command == "/resume":
             if not self.store.emergency_stop:

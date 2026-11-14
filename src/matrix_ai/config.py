@@ -139,6 +139,7 @@ class MatrixConfig:
     max_listing_entries: int = 200
 
     model_provider: str = "none"  # none | ollama | openai | freellmapi
+    model_fallback_provider: str = "none"  # none | ollama | openai | freellmapi
     model_name: str = "qwen2.5:0.5b-instruct-q4_K_M"
     ollama_url: str = "http://127.0.0.1:11434"
     openai_base_url: str = "http://127.0.0.1:8080/v1"
@@ -259,7 +260,9 @@ class MatrixConfig:
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
         if self.model_provider not in {"none", "ollama", "openai", "freellmapi"}:
             raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi")
-        if self.model_provider == "freellmapi":
+        if self.model_fallback_provider not in {"none", "ollama", "openai", "freellmapi"}:
+            raise ConfigError("MATRIX_MODEL_FALLBACK_PROVIDER must be one of: none, ollama, openai, freellmapi")
+        if "freellmapi" in {self.model_provider, self.model_fallback_provider}:
             parsed_freellmapi_url = urlsplit(self.freellmapi_url)
             freellmapi_host = parsed_freellmapi_url.hostname
             if (
@@ -521,6 +524,7 @@ class MatrixConfig:
             port=_env_int("MATRIX_PORT", 8765),
             owner_token=_env("MATRIX_OWNER_TOKEN"),
             model_provider=(_env("MATRIX_MODEL_PROVIDER", "none") or "none").lower(),
+            model_fallback_provider=(_env("MATRIX_MODEL_FALLBACK_PROVIDER", "none") or "none").lower(),
             model_name=_env("MATRIX_MODEL_NAME", "qwen2.5:0.5b-instruct-q4_K_M") or "qwen2.5:0.5b-instruct-q4_K_M",
             ollama_url=_env("MATRIX_OLLAMA_URL", "http://127.0.0.1:11434") or "http://127.0.0.1:11434",
             openai_base_url=_env("MATRIX_OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")

@@ -1,8 +1,8 @@
 # MATRIX developer helper (Windows PowerShell).
-# Usage:  .\scripts\dev.ps1 [install|test|lint|scan|run|doctor|backup]
+# Usage:  .\scripts\dev.ps1 [install|test|lint|scan|run|doctor|backup|diagnose]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "test", "lint", "scan", "run", "doctor", "backup")]
+    [ValidateSet("install", "test", "lint", "scan", "run", "doctor", "backup", "diagnose")]
     [string]$Task = "test"
 )
 
@@ -25,4 +25,5 @@ switch ($Task) {
     "run" { & $python -m matrix_ai serve }
     "doctor" { & $python -m matrix_ai doctor }
     "backup" { & $python -m matrix_ai backup }
+    "diagnose" { & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "windows_setup_and_doctor.ps1") }
 }

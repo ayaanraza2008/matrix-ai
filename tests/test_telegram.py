@@ -559,6 +559,24 @@ async def test_telegram_status_reports_task_counts_and_approval_queue(tmp_path):
     assert "Waiting for owner approval: 1" in sent[0]
 
 
+async def test_telegram_health_command_reports_health(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    async def model_status():
+        return SimpleNamespace(status="working", provider="ollama", model="qwen-test")
+
+    orchestrator.models = SimpleNamespace(status=model_status)
+    store.nonterminal = [
+        {"state": TaskState.EXECUTE.value},
+    ]
+
+    await bridge._handle_update(update(text="/health"))
+
+    assert "MATRIX health: running=False, emergency_stop=False" in sent[0]
+    assert "Model: working (provider=ollama, model=qwen-test)" in sent[0]
+    assert "Active tasks: 1" in sent[0]
+    assert "Memory: 0 entries" in sent[0]
+
 
 async def test_telegram_registers_supported_commands_in_bot_menu(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
@@ -575,7 +593,7 @@ async def test_telegram_registers_supported_commands_in_bot_menu(tmp_path):
     method, payload = calls[0]
     assert method == "setMyCommands"
     names = {item["command"] for item in payload["commands"]}
-    assert names == {"start", "help", "status", "tasks", "task", "cancel", "stop", "resume"}
+    assert names == {"start", "help", "status", "health", "tasks", "task", "cancel", "stop", "resume"}
 
 
 async def test_telegram_command_menu_failure_does_not_disable_polling(tmp_path):
