@@ -78,6 +78,101 @@ def _telegram_preflight_http_hint(status: int, method: str, response: httpx.Resp
     return "Check Telegram bot configuration and network policy."
 
 
+async def telegram_get_webhook_info(
+    config: MatrixConfig,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Retrieve current Telegram webhook status and diagnostic information."""
+    if not config.telegram_bot_token:
+        raise ValidationFailure("MATRIX_TELEGRAM_BOT_TOKEN is not configured.")
+    timeout = httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            response = await client.get(
+                f"https://api.telegram.org/bot{config.telegram_bot_token}/getWebhookInfo"
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                raise ToolUnavailable("Telegram getWebhookInfo request was rejected.")
+            return data.get("result", {})
+    except httpx.HTTPStatusError as exc:
+        raise ToolUnavailable(f"Telegram Bot API getWebhookInfo failed with HTTP {exc.response.status_code}.") from exc
+    except httpx.HTTPError as exc:
+        raise ToolUnavailable(f"Telegram network request failed ({type(exc).__name__}).") from exc
+
+
+async def telegram_set_webhook(
+    config: MatrixConfig,
+    url: str,
+    *,
+    secret_token: str | None = None,
+    drop_pending_updates: bool = False,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Configure an HTTPS webhook URL on Telegram with optional secret token verification."""
+    if not config.telegram_bot_token:
+        raise ValidationFailure("MATRIX_TELEGRAM_BOT_TOKEN is not configured.")
+    if not url or not url.startswith("https://"):
+        raise ValidationFailure("Telegram webhook URL must be an HTTPS URL (e.g. https://worker.domain.workers.dev).")
+    secret = secret_token or config.telegram_webhook_secret
+    payload: dict[str, Any] = {
+        "url": url,
+        "drop_pending_updates": drop_pending_updates,
+        "allowed_updates": ["message"],
+    }
+    if secret:
+        payload["secret_token"] = secret
+
+    timeout = httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{config.telegram_bot_token}/setWebhook",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                description = data.get("description", "Unknown error")
+                raise ToolUnavailable(f"Telegram setWebhook failed: {description}")
+            return {"ok": True, "description": data.get("description", "Webhook was set"), "url": url}
+    except httpx.HTTPStatusError as exc:
+        raise ToolUnavailable(f"Telegram Bot API setWebhook failed with HTTP {exc.response.status_code}.") from exc
+    except httpx.HTTPError as exc:
+        raise ToolUnavailable(f"Telegram network request failed ({type(exc).__name__}).") from exc
+
+
+async def telegram_delete_webhook(
+    config: MatrixConfig,
+    *,
+    drop_pending_updates: bool = False,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Remove active webhook from Telegram, restoring compatibility with polling."""
+    if not config.telegram_bot_token:
+        raise ValidationFailure("MATRIX_TELEGRAM_BOT_TOKEN is not configured.")
+    payload: dict[str, Any] = {"drop_pending_updates": drop_pending_updates}
+    timeout = httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{config.telegram_bot_token}/deleteWebhook",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                description = data.get("description", "Unknown error")
+                raise ToolUnavailable(f"Telegram deleteWebhook failed: {description}")
+            return {"ok": True, "description": data.get("description", "Webhook was deleted")}
+    except httpx.HTTPStatusError as exc:
+        raise ToolUnavailable(f"Telegram Bot API deleteWebhook failed with HTTP {exc.response.status_code}.") from exc
+    except httpx.HTTPError as exc:
+        raise ToolUnavailable(f"Telegram network request failed ({type(exc).__name__}).") from exc
+
+
 async def telegram_preflight(
     config: MatrixConfig,
     *,
@@ -96,7 +191,12 @@ async def telegram_preflight(
             "Telegram is not configured; set MATRIX_TELEGRAM_BOT_TOKEN and "
             "MATRIX_TELEGRAM_CHAT_ID in the local environment/secret store."
         )
-    results: dict[str, Any] = {"token_configured": True, "chat_id_configured": True}
+    mode = getattr(config, "telegram_mode", "polling") or "polling"
+    results: dict[str, Any] = {
+        "token_configured": True,
+        "chat_id_configured": True,
+        "mode": mode,
+    }
     timeout = httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS)
     try:
         async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
@@ -122,14 +222,25 @@ async def telegram_preflight(
             if not webhook.get("ok"):
                 raise ToolUnavailable("Telegram getWebhookInfo request was rejected.")
             info = webhook.get("result", {})
-            results["webhook_url"] = info.get("url") or ""
+            webhook_url = info.get("url") or ""
+            results["webhook_url"] = webhook_url
             results["pending_updates"] = info.get("pending_update_count")
-            if info.get("url"):
-                raise ToolUnavailable(
-                    "A webhook is configured for this bot; the private-chat bridge uses long "
-                    "polling and will not receive updates. Delete the webhook first "
-                    "(deleteWebhook), or use the webhook integration instead."
-                )
+
+            if webhook_url:
+                if mode == "polling":
+                    raise ToolUnavailable(
+                        f"A webhook is configured for this bot ({webhook_url}); the private-chat bridge is in "
+                        "polling mode and will not receive updates. Delete the webhook first "
+                        "(e.g. 'matrix telegram-webhook delete'), or switch MATRIX_TELEGRAM_MODE to 'webhook'."
+                    )
+                results["webhook_active"] = True
+            else:
+                results["webhook_active"] = False
+                if mode == "webhook":
+                    results["webhook_warning"] = (
+                        "MATRIX_TELEGRAM_MODE is set to 'webhook', but no webhook URL is configured on Telegram. "
+                        "Run 'matrix telegram-webhook set --url <URL>' to register your Cloudflare Worker."
+                    )
 
             if send_test:
                 response = await client.post(
@@ -191,8 +302,16 @@ class TelegramChatBridge:
         self._polling_health: str = "stopped"
 
     @property
+    def mode(self) -> str:
+        return getattr(self.config, "telegram_mode", "polling") or "polling"
+
+    @property
     def enabled(self) -> bool:
-        return bool(self.config.telegram_bot_token and self.config.telegram_chat_id)
+        return bool(
+            self.config.telegram_bot_token
+            and self.config.telegram_chat_id
+            and self.mode != "disabled"
+        )
 
     @property
     def running(self) -> bool:
@@ -202,6 +321,8 @@ class TelegramChatBridge:
         """Observability status report for the Telegram bridge (never discloses secrets)."""
         if not self.enabled:
             health = "disabled"
+        elif self.mode == "webhook":
+            health = "webhook_active"
         elif not self.running:
             health = "stopped" if self._polling_health not in {"auth_failed", "conflict"} else self._polling_health
         else:
@@ -215,8 +336,9 @@ class TelegramChatBridge:
                 poll_iso = None
 
         return {
-            "configured": self.enabled,
+            "configured": bool(self.config.telegram_bot_token and self.config.telegram_chat_id),
             "enabled": self.enabled,
+            "mode": self.mode,
             "running": self.running,
             "polling_health": health,
             "last_successful_poll_at": poll_iso,
@@ -227,7 +349,7 @@ class TelegramChatBridge:
         }
 
     def start(self) -> None:
-        if self.enabled and not self.running:
+        if self.enabled and self.mode == "polling" and not self.running:
             self._task = asyncio.create_task(self._run(), name="matrix-telegram")
 
     async def stop(self) -> None:
@@ -267,6 +389,9 @@ class TelegramChatBridge:
         processes pending messages, and advances the persistent offset watermark.
         """
         if not self.enabled:
+            return 0
+        if self.mode != "polling":
+            log.info("Telegram bridge mode is '%s'; sync_once skipped getUpdates to avoid webhook conflict.", self.mode)
             return 0
         close_client = False
         if self._client is None:
@@ -311,6 +436,62 @@ class TelegramChatBridge:
                 await self._client.aclose()
                 self._client = None
         return processed
+
+    async def ingest_update(
+        self,
+        update: dict[str, Any],
+        *,
+        secret_token: str | None = None,
+    ) -> bool:
+        """Ingest and execute a single webhook update delivered from Cloudflare / repository_dispatch.
+
+        Validates webhook secret token, validates integer update_id, checks deduplication
+        against the persistent watermark, executes the command or task, and updates state.
+        """
+        if not self.enabled:
+            log.warning("Telegram bridge is disabled; cannot ingest update.")
+            return False
+
+        configured_secret = getattr(self.config, "telegram_webhook_secret", None)
+        if configured_secret:
+            if not secret_token or secret_token.strip() != configured_secret.strip():
+                self.store.audit(
+                    "telegram.webhook_secret_rejected",
+                    actor="telegram",
+                    status="blocked",
+                    detail={"reason": "secret_token_mismatch"},
+                )
+                raise ValidationFailure("Telegram webhook secret token mismatch.")
+
+        update_id = update.get("update_id")
+        if not isinstance(update_id, int):
+            raise ValidationFailure("Telegram update is missing a valid integer update_id.")
+
+        saved_offset = self.store.get_system_flag("telegram_update_offset")
+        if saved_offset is not None:
+            try:
+                if update_id <= int(saved_offset):
+                    idempotency_key = str(update_id)
+                    existing_task = self.store.get_idempotent_task_id("telegram.update", idempotency_key)
+                    if existing_task:
+                        log.info("Telegram update %d already processed (task %s); deduplicated.", update_id, existing_task)
+                        return True
+            except (ValueError, TypeError):
+                pass
+
+        close_client = False
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0))
+            close_client = True
+        try:
+            self._restore_offset()
+            self._restore_pending_reports()
+            await self._process_update(update)
+            return True
+        finally:
+            if close_client and self._client is not None:
+                await self._client.aclose()
+                self._client = None
 
     async def _api(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         assert self._client is not None
@@ -1112,3 +1293,12 @@ class TelegramChatBridge:
                 detail={"error": type(exc).__name__},
             )
             log.warning("Telegram task report failed: %s", type(exc).__name__)
+
+
+__all__ = [
+    "TelegramChatBridge",
+    "telegram_delete_webhook",
+    "telegram_get_webhook_info",
+    "telegram_preflight",
+    "telegram_set_webhook",
+]

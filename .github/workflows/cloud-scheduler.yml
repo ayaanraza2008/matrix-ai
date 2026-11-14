@@ -61,6 +61,9 @@ jobs:
         env:
           MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
           MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
+          MATRIX_TELEGRAM_MODE: ${{ secrets.MATRIX_TELEGRAM_MODE || 'polling' }}
+          MATRIX_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.MATRIX_TELEGRAM_WEBHOOK_SECRET }}
+          DISPATCH_PAYLOAD: ${{ toJson(github.event.client_payload) }}
           MATRIX_GEMINI_API_KEY: ${{ secrets.MATRIX_GEMINI_API_KEY }}
           MATRIX_ALLOW_CLOUD_MODELS: ${{ secrets.MATRIX_ALLOW_CLOUD_MODELS || 'true' }}
           MATRIX_MODEL_PROVIDER: ${{ secrets.MATRIX_MODEL_PROVIDER || (secrets.MATRIX_GEMINI_API_KEY != '' && 'gemini') || 'none' }}

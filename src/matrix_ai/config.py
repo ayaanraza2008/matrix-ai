@@ -197,6 +197,8 @@ class MatrixConfig:
     github_token: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    telegram_mode: str = "polling"  # polling | webhook | disabled
+    telegram_webhook_secret: str | None = None
     home_assistant_url: str | None = None
     home_assistant_token: str | None = None
     google_credentials_path: str | None = None
@@ -268,6 +270,8 @@ class MatrixConfig:
             self.model_provider = "none"
         if self.model_fallback_provider == "gemini" and not self.gemini_api_key:
             self.model_fallback_provider = "none"
+        if self.telegram_mode not in {"polling", "webhook", "disabled"}:
+            raise ConfigError("MATRIX_TELEGRAM_MODE must be one of: polling, webhook, disabled")
         if "freellmapi" in {self.model_provider, self.model_fallback_provider}:
             parsed_freellmapi_url = urlsplit(self.freellmapi_url)
             freellmapi_host = parsed_freellmapi_url.hostname
@@ -480,6 +484,8 @@ class MatrixConfig:
             "autonomy_level": self.autonomy_level,
             "approval_ttl_seconds": self.approval_ttl_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "telegram_mode": self.telegram_mode,
+            "telegram_webhook_secret_present": bool(self.telegram_webhook_secret),
             "notification_routing": {
                 "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
                 "quiet_hours_start": self.notification_quiet_hours_start,
@@ -585,6 +591,8 @@ class MatrixConfig:
             github_token=_env("MATRIX_GITHUB_TOKEN"),
             telegram_bot_token=_env("MATRIX_TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_env("MATRIX_TELEGRAM_CHAT_ID"),
+            telegram_mode=(_env("MATRIX_TELEGRAM_MODE", "polling") or "polling").lower(),
+            telegram_webhook_secret=_env("MATRIX_TELEGRAM_WEBHOOK_SECRET"),
             home_assistant_url=_env("MATRIX_HOME_ASSISTANT_URL"),
             home_assistant_token=_env("MATRIX_HOME_ASSISTANT_TOKEN"),
             google_credentials_path=_env("MATRIX_GOOGLE_CREDENTIALS"),
