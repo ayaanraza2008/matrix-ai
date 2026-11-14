@@ -265,7 +265,9 @@ class MatrixConfig:
         if self.model_fallback_provider not in {"none", "ollama", "openai", "freellmapi", "gemini"}:
             raise ConfigError("MATRIX_MODEL_FALLBACK_PROVIDER must be one of: none, ollama, openai, freellmapi, gemini")
         if self.model_provider == "gemini" and not self.gemini_api_key:
-            raise ConfigError("MATRIX_GEMINI_API_KEY is required when MATRIX_MODEL_PROVIDER=gemini")
+            self.model_provider = "none"
+        if self.model_fallback_provider == "gemini" and not self.gemini_api_key:
+            self.model_fallback_provider = "none"
         if "freellmapi" in {self.model_provider, self.model_fallback_provider}:
             parsed_freellmapi_url = urlsplit(self.freellmapi_url)
             freellmapi_host = parsed_freellmapi_url.hostname
@@ -525,13 +527,21 @@ class MatrixConfig:
         if raw_roots:
             roots = tuple(Path(part.strip()) for part in raw_roots.split(";") if part.strip())
 
+        gemini_api_key = _env("MATRIX_GEMINI_API_KEY") or _env("GEMINI_API_KEY")
+        model_provider = (_env("MATRIX_MODEL_PROVIDER", "none") or "none").lower()
+        if model_provider == "gemini" and not gemini_api_key:
+            model_provider = "none"
+        model_fallback = (_env("MATRIX_MODEL_FALLBACK_PROVIDER", "none") or "none").lower()
+        if model_fallback == "gemini" and not gemini_api_key:
+            model_fallback = "none"
+
         return cls(
             home=default_home(),
             host=_env("MATRIX_HOST", "127.0.0.1") or "127.0.0.1",
             port=_env_int("MATRIX_PORT", 8765),
             owner_token=_env("MATRIX_OWNER_TOKEN"),
-            model_provider=(_env("MATRIX_MODEL_PROVIDER", "none") or "none").lower(),
-            model_fallback_provider=(_env("MATRIX_MODEL_FALLBACK_PROVIDER", "none") or "none").lower(),
+            model_provider=model_provider,
+            model_fallback_provider=model_fallback,
             model_name=_env("MATRIX_MODEL_NAME", "qwen2.5:0.5b-instruct-q4_K_M") or "qwen2.5:0.5b-instruct-q4_K_M",
             ollama_url=_env("MATRIX_OLLAMA_URL", "http://127.0.0.1:11434") or "http://127.0.0.1:11434",
             openai_base_url=_env("MATRIX_OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")

@@ -63,7 +63,7 @@ jobs:
           MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
           MATRIX_GEMINI_API_KEY: ${{ secrets.MATRIX_GEMINI_API_KEY }}
           MATRIX_ALLOW_CLOUD_MODELS: ${{ secrets.MATRIX_ALLOW_CLOUD_MODELS || 'true' }}
-          MATRIX_MODEL_PROVIDER: ${{ secrets.MATRIX_MODEL_PROVIDER || 'gemini' }}
+          MATRIX_MODEL_PROVIDER: ${{ secrets.MATRIX_MODEL_PROVIDER || (secrets.MATRIX_GEMINI_API_KEY != '' && 'gemini') || 'none' }}
           MATRIX_MODEL_FALLBACK_PROVIDER: ${{ secrets.MATRIX_MODEL_FALLBACK_PROVIDER || 'none' }}
           SYNC_TELEGRAM: ${{ inputs.sync_telegram != false }}
           MAX_TASKS: ${{ inputs.max_tasks || 20 }}
