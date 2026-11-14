@@ -82,6 +82,25 @@ async def test_telegram_failed_update_does_not_advance_offset():
     assert store.flags["telegram_update_offset"] == "100"
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_enqueue_does_not_start_received_task_during_emergency_stop(runtime):
+    task_id = runtime.orchestrator.create_task(
+        request="Must remain queued while emergency stop is active",
+        user_id="owner",
+        kind="chat",
+    )
+    runtime.store.set_emergency_stop(True)
+
+    await runtime.orchestrator.enqueue(task_id)
+
+    assert runtime.orchestrator.running_count == 0
+    assert runtime.store.task_view(task_id).state is TaskState.RECEIVED
+    assert any(
+        args[0] == "task.enqueue_blocked" and kwargs.get("task_id") == task_id
+        for args, kwargs in runtime.store.audit_events()
+    )
+
+
 def test_replayed_telegram_task_is_idempotent_even_after_emergency_stop(runtime):
     kwargs = {
         "request": "Open calculator",
