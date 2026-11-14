@@ -593,7 +593,7 @@ async def test_telegram_registers_supported_commands_in_bot_menu(tmp_path):
     method, payload = calls[0]
     assert method == "setMyCommands"
     names = {item["command"] for item in payload["commands"]}
-    assert names == {"start", "help", "status", "health", "tasks", "task", "cancel", "stop", "resume"}
+    assert names == {"start", "help", "status", "health", "tasks", "run", "task", "cancel", "stop", "resume"}
 
 
 async def test_telegram_command_menu_failure_does_not_disable_polling(tmp_path):

@@ -138,14 +138,16 @@ class MatrixConfig:
     max_file_bytes: int = 1_000_000
     max_listing_entries: int = 200
 
-    model_provider: str = "none"  # none | ollama | openai | freellmapi
-    model_fallback_provider: str = "none"  # none | ollama | openai | freellmapi
+    model_provider: str = "none"  # none | ollama | openai | freellmapi | gemini
+    model_fallback_provider: str = "none"  # none | ollama | openai | freellmapi | gemini
     model_name: str = "qwen2.5:0.5b-instruct-q4_K_M"
     ollama_url: str = "http://127.0.0.1:11434"
     openai_base_url: str = "http://127.0.0.1:8080/v1"
     openai_api_key: str | None = None
     freellmapi_url: str = "http://127.0.0.1:3001/v1"
     freellmapi_api_key: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-1.5-flash"
     allow_cloud_models: bool = False
     model_ram_budget_mb: int = 2500
     model_request_timeout_s: float = 60.0
@@ -258,10 +260,12 @@ class MatrixConfig:
             or not _is_local_host(parsed_youtube_url.hostname)
         ):
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
-        if self.model_provider not in {"none", "ollama", "openai", "freellmapi"}:
-            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi")
-        if self.model_fallback_provider not in {"none", "ollama", "openai", "freellmapi"}:
-            raise ConfigError("MATRIX_MODEL_FALLBACK_PROVIDER must be one of: none, ollama, openai, freellmapi")
+        if self.model_provider not in {"none", "ollama", "openai", "freellmapi", "gemini"}:
+            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi, gemini")
+        if self.model_fallback_provider not in {"none", "ollama", "openai", "freellmapi", "gemini"}:
+            raise ConfigError("MATRIX_MODEL_FALLBACK_PROVIDER must be one of: none, ollama, openai, freellmapi, gemini")
+        if self.model_provider == "gemini" and not self.gemini_api_key:
+            raise ConfigError("MATRIX_GEMINI_API_KEY is required when MATRIX_MODEL_PROVIDER=gemini")
         if "freellmapi" in {self.model_provider, self.model_fallback_provider}:
             parsed_freellmapi_url = urlsplit(self.freellmapi_url)
             freellmapi_host = parsed_freellmapi_url.hostname
@@ -457,7 +461,10 @@ class MatrixConfig:
             "workspace_dir": str(self.workspace_dir),
             "file_roots": [str(p) for p in self.file_roots],
             "model_provider": self.model_provider,
+            "model_fallback_provider": self.model_fallback_provider,
             "model_name": self.model_name,
+            "gemini_model": self.gemini_model,
+            "gemini_configured": bool(self.gemini_api_key),
             "allow_cloud_models": self.allow_cloud_models,
             "model_ram_budget_mb": self.model_ram_budget_mb,
             "model_max_concurrent_requests": self.model_max_concurrent_requests,
@@ -533,6 +540,8 @@ class MatrixConfig:
             freellmapi_url=_env("MATRIX_FREELLMAPI_URL", "http://127.0.0.1:3001/v1")
             or "http://127.0.0.1:3001/v1",
             freellmapi_api_key=_env("MATRIX_FREELLMAPI_API_KEY"),
+            gemini_api_key=_env("MATRIX_GEMINI_API_KEY") or _env("GEMINI_API_KEY"),
+            gemini_model=_env("MATRIX_GEMINI_MODEL", "gemini-1.5-flash") or "gemini-1.5-flash",
             allow_cloud_models=_env_bool("MATRIX_ALLOW_CLOUD_MODELS", False),
             model_ram_budget_mb=_env_int("MATRIX_MODEL_RAM_BUDGET_MB", 2500),
             model_max_concurrent_requests=_env_int("MATRIX_MODEL_MAX_CONCURRENT_REQUESTS", 1),

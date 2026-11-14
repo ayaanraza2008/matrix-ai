@@ -300,6 +300,22 @@ class Orchestrator:
     def running_count(self) -> int:
         return sum(1 for runner in self._runners.values() if not runner.done())
 
+    async def drain(self, *, timeout: float = 60.0) -> int:
+        """Wait for active runners to finish executing up to `timeout` seconds.
+
+        Returns the number of tasks that completed execution during the drain window.
+        """
+        deadline = time.monotonic() + timeout
+        completed = 0
+        while time.monotonic() < deadline:
+            active = [runner for runner in self._runners.values() if not runner.done()]
+            if not active:
+                break
+            remaining = max(0.1, deadline - time.monotonic())
+            done, _ = await asyncio.wait(active, timeout=min(remaining, 1.0))
+            completed += len(done)
+        return completed
+
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------

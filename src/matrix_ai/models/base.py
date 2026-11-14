@@ -372,6 +372,111 @@ class FreeLLMAPIProvider(ModelProvider):
         return ProviderHealth(configured=True, reachable=True, status="working")
 
 
+class GeminiProvider(ModelProvider):
+    """Google Gemini model provider using Google's OpenAI-compatible endpoint.
+
+    Google Gemini provides a free tier for developers with high capability
+    (gemini-1.5-flash / gemini-2.0-flash). Since requests leave the host,
+    explicit cloud model consent (MATRIX_ALLOW_CLOUD_MODELS=true) is required.
+    """
+
+    provider_name = "gemini"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    def __init__(self, config: MatrixConfig) -> None:
+        super().__init__(config)
+        self.model = config.gemini_model or "gemini-1.5-flash"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.gemini_api_key)
+
+    def _guard_cloud(self) -> None:
+        if not self.config.allow_cloud_models:
+            raise ModelUnavailable(
+                "Google Gemini is a cloud provider requiring explicit consent. "
+                "Set MATRIX_ALLOW_CLOUD_MODELS=true to acknowledge prompts leave this device."
+            )
+
+    async def complete(self, messages, *, temperature=0.2, max_tokens=512, json_mode=False):
+        if not self.configured:
+            raise ModelUnavailable("Google Gemini is not configured. Set MATRIX_GEMINI_API_KEY.")
+        self._guard_cloud()
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.gemini_api_key}",
+        }
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [message.to_dict() for message in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.config.model_request_timeout_s) as client:
+                response = await client.post(
+                    f"{self.BASE_URL}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            raise ModelUnavailable(f"Google Gemini is unreachable: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            raise ModelUnavailable(f"Google Gemini returned HTTP {response.status_code}")
+        try:
+            data = response.json()
+            text = data["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise ModelUnavailable("Google Gemini returned an unexpected payload") from exc
+        latency = (time.perf_counter() - started) * 1000
+        self.last_latency_ms = latency
+        if not isinstance(text, str) or not text.strip():
+            raise ModelUnavailable("Google Gemini returned an empty completion")
+        return ModelResponse(text=text, provider="gemini", model=self.model, latency_ms=latency)
+
+    async def _probe(self) -> ProviderHealth:
+        if not self.configured:
+            return ProviderHealth(
+                configured=False,
+                reachable=False,
+                status="unconfigured",
+                detail="Set MATRIX_GEMINI_API_KEY to enable Google Gemini free tier.",
+            )
+        if not self.config.allow_cloud_models:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="blocked",
+                detail="Google Gemini is configured but blocked until MATRIX_ALLOW_CLOUD_MODELS=true.",
+            )
+        headers = {"Authorization": f"Bearer {self.config.gemini_api_key}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/models",
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="unavailable",
+                detail=f"Google Gemini not reachable ({type(exc).__name__})",
+            )
+        if response.status_code != 200:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="degraded",
+                detail=f"HTTP {response.status_code}",
+            )
+        return ProviderHealth(configured=True, reachable=True, status="working")
+
+
 def build_provider(config: MatrixConfig, provider_name: str | None = None) -> ModelProvider:
     name = (provider_name or config.model_provider).lower()
     if name == "ollama":
@@ -380,6 +485,8 @@ def build_provider(config: MatrixConfig, provider_name: str | None = None) -> Mo
         return OpenAICompatibleProvider(config)
     if name == "freellmapi":
         return FreeLLMAPIProvider(config)
+    if name == "gemini":
+        return GeminiProvider(config)
     return NoModelProvider(config)
 
 
@@ -391,6 +498,7 @@ __all__ = [
     "OllamaProvider",
     "OpenAICompatibleProvider",
     "FreeLLMAPIProvider",
+    "GeminiProvider",
     "ProviderHealth",
     "build_provider",
     "is_local_endpoint",

@@ -64,6 +64,20 @@ def _parser() -> argparse.ArgumentParser:
 
     startup = sub.add_parser("startup", help="manage per-user Windows logon startup")
     startup.add_argument("action", choices=["status", "install", "uninstall"])
+
+    cloud_step = sub.add_parser("cloud-step", help="run a single autonomous VPS-free execution step")
+    cloud_step.add_argument("--state-branch", default="matrix-data", help="Git branch for durable state")
+    cloud_step.add_argument("--pull-state", action=argparse.BooleanOptionalAction, default=True, help="fetch state before execution")
+    cloud_step.add_argument("--push-state", action=argparse.BooleanOptionalAction, default=True, help="persist state after execution")
+    cloud_step.add_argument("--sync-telegram", action=argparse.BooleanOptionalAction, default=True, help="sync Telegram updates in batch")
+    cloud_step.add_argument("--max-tasks", type=int, default=20, help="max Telegram updates/tasks to process")
+    cloud_step.add_argument("--drain-timeout", type=float, default=45.0, help="max seconds to wait for active tasks")
+    cloud_step.add_argument("--markdown", action="store_true", help="output GitHub Step Summary markdown")
+
+    state_sync = sub.add_parser("state-sync", help="pull or push state from Git orphan branch")
+    state_sync.add_argument("action", choices=["pull", "push", "status"])
+    state_sync.add_argument("--branch", default="matrix-data", help="orphan state branch name")
+    state_sync.add_argument("--remote", default="origin", help="git remote name")
     return parser
 
 
@@ -178,6 +192,61 @@ def _backup(out: str | None) -> int:
         asyncio.run(runtime.shutdown())
 
 
+async def _cloud_step(args: argparse.Namespace) -> int:
+    from .cloud_native import run_cloud_step
+
+    config = MatrixConfig.from_env()
+    result = await run_cloud_step(
+        config=config,
+        state_branch=args.state_branch,
+        pull_state_enabled=args.pull_state,
+        push_state_enabled=args.push_state,
+        sync_telegram_enabled=args.sync_telegram,
+        max_tasks=args.max_tasks,
+        drain_timeout=args.drain_timeout,
+    )
+    if args.markdown:
+        print(result.summary_markdown())
+    else:
+        print(json.dumps(result.to_dict(), indent=2))
+    return 1 if result.error else 0
+
+
+def _state_sync(args: argparse.Namespace) -> int:
+    from .cloud_native import GitStateSync
+
+    config = MatrixConfig.from_env()
+    sync = GitStateSync(branch=args.branch)
+    if not config.db_path:
+        print("error: config.db_path is not defined", file=sys.stderr)
+        return 1
+
+    if args.action == "status":
+        exists = sync.check_remote_branch_exists(remote=args.remote)
+        integrity = sync.verify_integrity(config.db_path)
+        print(json.dumps({
+            "branch": args.branch,
+            "remote": args.remote,
+            "remote_branch_exists": exists,
+            "local_db": str(config.db_path),
+            "local_db_exists": config.db_path.exists(),
+            "local_db_integrity": integrity,
+        }, indent=2))
+        return 0
+
+    if args.action == "pull":
+        success = sync.pull_state(config.db_path, remote=args.remote)
+        print(f"State pull: {'success' if success else 'failed/not found'}")
+        return 0 if success else 1
+
+    if args.action == "push":
+        success = sync.push_state(config.db_path, remote=args.remote)
+        print(f"State push: {'success' if success else 'failed'}")
+        return 0 if success else 1
+
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -241,6 +310,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             finally:
                 asyncio.run(runtime.shutdown())
+
+        if args.command == "cloud-step":
+            return asyncio.run(_cloud_step(args))
+
+        if args.command == "state-sync":
+            return _state_sync(args)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

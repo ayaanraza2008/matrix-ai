@@ -249,6 +249,69 @@ class TelegramChatBridge:
             await self._client.aclose()
             self._client = None
 
+    async def flush_reports(self, *, timeout: float = 10.0) -> int:
+        """Wait for active task report watchers to finish delivering reports before shutting down."""
+        active = [t for t in self._report_tasks if not t.done()]
+        if not active:
+            return 0
+        try:
+            await asyncio.wait(active, timeout=timeout)
+        except Exception:
+            pass
+        return sum(1 for t in active if t.done())
+
+    async def sync_once(self, *, max_updates: int = 50, timeout: float = 10.0) -> int:
+        """Process a bounded batch of Telegram updates once and exit (VPS-free / batch mode).
+
+        Never claims continuous polling. Restores watermark, registers commands,
+        processes pending messages, and advances the persistent offset watermark.
+        """
+        if not self.enabled:
+            return 0
+        close_client = False
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(timeout + 5.0, connect=8.0))
+            close_client = True
+        processed = 0
+        try:
+            self._restore_offset()
+            self._restore_pending_reports()
+            await self._register_commands()
+            payload: dict[str, Any] = {
+                "timeout": 0,
+                "limit": min(max(max_updates, 1), 100),
+                "allowed_updates": ["message"],
+            }
+            if self._offset is not None:
+                payload["offset"] = self._offset
+            data = await self._api("getUpdates", payload)
+            self._last_successful_poll_at = time.time()
+            self._consecutive_failures = 0
+            self._last_error = None
+            self._polling_health = "healthy"
+
+            for update in data.get("result", []):
+                update_id = update.get("update_id")
+                try:
+                    await self._process_update(update)
+                    processed += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    self.store.audit(
+                        "telegram.update_failed",
+                        actor="telegram",
+                        status="failed",
+                        detail={"error": type(exc).__name__, "update_id": update_id},
+                    )
+                    log.warning("Telegram update failed: %s", type(exc).__name__)
+                    break
+        finally:
+            if close_client and self._client is not None:
+                await self._client.aclose()
+                self._client = None
+        return processed
+
     async def _api(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         assert self._client is not None
         token = self.config.telegram_bot_token
@@ -348,6 +411,7 @@ class TelegramChatBridge:
             {"command": "status", "description": "Show system and task status"},
             {"command": "health", "description": "Show system and model health"},
             {"command": "tasks", "description": "List recent Telegram tasks"},
+            {"command": "run", "description": "Execute a natural language task"},
             {"command": "task", "description": "Inspect a task by ID"},
             {"command": "cancel", "description": "Cancel a Telegram task by ID"},
             {"command": "stop", "description": "Activate emergency stop"},
@@ -538,7 +602,8 @@ class TelegramChatBridge:
         command_args = args[1].strip() if len(args) > 1 else ""
         if command == "/help":
             await self._send(
-                "Send any task as a normal message.\n"
+                "Send any task as a normal message or use commands:\n"
+                "/run <instruction> — execute an autonomous task\n"
                 "/status — system health and active task counts\n"
                 "/health — system health and model status\n"
                 "/tasks — recent Telegram tasks\n"
@@ -800,7 +865,16 @@ class TelegramChatBridge:
             self.store.set_emergency_stop(False, actor="telegram-owner")
             await self._send("Emergency stop cleared. New tasks may be accepted under the configured policy.")
             return
-        if command.startswith("/"):
+        if command == "/run":
+            if not command_args:
+                await self._send(
+                    "Usage: /run <instruction>\n"
+                    "Execute an autonomous task with natural-language instructions.\n"
+                    "Example: /run Check system health and summarize active tasks"
+                )
+                return
+            text = command_args
+        elif command.startswith("/"):
             await self._send("Unknown command. Send /help for available commands.")
             return
 
@@ -867,10 +941,23 @@ class TelegramChatBridge:
 
         # Acknowledge only after durable task creation and queue submission.
         # If Telegram send fails, replay resolves to this same task ID.
-        await self._send(f"Received. MATRIX task: {task_id}")
+        prefix = "1. Command received: /run\n" if command == "/run" else "1. Command received.\n"
+        await self._send(f"{prefix}2. Task queued: ID {task_id}\nReceived. MATRIX task: {task_id}")
         if view.state in TERMINAL_TASK_STATES:
             result = view.summary or view.error or f"Task finished: {view.state.value}"
-            await self._send(f"MATRIX {view.state.value}:\\n{result}")
+            if view.state is TaskState.COMPLETE:
+                await self._send(f"3. Task executed successfully:\nMATRIX {view.state.value}:\n{result}")
+            elif view.state is TaskState.FAILED:
+                await self._send(f"4. Task failed:\nMATRIX {view.state.value}:\n{result}")
+            else:
+                await self._send(f"MATRIX {view.state.value}:\n{result}")
+        elif view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+            await self._send(
+                f"5. Task awaiting owner authorization in MATRIX dashboard:\n"
+                f"Task {task_id} needs owner approval for a protected action. "
+                "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
+            )
+            self._ensure_report_task(task_id)
         else:
             self._ensure_report_task(task_id)
 
@@ -992,6 +1079,7 @@ class TelegramChatBridge:
                 if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
                     if not approval_notified:
                         await self._send_report(
+                            f"5. Task awaiting owner authorization in MATRIX dashboard:\n"
                             f"Task {task_id} needs owner approval for a protected action. "
                             "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
                         )
@@ -999,7 +1087,16 @@ class TelegramChatBridge:
                     continue
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
-                    await self._send_report(f"MATRIX {view.state.value}:\n{result}")
+                    if view.state is TaskState.COMPLETE:
+                        await self._send_report(
+                            f"3. Task executed successfully:\nMATRIX {view.state.value}:\n{result}"
+                        )
+                    elif view.state is TaskState.FAILED:
+                        await self._send_report(
+                            f"4. Task failed:\nMATRIX {view.state.value}:\n{result}"
+                        )
+                    else:
+                        await self._send_report(f"MATRIX {view.state.value}:\n{result}")
                     return
             await self._send_report(
                 f"Task {task_id} is still running. Use /task {task_id} or the MATRIX dashboard for details."
