@@ -162,6 +162,41 @@ jobs:
         run: |
           test -n "$MATRIX_TELEGRAM_BOT_TOKEN" || { echo "::error::Add MATRIX_TELEGRAM_BOT_TOKEN in repository Actions secrets."; exit 1; }
           test -n "$MATRIX_TELEGRAM_CHAT_ID" || { echo "::error::Add MATRIX_TELEGRAM_CHAT_ID in repository Actions secrets."; exit 1; }
+      - name: Verify configured Telegram bot identity
+        env:
+          MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
+          MATRIX_TELEGRAM_EXPECTED_BOT_USERNAME: matrixai_v1_bot
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["MATRIX_TELEGRAM_BOT_TOKEN"]
+          expected = os.environ["MATRIX_TELEGRAM_EXPECTED_BOT_USERNAME"].lstrip("@")
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/getMe",
+              headers={"Accept": "application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  payload = json.load(response)
+          except Exception as exc:
+              raise SystemExit(
+                  f"Could not verify Telegram bot identity ({type(exc).__name__}); "
+                  "check the bot token and runner network."
+              ) from None
+          if not payload.get("ok"):
+              raise SystemExit("Telegram getMe rejected the configured bot token.")
+          actual = str((payload.get("result") or {}).get("username") or "")
+          if actual.casefold() != expected.casefold():
+              raise SystemExit(
+                  f"Bot-token mismatch: expected @{expected}, but configured token "
+                  f"belongs to @{actual or 'unknown'}. Update MATRIX_TELEGRAM_BOT_TOKEN "
+                  "to the token for @matrixai_v1_bot."
+              )
+          print(f"Verified configured Telegram bot identity: @{actual}")
+          PY
       - name: Send one harmless test message to the configured private chat
         env:
           MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
