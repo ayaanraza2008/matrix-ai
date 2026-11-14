@@ -142,6 +142,9 @@ jobs:
     name: Telegram real-bot preflight (opt-in)
     if: ${{ inputs.run_telegram_live }}
     runs-on: ubuntu-latest
+    # The owner configured both Telegram credentials in this GitHub Environment.
+    environment:
+      name: matrix TG
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
