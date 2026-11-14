@@ -34,6 +34,11 @@ class ModelManager:
         self.config = config
         self.store = store
         self.provider: ModelProvider = build_provider(config)
+        self.fallback_provider: ModelProvider | None = (
+            build_provider(config, config.model_fallback_provider)
+            if config.model_fallback_provider != "none"
+            else None
+        )
         self._last_used_at: float | None = None
         self._assume_loaded = False
         self.last_error: str | None = None
@@ -61,9 +66,35 @@ class ModelManager:
         json_mode: bool = False,
     ) -> ModelResponse:
         async with self._request_slots:
-            response = await self.provider.complete(
-                messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
-            )
+            try:
+                response = await self.provider.complete(
+                    messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
+                )
+            except ModelUnavailable as primary_err:
+                if self.fallback_provider is not None and self.fallback_provider.configured:
+                    try:
+                        response = await self.fallback_provider.complete(
+                            messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
+                        )
+                        if self.store is not None:
+                            self.store.audit(
+                                "model.fallback_used",
+                                actor="model",
+                                status="ok",
+                                detail={
+                                    "primary_provider": self.provider_name,
+                                    "primary_error": str(primary_err)[:200],
+                                    "fallback_provider": self.fallback_provider.provider_name,
+                                    "model": response.model,
+                                    "latency_ms": round(response.latency_ms, 1),
+                                },
+                            )
+                    except Exception as fallback_err:
+                        self.last_error = f"Primary failed: {primary_err}; Fallback failed: {fallback_err}"
+                        raise primary_err from fallback_err
+                else:
+                    self.last_error = str(primary_err)
+                    raise
         self._last_used_at = time.monotonic()
         self._assume_loaded = True
         self.last_error = None
@@ -148,6 +179,11 @@ class ModelManager:
             status = "degraded"
         else:
             status = health.status or "unavailable"
+        fallback_name = self.fallback_provider.provider_name if self.fallback_provider else None
+        fallback_st = None
+        if self.fallback_provider is not None:
+            fb_health = await self.fallback_provider.health()
+            fallback_st = fb_health.status
         return ModelStatusView(
             provider=self.provider_name,
             model=self.model_name if self.configured else "none",
@@ -159,6 +195,8 @@ class ModelManager:
             loaded=self._assume_loaded,
             last_latency_ms=self.provider.last_latency_ms,
             last_checked=health.checked_at or iso(utcnow()),
+            fallback_provider=fallback_name,
+            fallback_status=fallback_st,
         )
 
 

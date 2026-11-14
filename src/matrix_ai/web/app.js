@@ -405,6 +405,18 @@ function renderHealthCards() {
       sub: 'autonomy L' + ((STATE.settings && STATE.settings.autonomy_level) || 2),
       kind: STATE.emergency ? 'bad' : 'ok',
     },
+    {
+      label: 'Telegram',
+      value: (health.telegram && health.telegram.polling_health ? health.telegram.polling_health : 'disabled').toUpperCase(),
+      sub: health.telegram && health.telegram.configured ? (health.telegram.running ? 'polling active' : 'configured') : 'not configured',
+      kind: health.telegram && health.telegram.polling_health === 'healthy' ? 'ok' : (health.telegram && health.telegram.configured ? 'warn' : ''),
+    },
+    {
+      label: 'Workers / Queue',
+      value: (status.running_tasks || 0) + ' active',
+      sub: 'pool cap ' + ((STATE.settings && STATE.settings.agent_max_concurrent_workers) || 4) + ' workers',
+      kind: (status.running_tasks || 0) > 0 ? 'ok' : '',
+    },
   ];
   cards.forEach((card) => {
     const node = el('div', 'card ' + (card.kind || ''));

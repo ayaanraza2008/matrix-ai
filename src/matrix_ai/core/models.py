@@ -371,6 +371,8 @@ class ModelStatusView(BaseModel):
     loaded: bool = False
     last_latency_ms: float | None = None
     last_checked: str | None = None
+    fallback_provider: str | None = None
+    fallback_status: str | None = None
 
 
 class VoiceStatusView(BaseModel):

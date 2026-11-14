@@ -372,12 +372,13 @@ class FreeLLMAPIProvider(ModelProvider):
         return ProviderHealth(configured=True, reachable=True, status="working")
 
 
-def build_provider(config: MatrixConfig) -> ModelProvider:
-    if config.model_provider == "ollama":
+def build_provider(config: MatrixConfig, provider_name: str | None = None) -> ModelProvider:
+    name = (provider_name or config.model_provider).lower()
+    if name == "ollama":
         return OllamaProvider(config)
-    if config.model_provider == "openai":
+    if name == "openai":
         return OpenAICompatibleProvider(config)
-    if config.model_provider == "freellmapi":
+    if name == "freellmapi":
         return FreeLLMAPIProvider(config)
     return NoModelProvider(config)
 

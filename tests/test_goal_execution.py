@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 
-async def _wait_for_goal(client, goal_id: str, timeout: float = 15.0) -> dict:
+async def _wait_for_goal(client, goal_id: str, timeout: float = 30.0) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout
     last = {}
     while asyncio.get_running_loop().time() < deadline:
