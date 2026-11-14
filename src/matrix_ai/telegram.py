@@ -467,12 +467,23 @@ class TelegramChatBridge:
         if not isinstance(update_id, int):
             raise ValidationFailure("Telegram update is missing a valid integer update_id.")
 
+        # Durable idempotency check: if this update already created a terminal task in SQLite, deduplicate
+        idempotency_key = str(update_id)
+        existing_task = self.store.get_idempotent_task_id("telegram.update", idempotency_key)
+        if existing_task:
+            task_view = self.store.task_view(existing_task)
+            if task_view.state in TERMINAL_TASK_STATES:
+                log.info(
+                    "Telegram update %d already processed (terminal task %s); deduplicated.",
+                    update_id,
+                    existing_task,
+                )
+                return True
+
         saved_offset = self.store.get_system_flag("telegram_update_offset")
         if saved_offset is not None:
             try:
                 if update_id <= int(saved_offset):
-                    idempotency_key = str(update_id)
-                    existing_task = self.store.get_idempotent_task_id("telegram.update", idempotency_key)
                     if existing_task:
                         log.info("Telegram update %d already processed (task %s); deduplicated.", update_id, existing_task)
                         return True
@@ -537,8 +548,14 @@ class TelegramChatBridge:
         if not isinstance(update_id, int):
             raise ValueError("Telegram update is missing a valid update_id")
         await self._handle_update(update)
-        self._offset = update_id + 1
-        self.store.set_system_flag("telegram_update_offset", str(update_id))
+        saved = self.store.get_system_flag("telegram_update_offset")
+        try:
+            current_max = int(saved) if saved is not None else -1
+        except (ValueError, TypeError):
+            current_max = -1
+        new_max = max(current_max, update_id)
+        self._offset = new_max + 1
+        self.store.set_system_flag("telegram_update_offset", str(new_max))
 
     def _restore_pending_reports(self) -> int:
         """Reattach result watchers for recent, nonterminal Telegram-created tasks."""
@@ -729,7 +746,7 @@ class TelegramChatBridge:
                 self._client = None
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
-        message = update.get("message") or {}
+        message = update.get("message") or update.get("edited_message") or {}
         chat = message.get("chat") or {}
         sender = message.get("from") or {}
         text = (message.get("text") or "").strip()

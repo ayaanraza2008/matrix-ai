@@ -867,3 +867,95 @@ async def test_telegram_ingest_update_lifecycle_and_security(tmp_path):
     assert any(a[0][0] == "telegram.unauthorized_access" for a in store.audits)
     assert sent == []
 
+
+async def test_telegram_update_failure_does_not_advance_watermark(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.set_system_flag("telegram_update_offset", "100")
+
+    failing_update = {
+        "update_id": 105,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/run cause a crash",
+        },
+    }
+
+    async def fail_handle(_upd):
+        raise RuntimeError("Transient database lock")
+
+    bridge._handle_update = fail_handle
+
+    # Processing fails - must raise and NOT advance watermark
+    with pytest.raises(RuntimeError, match="Transient database lock"):
+        await bridge._process_update(failing_update)
+
+    # Watermark must remain at 100
+    assert store.get_system_flag("telegram_update_offset") == "100"
+
+
+async def test_telegram_duplicate_terminal_task_deduplication(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+
+    upd = {
+        "update_id": 201,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/run Finished task",
+        },
+    }
+
+    # First delivery: creates task
+    await bridge.ingest_update(upd)
+    assert len(orchestrator.created) == 1
+    task_id = orchestrator.created[0].get("id", "task-123")
+    store.idempotent_tasks[("telegram.update", "201")] = task_id
+    store.task_views[task_id] = SimpleNamespace(
+        state=TaskState.COMPLETE,
+        summary="Done successfully",
+        error=None,
+        original_request="/run Finished task",
+    )
+
+    # Second delivery (duplicate delivery from Telegram): deduplicated without new task
+    orchestrator.created.clear()
+    orchestrator.enqueued.clear()
+
+    res = await bridge.ingest_update(upd)
+    assert res is True
+    assert len(orchestrator.created) == 0
+    assert len(orchestrator.enqueued) == 0
+
+
+async def test_telegram_watermark_monotonic_progress(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.set_system_flag("telegram_update_offset", "700")
+
+    # 1. An out-of-order earlier update 690 must not regress the watermark backwards
+    upd_early = {
+        "update_id": 690,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/start",
+        },
+    }
+    await bridge._process_update(upd_early)
+    assert store.get_system_flag("telegram_update_offset") == "700"
+    assert bridge._offset == 701
+
+    # 2. A newer update 705 advances the watermark
+    upd_newer = {
+        "update_id": 705,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/start",
+        },
+    }
+    await bridge._process_update(upd_newer)
+    assert store.get_system_flag("telegram_update_offset") == "705"
+    assert bridge._offset == 706
+
+

@@ -8,33 +8,66 @@
  * 2. This Worker validates mandatory configuration (fails closed if any secret is unset).
  * 3. It verifies the secret token header (X-Telegram-Bot-Api-Secret-Token).
  * 4. It enforces strict owner authentication: private chat, matching sender ID and chat ID.
- * 5. It deduplicates replays using an in-memory update_id cache.
+ * 5. It checks if this update was already successfully dispatched (via optional KV or in-memory set).
  * 6. It triggers GitHub repository dispatch ('event_type': 'telegram-webhook') on your repo,
  *    passing the full update in client_payload.
- * 7. It awaits the GitHub response (expecting HTTP 204) and returns HTTP 502 to Telegram if
- *    dispatch fails, ensuring Telegram retries delivery if GitHub is temporarily unreachable.
- * 8. Never logs bot tokens, webhook secrets, or private message content.
+ * 7. It awaits the GitHub response (expecting HTTP 204). If GitHub dispatch fails, it returns
+ *    HTTP 502 to Telegram WITHOUT recording the update in the dispatched cache, ensuring
+ *    Telegram's automated webhook retries are NEVER suppressed.
+ * 8. ONLY after GitHub returns HTTP 204 is the update marked as successfully dispatched.
+ * 9. Never logs bot tokens, webhook secrets, or private message content.
  *
  * Environment Variables / Secrets required in Cloudflare Worker:
  * - TELEGRAM_SECRET_TOKEN: Secret string configured with setWebhook (MANDATORY).
  * - TELEGRAM_OWNER_ID: Your numeric Telegram ID, e.g. 123456789 (MANDATORY).
  * - GITHUB_REPO: "ayaanraza2008/matrix-ai" (Default: "ayaanraza2008/matrix-ai")
  * - GITHUB_TOKEN: GitHub fine-grained PAT with "Contents: write" or "Actions: write" (MANDATORY).
+ *
+ * Optional Durable Bindings:
+ * - MATRIX_WEBHOOK_KV: Cloudflare KV namespace binding for durable edge deduplication across isolates.
+ *   If not bound, the worker automatically falls back to ephemeral in-memory set deduplication.
+ *   Note: The authoritative source of truth for durable idempotency is MATRIX AI's SQLite database.
  */
 
-const RECENT_UPDATE_LIMIT = 1000;
-const recentUpdateIds = new Set();
+const RECENT_DISPATCHED_LIMIT = 1000;
+const recentDispatchedUpdateIds = new Set();
 
-function isDuplicate(updateId) {
-  if (recentUpdateIds.has(updateId)) {
-    return true;
+/**
+ * Check if update has already been successfully dispatched to GitHub.
+ * Reads from optional durable KV store first, then in-memory set.
+ */
+async function isAlreadyDispatched(env, updateId) {
+  if (env && env.MATRIX_WEBHOOK_KV && typeof env.MATRIX_WEBHOOK_KV.get === "function") {
+    try {
+      const val = await env.MATRIX_WEBHOOK_KV.get(`dispatched:${updateId}`);
+      if (val !== null) {
+        return true;
+      }
+    } catch {
+      // Non-fatal KV lookup error; fall back to in-memory cache
+    }
   }
-  recentUpdateIds.add(updateId);
-  if (recentUpdateIds.size > RECENT_UPDATE_LIMIT) {
-    const oldest = recentUpdateIds.values().next().value;
-    recentUpdateIds.delete(oldest);
+  return recentDispatchedUpdateIds.has(updateId);
+}
+
+/**
+ * Mark update as dispatched ONLY after GitHub repository_dispatch confirms HTTP 204.
+ */
+async function markAsDispatched(env, updateId) {
+  recentDispatchedUpdateIds.add(updateId);
+  if (recentDispatchedUpdateIds.size > RECENT_DISPATCHED_LIMIT) {
+    const oldest = recentDispatchedUpdateIds.values().next().value;
+    recentDispatchedUpdateIds.delete(oldest);
   }
-  return false;
+
+  if (env && env.MATRIX_WEBHOOK_KV && typeof env.MATRIX_WEBHOOK_KV.put === "function") {
+    try {
+      // 24 hour TTL for durable webhook deduplication
+      await env.MATRIX_WEBHOOK_KV.put(`dispatched:${updateId}`, "1", { expirationTtl: 86400 });
+    } catch {
+      // Non-fatal KV write error
+    }
+  }
 }
 
 export default {
@@ -48,10 +81,10 @@ export default {
 
     // 1. Mandatory Configuration Validation (Fail-Closed)
     // Never allow missing configuration to bypass authentication or fail silently.
-    const secretTokenConfig = env.TELEGRAM_SECRET_TOKEN ? String(env.TELEGRAM_SECRET_TOKEN).trim() : "";
-    const ownerIdConfig = env.TELEGRAM_OWNER_ID ? String(env.TELEGRAM_OWNER_ID).trim() : "";
-    const githubToken = env.GITHUB_TOKEN ? String(env.GITHUB_TOKEN).trim() : "";
-    const githubRepo = env.GITHUB_REPO ? String(env.GITHUB_REPO).trim() : "ayaanraza2008/matrix-ai";
+    const secretTokenConfig = env && env.TELEGRAM_SECRET_TOKEN ? String(env.TELEGRAM_SECRET_TOKEN).trim() : "";
+    const ownerIdConfig = env && env.TELEGRAM_OWNER_ID ? String(env.TELEGRAM_OWNER_ID).trim() : "";
+    const githubToken = env && env.GITHUB_TOKEN ? String(env.GITHUB_TOKEN).trim() : "";
+    const githubRepo = env && env.GITHUB_REPO ? String(env.GITHUB_REPO).trim() : "ayaanraza2008/matrix-ai";
 
     if (!secretTokenConfig || !ownerIdConfig || !githubToken) {
       // Configuration is incomplete - refuse requests securely without leaking details
@@ -93,8 +126,10 @@ export default {
       });
     }
 
-    // 4. Replay / Duplicate Protection
-    if (isDuplicate(payload.update_id)) {
+    // 4. Duplicate Check (Do NOT mark as dispatched yet!)
+    // If an earlier attempt was already successfully dispatched to GitHub, return 200 immediately
+    // so Telegram does not keep sending redundant webhook retries.
+    if (await isAlreadyDispatched(env, payload.update_id)) {
       return new Response(
         JSON.stringify({ status: "already_processed", update_id: payload.update_id }),
         {
@@ -152,6 +187,8 @@ export default {
 
       // GitHub repository_dispatch returns HTTP 204 No Content on success
       if (dispatchResp.status !== 204) {
+        // Dispatch failed! CRITICAL: Do NOT mark as dispatched!
+        // Return 502 Bad Gateway to Telegram so Telegram retries delivery.
         return new Response(
           JSON.stringify({
             error: "GitHub dispatch failed",
@@ -164,7 +201,12 @@ export default {
           }
         );
       }
+
+      // 7. Mark as dispatched ONLY AFTER confirmed HTTP 204 from GitHub
+      await markAsDispatched(env, payload.update_id);
     } catch {
+      // Network or fetch error! CRITICAL: Do NOT mark as dispatched!
+      // Return 502 to Telegram so Telegram retries delivery.
       return new Response(
         JSON.stringify({
           error: "GitHub dispatch network error",
@@ -177,7 +219,7 @@ export default {
       );
     }
 
-    // 7. Success: Return 200 OK to Telegram
+    // 8. Return 200 OK to Telegram
     return new Response(
       JSON.stringify({ status: "dispatched", update_id: payload.update_id }),
       {
