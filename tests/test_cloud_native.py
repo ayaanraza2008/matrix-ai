@@ -287,3 +287,160 @@ async def test_run_cloud_step_isolated(tmp_path: Path):
     assert result.fallback_provider == "none"
     assert result.tasks_completed == 0
     assert "MATRIX AI Cloud Execution Step" in result.summary_markdown()
+
+
+@pytest.mark.asyncio
+async def test_run_cloud_step_with_webhook_incoming_update(tmp_path: Path):
+    db_path = tmp_path / "matrix.db"
+    config = MatrixConfig(
+        home=tmp_path,
+        db_path=db_path,
+        model_provider="none",
+        telegram_bot_token="test-token",
+        telegram_chat_id="123456789",
+        telegram_mode="webhook",
+        telegram_webhook_secret="sec-123",
+    )
+
+    update_payload = {
+        "update_id": 999,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/status",
+        },
+    }
+
+    with patch("matrix_ai.telegram.TelegramChatBridge._send", new_callable=AsyncMock) as mock_send:
+        result = await run_cloud_step(
+            config=config,
+            repo_dir=tmp_path,
+            pull_state_enabled=False,
+            push_state_enabled=False,
+            sync_telegram_enabled=True,
+            incoming_update=update_payload,
+            webhook_secret="sec-123",
+            drain_timeout=1.0,
+        )
+
+        assert result.telegram_updates_processed == 1
+        assert result.error is None
+        assert mock_send.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_run_cloud_step_webhook_mode_scheduled_cron_does_not_poll(tmp_path: Path):
+    db_path = tmp_path / "matrix.db"
+    config = MatrixConfig(
+        home=tmp_path,
+        db_path=db_path,
+        model_provider="none",
+        telegram_bot_token="test-token",
+        telegram_chat_id="123456789",
+        telegram_mode="webhook",
+    )
+
+    with patch("matrix_ai.telegram.TelegramChatBridge._api", new_callable=AsyncMock) as mock_api:
+        result = await run_cloud_step(
+            config=config,
+            repo_dir=tmp_path,
+            pull_state_enabled=False,
+            push_state_enabled=False,
+            sync_telegram_enabled=True,
+            incoming_update=None,  # Scheduled cron run without incoming webhook
+            drain_timeout=1.0,
+        )
+
+        assert result.telegram_updates_processed == 0
+        assert result.error is None
+        # getUpdates must NEVER be called in webhook mode during scheduled cron runs
+        for call_args in mock_api.call_args_list:
+            assert call_args[0][0] != "getUpdates"
+
+
+def test_cli_cloud_step_with_ingest_update_and_dispatch_payload(tmp_path: Path, monkeypatch):
+    import json
+
+    from matrix_ai.cli import main as cli_main
+
+    monkeypatch.setenv("MATRIX_HOME", str(tmp_path))
+    monkeypatch.setenv("MATRIX_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("MATRIX_TELEGRAM_CHAT_ID", "123456789")
+    monkeypatch.setenv("MATRIX_TELEGRAM_MODE", "webhook")
+    monkeypatch.setenv("MATRIX_TELEGRAM_WEBHOOK_SECRET", "wh-secret")
+
+    called_kwargs = {}
+
+    async def fake_run_cloud_step(**kwargs):
+        called_kwargs.update(kwargs)
+        return CloudStepResult(
+            started_at="2026-11-14T12:00:00Z",
+            finished_at="2026-11-14T12:00:01Z",
+            duration_seconds=1.0,
+            recovered_tasks=0,
+            telegram_updates_processed=1,
+            tasks_completed=0,
+            reports_flushed=0,
+            state_pulled=False,
+            state_pushed=False,
+            primary_provider="none",
+            primary_status="mocked",
+            fallback_provider="none",
+            fallback_status="mocked",
+            active_tasks_remaining=0,
+            db_integrity="ok",
+        )
+
+    monkeypatch.setattr("matrix_ai.cloud_native.run_cloud_step", fake_run_cloud_step)
+
+    # 1. Via --ingest-update flag
+    payload_json = json.dumps({"update_id": 888, "update": {"update_id": 888, "message": {"text": "hello"}}})
+    exit_code = cli_main(["cloud-step", "--ingest-update", payload_json, "--no-pull-state", "--no-push-state"])
+    assert exit_code == 0
+    assert called_kwargs["incoming_update"] == {"update_id": 888, "message": {"text": "hello"}}
+    assert called_kwargs["webhook_secret"] == "wh-secret"
+
+    # 2. Via DISPATCH_PAYLOAD environment variable
+    monkeypatch.setenv("DISPATCH_PAYLOAD", json.dumps({"update_id": 777, "message": {"text": "from env"}}))
+    exit_code = cli_main(["cloud-step", "--no-pull-state", "--no-push-state"])
+    assert exit_code == 0
+    assert called_kwargs["incoming_update"] == {"update_id": 777, "message": {"text": "from env"}}
+
+
+def test_cloudflare_worker_security_contract():
+    worker_path = Path(__file__).resolve().parent.parent / "deploy" / "serverless" / "cloudflare_telegram_webhook_worker.js"
+    assert worker_path.exists()
+    content = worker_path.read_text(encoding="utf-8")
+
+    # 1. Mandatory secrets (fail-closed if missing)
+    assert "TELEGRAM_SECRET_TOKEN" in content
+    assert "TELEGRAM_OWNER_ID" in content
+    assert "GITHUB_TOKEN" in content
+    assert "!secretTokenConfig || !ownerIdConfig || !githubToken" in content
+    assert "status: 500" in content
+
+    # 2. Secret token header verification
+    assert "X-Telegram-Bot-Api-Secret-Token" in content
+    assert "status: 401" in content
+
+    # 3. Payload validation
+    assert "Number.isInteger(payload.update_id)" in content
+    assert "status: 400" in content
+
+    # 4. Replay deduplication
+    assert "recentUpdateIds" in content
+    assert "already_processed" in content
+
+    # 5. Strict sender & chat authentication
+    assert 'chatType !== "private"' in content
+    assert "status: 403" in content
+
+    # 6. GitHub dispatch status check
+    assert "dispatchResp.status !== 204" in content
+    assert "status: 502" in content
+
+    # 7. Zero logging of secrets or message text
+    assert "console.log(secret" not in content
+    assert "console.log(payload" not in content
+    assert "console.log(message.text" not in content
+

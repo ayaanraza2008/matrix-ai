@@ -186,3 +186,88 @@ def test_cli_telegram_preflight_fails_without_configuration(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert exit_code == 1
     assert json.loads(out)["preflight"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_preflight_succeeds_in_webhook_mode_with_active_webhook():
+    from matrix_ai.telegram import (
+        telegram_delete_webhook,
+        telegram_get_webhook_info,
+        telegram_set_webhook,
+    )
+
+    def webhook_router(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "getWebhookInfo" in url:
+            return httpx.Response(
+                200, json={"ok": True, "result": {"url": "https://worker.sub.workers.dev", "pending_update_count": 0}}
+            )
+        if "setWebhook" in url:
+            return httpx.Response(200, json={"ok": True, "description": "Webhook was set"})
+        if "deleteWebhook" in url:
+            return httpx.Response(200, json={"ok": True, "description": "Webhook was deleted"})
+        return _router(request)
+
+    transport = httpx.MockTransport(webhook_router)
+    cfg = SimpleNamespace(
+        telegram_bot_token=TOKEN,
+        telegram_chat_id=CHAT_ID,
+        telegram_mode="webhook",
+        telegram_webhook_secret="test-secret",
+    )
+
+    # 1. Preflight in webhook mode accepts existing webhook
+    report = await telegram_preflight(cfg, transport=transport)
+    assert report["preflight"] == "ok"
+    assert report["mode"] == "webhook"
+    assert report["webhook_active"] is True
+    assert report["webhook_url"] == "https://worker.sub.workers.dev"
+
+    # 2. telegram_get_webhook_info
+    info = await telegram_get_webhook_info(cfg, transport=transport)
+    assert info["url"] == "https://worker.sub.workers.dev"
+
+    # 3. telegram_set_webhook
+    res = await telegram_set_webhook(cfg, "https://worker.sub.workers.dev", transport=transport)
+    assert res["ok"] is True
+    assert res["url"] == "https://worker.sub.workers.dev"
+
+    # 4. telegram_set_webhook rejects non-https
+    with pytest.raises(ValidationFailure, match="HTTPS"):
+        await telegram_set_webhook(cfg, "http://insecure.com", transport=transport)
+
+    # 5. telegram_delete_webhook
+    del_res = await telegram_delete_webhook(cfg, transport=transport)
+    assert del_res["ok"] is True
+
+
+def test_cli_telegram_webhook_commands(monkeypatch, capsys):
+    monkeypatch.setenv("MATRIX_TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("MATRIX_TELEGRAM_CHAT_ID", CHAT_ID)
+    monkeypatch.setenv("MATRIX_HOME", "unused")
+
+    async def fake_info(cfg, transport=None):
+        return {"url": "https://cf.workers.dev", "pending_update_count": 0}
+
+    async def fake_set(cfg, url, *, secret_token=None, drop_pending_updates=False, transport=None):
+        return {"ok": True, "url": url}
+
+    async def fake_delete(cfg, *, drop_pending_updates=False, transport=None):
+        return {"ok": True, "description": "deleted"}
+
+    monkeypatch.setattr("matrix_ai.telegram.telegram_get_webhook_info", fake_info)
+    monkeypatch.setattr("matrix_ai.telegram.telegram_set_webhook", fake_set)
+    monkeypatch.setattr("matrix_ai.telegram.telegram_delete_webhook", fake_delete)
+
+    # status
+    assert cli_main(["telegram-webhook", "status"]) == 0
+    assert "https://cf.workers.dev" in capsys.readouterr().out
+
+    # set
+    assert cli_main(["telegram-webhook", "set", "--url", "https://cf.workers.dev"]) == 0
+    assert "https://cf.workers.dev" in capsys.readouterr().out
+
+    # delete
+    assert cli_main(["telegram-webhook", "delete"]) == 0
+    assert "deleted" in capsys.readouterr().out
+

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from matrix_ai.config import MatrixConfig
 from matrix_ai.core.models import TaskState
 from matrix_ai.security.ratelimit import RateLimiter
@@ -754,3 +756,114 @@ async def test_telegram_goal_replay_reuses_atomic_goal_and_task(tmp_path):
     assert len(store.idempotent_goals) == 1
     assert orchestrator.enqueued == ["goal-task-1", "goal-task-1"]
     assert store.flags["telegram_update_offset"] == "9123"
+
+
+async def test_telegram_operating_modes_and_webhook_sync(tmp_path):
+    config = MatrixConfig(
+        home=tmp_path,
+        telegram_bot_token="test-token",
+        telegram_chat_id="123456789",
+        telegram_mode="webhook",
+    )
+    store = FakeStore()
+    orchestrator = FakeOrchestrator()
+    bridge = TelegramChatBridge(config=config, orchestrator=orchestrator, store=store)
+
+    # 1. Mode and status
+    assert bridge.mode == "webhook"
+    assert bridge.status()["polling_health"] == "webhook_active"
+    assert bridge.status()["mode"] == "webhook"
+
+    # 2. start() does not start polling in webhook mode
+    bridge.start()
+    assert bridge.running is False
+
+    # 3. sync_once() returns 0 immediately without calling getUpdates
+    called_api = []
+    async def fake_api(method, payload):
+        called_api.append(method)
+        return {"ok": True}
+    bridge._api = fake_api
+
+    processed = await bridge.sync_once()
+    assert processed == 0
+    assert "getUpdates" not in called_api
+
+    # 4. disabled mode disables the bridge
+    disabled_config = MatrixConfig(
+        home=tmp_path,
+        telegram_bot_token="test-token",
+        telegram_chat_id="123456789",
+        telegram_mode="disabled",
+    )
+    disabled_bridge = TelegramChatBridge(config=disabled_config, orchestrator=orchestrator, store=store)
+    assert disabled_bridge.enabled is False
+    assert disabled_bridge.status()["polling_health"] == "disabled"
+
+
+async def test_telegram_ingest_update_lifecycle_and_security(tmp_path):
+    from matrix_ai.errors import ValidationFailure
+
+    config = MatrixConfig(
+        home=tmp_path,
+        telegram_bot_token="test-token",
+        telegram_chat_id="123456789",
+        telegram_mode="webhook",
+        telegram_webhook_secret="super-secret-token",
+    )
+    store = FakeStore()
+    orchestrator = FakeOrchestrator()
+    bridge = TelegramChatBridge(config=config, orchestrator=orchestrator, store=store)
+    sent = []
+    async def fake_send(text):
+        sent.append(text)
+    bridge._send = fake_send
+
+    valid_upd = {
+        "update_id": 501,
+        "message": {
+            "chat": {"id": 123456789, "type": "private"},
+            "from": {"id": 123456789},
+            "text": "/run Run diagnostic check",
+        },
+    }
+
+    # 1. Secret token mismatch raises ValidationFailure
+    with pytest.raises(ValidationFailure, match="secret token mismatch"):
+        await bridge.ingest_update(valid_upd, secret_token="wrong-secret")
+    assert any(a[0][0] == "telegram.webhook_secret_rejected" for a in store.audits)
+
+    # 2. Missing integer update_id raises ValidationFailure
+    with pytest.raises(ValidationFailure, match="update_id"):
+        await bridge.ingest_update({"message": {}}, secret_token="super-secret-token")
+
+    # 3. Valid owner update is processed and task created
+    res = await bridge.ingest_update(valid_upd, secret_token="super-secret-token")
+    assert res is True
+    assert orchestrator.created[0]["request"] == "Run diagnostic check"
+    assert orchestrator.enqueued == ["task-123"]
+    assert store.flags.get("telegram_update_offset") == "501"
+    assert any("Command received: /run" in s for s in sent)
+
+    # 4. Replay of same update_id deduplicates safely without creating a duplicate task
+    store.idempotent_tasks[("telegram.update", "501")] = "task-123"
+    res_replay = await bridge.ingest_update(valid_upd, secret_token="super-secret-token")
+    assert res_replay is True
+    # Still only 1 task created in orchestrator
+    assert len(orchestrator.created) == 1
+
+    # 5. Unauthorized sender update is blocked
+    unauth_upd = {
+        "update_id": 502,
+        "message": {
+            "chat": {"id": 999999999, "type": "private"},
+            "from": {"id": 999999999},
+            "text": "/status",
+        },
+    }
+    sent.clear()
+    res_unauth = await bridge.ingest_update(unauth_upd, secret_token="super-secret-token")
+    assert res_unauth is True
+    assert any(a[0][0] == "telegram.unauthorized_access" for a in store.audits)
+    assert sent == []
+

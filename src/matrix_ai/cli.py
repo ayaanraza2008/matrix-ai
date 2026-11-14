@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,6 +71,8 @@ def _parser() -> argparse.ArgumentParser:
     cloud_step.add_argument("--pull-state", action=argparse.BooleanOptionalAction, default=True, help="fetch state before execution")
     cloud_step.add_argument("--push-state", action=argparse.BooleanOptionalAction, default=True, help="persist state after execution")
     cloud_step.add_argument("--sync-telegram", action=argparse.BooleanOptionalAction, default=True, help="sync Telegram updates in batch")
+    cloud_step.add_argument("--ingest-update", default=None, help="raw JSON or @filepath containing incoming Telegram update (webhook dispatch)")
+    cloud_step.add_argument("--webhook-secret", default=None, help="Telegram webhook secret token for ingest verification")
     cloud_step.add_argument("--max-tasks", type=int, default=20, help="max Telegram updates/tasks to process")
     cloud_step.add_argument("--drain-timeout", type=float, default=45.0, help="max seconds to wait for active tasks")
     cloud_step.add_argument("--markdown", action="store_true", help="output GitHub Step Summary markdown")
@@ -78,6 +81,19 @@ def _parser() -> argparse.ArgumentParser:
     state_sync.add_argument("action", choices=["pull", "push", "status"])
     state_sync.add_argument("--branch", default="matrix-data", help="orphan state branch name")
     state_sync.add_argument("--remote", default="origin", help="git remote name")
+
+    tg_webhook = sub.add_parser("telegram-webhook", help="manage Telegram Bot API webhook configuration")
+    tg_webhook_sub = tg_webhook.add_subparsers(dest="webhook_action")
+
+    tg_webhook_sub.add_parser("status", help="retrieve current Telegram webhook status")
+
+    set_wh = tg_webhook_sub.add_parser("set", help="register webhook URL with Telegram")
+    set_wh.add_argument("--url", required=True, help="HTTPS webhook URL (e.g. Cloudflare Worker URL)")
+    set_wh.add_argument("--secret-token", default=None, help="secret token header for verification")
+    set_wh.add_argument("--drop-pending", action="store_true", help="drop pending Telegram updates")
+
+    del_wh = tg_webhook_sub.add_parser("delete", help="delete active webhook from Telegram")
+    del_wh.add_argument("--drop-pending", action="store_true", help="drop pending Telegram updates")
     return parser
 
 
@@ -196,12 +212,39 @@ async def _cloud_step(args: argparse.Namespace) -> int:
     from .cloud_native import run_cloud_step
 
     config = MatrixConfig.from_env()
+
+    # Ingest update from CLI flag or DISPATCH_PAYLOAD env var if present
+    incoming_update = None
+    raw_payload = args.ingest_update or os.getenv("DISPATCH_PAYLOAD")
+    if raw_payload:
+        raw_str = raw_payload.strip()
+        if raw_str.startswith("@"):
+            try:
+                raw_str = Path(raw_str[1:]).read_text(encoding="utf-8")
+            except OSError as exc:
+                logging.getLogger("matrix.cli").warning("Could not read update file %s: %s", raw_str[1:], exc)
+                raw_str = ""
+        if raw_str:
+            try:
+                parsed = json.loads(raw_str)
+                if isinstance(parsed, dict):
+                    if "update" in parsed and isinstance(parsed["update"], dict):
+                        incoming_update = parsed["update"]
+                    elif "update_id" in parsed:
+                        incoming_update = parsed
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("matrix.cli").warning("Could not parse incoming update JSON: %s", exc)
+
+    webhook_secret = args.webhook_secret or os.getenv("MATRIX_TELEGRAM_WEBHOOK_SECRET")
+
     result = await run_cloud_step(
         config=config,
         state_branch=args.state_branch,
         pull_state_enabled=args.pull_state,
         push_state_enabled=args.push_state,
         sync_telegram_enabled=args.sync_telegram,
+        incoming_update=incoming_update,
+        webhook_secret=webhook_secret,
         max_tasks=args.max_tasks,
         drain_timeout=args.drain_timeout,
     )
@@ -316,6 +359,41 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "state-sync":
             return _state_sync(args)
+
+        if args.command == "telegram-webhook":
+            from .telegram import (
+                telegram_delete_webhook,
+                telegram_get_webhook_info,
+                telegram_set_webhook,
+            )
+
+            action = getattr(args, "webhook_action", None)
+            if action == "status":
+                info = asyncio.run(telegram_get_webhook_info(config))
+                print(json.dumps(info, indent=2))
+                return 0
+            if action == "set":
+                res = asyncio.run(
+                    telegram_set_webhook(
+                        config,
+                        url=args.url,
+                        secret_token=args.secret_token,
+                        drop_pending_updates=args.drop_pending,
+                    )
+                )
+                print(json.dumps(res, indent=2))
+                return 0
+            if action == "delete":
+                res = asyncio.run(
+                    telegram_delete_webhook(
+                        config,
+                        drop_pending_updates=args.drop_pending,
+                    )
+                )
+                print(json.dumps(res, indent=2))
+                return 0
+            parser.parse_args(["telegram-webhook", "--help"])
+            return 1
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

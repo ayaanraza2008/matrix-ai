@@ -74,30 +74,97 @@ GitHub Actions runner filesystems are ephemeral (destroyed when the job finishes
 5. Works without switching branches or dirtying the working directory.
 
 ### C. Telegram Remote Control Center
-The Telegram bridge operates in both daemon long-polling mode (for local use) and single-shot batch mode (`TelegramChatBridge.sync_once()`):
-- **Lifecycle Differentiation:**
-  1. `1. Command received: /run <instruction>`
-  2. `2. Task queued: ID <task_id>`
-  3. `3. Task executed: <result>`
-  4. `4. Task failed: <error>`
-  5. `5. Task awaiting owner authorization in dashboard: <detail>`
-- **Supported Commands:**
-  - `/start` — Connect to MATRIX.
-  - `/help` — Display command documentation.
-  - `/status` — View system state, active tasks, emergency stop status.
-  - `/health` — Inspect database, model, and memory health.
-  - `/tasks` — List recent Telegram-submitted tasks.
-  - `/run <instruction>` — Submit a natural-language autonomous task.
-  - `/cancel <task-id>` — Cancel an active task.
-  - `/stop` — Immediate emergency stop.
-  - `/resume` — Clear emergency stop and resume processing.
-- **Security:** Rejects any update where chat ID or sender ID does not match the configured `MATRIX_TELEGRAM_CHAT_ID`.
+The Telegram bridge operates in three configurable modes (`MATRIX_TELEGRAM_MODE`):
+- **`polling` (default):** Uses Telegram `getUpdates` API. In local daemon mode, it runs continuous long-polling. In cloud-scheduler mode, `sync_once()` pulls a single batch and advances the offset watermark.
+- **`webhook`:** Real-time push via Cloudflare Worker. Updates arrive via GitHub `repository_dispatch` and are processed immediately with `matrix cloud-step --ingest-update`. Scheduled 15-minute cron runs in webhook mode recover tasks, drain queue, and flush reports, but **strictly avoid calling `getUpdates`**, eliminating HTTP 409 Conflict.
+- **`disabled`:** Turns off Telegram bridge functionality completely.
 
-### D. Optional Real-Time Relay: Cloudflare Worker
-For users wanting sub-minute response times from Telegram without a VPS:
+#### Lifecycle Differentiation:
+1. `1. Command received: /run <instruction>`
+2. `2. Task queued: ID <task_id>`
+3. `3. Task executed: <result>`
+4. `4. Task failed: <error>`
+5. `5. Task awaiting owner authorization in dashboard: <detail>`
+
+#### Supported Commands:
+- `/start` — Connect to MATRIX.
+- `/help` — Display command documentation.
+- `/status` — View system state, active tasks, emergency stop status.
+- `/health` — Inspect database, model, and memory health.
+- `/tasks` — List recent Telegram-submitted tasks.
+- `/run <instruction>` — Submit a natural-language autonomous task.
+- `/cancel <task-id>` — Cancel an active task.
+- `/stop` — Immediate emergency stop.
+- `/resume` — Clear emergency stop and resume processing.
+
+#### Security & Deduplication:
+- Rejects any update where chat ID or sender ID does not match the configured `MATRIX_TELEGRAM_CHAT_ID`.
+- Update offset is tracked durably in SQLite with idempotent deduplication; duplicate updates cannot trigger duplicate tool executions.
+
+### D. Real-Time Relay: Cloudflare Worker (Zero Cost)
+For instantaneous response times from Telegram without running a VPS or personal PC:
 - Cloudflare Workers Free Tier provides **100,000 requests per day at $0 cost**.
-- The script `deploy/serverless/cloudflare_telegram_webhook_worker.js` validates Telegram's secret token and fires GitHub `repository_dispatch`.
-- Execution starts immediately upon message receipt.
+- The script `deploy/serverless/cloudflare_telegram_webhook_worker.js` validates Telegram's secret token, enforces fail-closed authentication, deduplicates update IDs, and fires GitHub `repository_dispatch`.
+- Execution starts in GitHub Actions runner within ~20-30 seconds of sending a message in Telegram.
+
+#### Cloudflare Worker Deployment Guide
+
+##### Step 1: Deploy Worker (Via Cloudflare Dashboard)
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com) -> **Compute (Workers & Pages)** -> **Create Application** -> **Create Worker**.
+2. Name the Worker (e.g. `matrix-telegram-relay`).
+3. Click **Deploy**.
+4. Click **Edit code**, replace the template with the contents of `deploy/serverless/cloudflare_telegram_webhook_worker.js`, and click **Deploy**.
+5. Note your Worker URL (e.g. `https://matrix-telegram-relay.<your-subdomain>.workers.dev`).
+
+*(Alternative: Deploy via Wrangler CLI)*
+```bash
+npx wrangler deploy deploy/serverless/cloudflare_telegram_webhook_worker.js --name matrix-telegram-relay --compatibility-date 2024-01-01
+```
+
+##### Step 2: Configure Worker Secrets (Mandatory — Fail-Closed)
+In Cloudflare Dashboard -> **Settings** -> **Variables and Secrets**, add the following 4 secrets:
+1. `TELEGRAM_SECRET_TOKEN`: A secret random token string (e.g. generate via `openssl rand -hex 24`).
+2. `TELEGRAM_OWNER_ID`: Your numeric Telegram user ID (e.g. `123456789`).
+3. `GITHUB_TOKEN`: A GitHub Personal Access Token (classic `repo` scope or fine-grained with `Contents: write` and `Actions: write`).
+4. `GITHUB_REPO`: `ayaanraza2008/matrix-ai`
+
+##### Step 3: Register Telegram Webhook
+Run the MATRIX CLI command or `curl` to point your bot to the Cloudflare Worker:
+```bash
+# Using MATRIX CLI
+matrix telegram-webhook set \
+  --url "https://matrix-telegram-relay.<your-subdomain>.workers.dev" \
+  --secret-token "<YOUR_TELEGRAM_SECRET_TOKEN>" \
+  --drop-pending
+
+# Or using curl directly:
+curl -s -X POST "https://api.telegram.org/bot<MATRIX_TELEGRAM_BOT_TOKEN>/setWebhook" \
+  -d "url=https://matrix-telegram-relay.<your-subdomain>.workers.dev" \
+  -d "secret_token=<YOUR_TELEGRAM_SECRET_TOKEN>" \
+  -d "drop_pending_updates=true"
+```
+
+Verify webhook registration:
+```bash
+matrix telegram-webhook status
+```
+
+##### Step 4: Configure GitHub Repository Secrets
+On GitHub (`https://github.com/ayaanraza2008/matrix-ai/settings/secrets/actions`), ensure these secrets are set:
+- `MATRIX_TELEGRAM_BOT_TOKEN`: Your Telegram Bot API token.
+- `MATRIX_TELEGRAM_CHAT_ID`: Your numeric Telegram ID.
+- `MATRIX_TELEGRAM_MODE`: `webhook`
+- `MATRIX_TELEGRAM_WEBHOOK_SECRET`: `<YOUR_TELEGRAM_SECRET_TOKEN>` (matches the Cloudflare Worker secret).
+
+##### Step 5: Webhook Removal / Polling Fallback (If Needed)
+If you wish to return to polling mode at any time:
+```bash
+# 1. Delete webhook from Telegram
+matrix telegram-webhook delete --drop-pending
+
+# 2. Update GitHub Secret
+# Set MATRIX_TELEGRAM_MODE=polling
+```
 
 ---
 

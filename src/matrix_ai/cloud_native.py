@@ -287,6 +287,8 @@ async def run_cloud_step(
     pull_state_enabled: bool = True,
     push_state_enabled: bool = True,
     sync_telegram_enabled: bool = True,
+    incoming_update: dict[str, Any] | None = None,
+    webhook_secret: str | None = None,
     max_tasks: int = 20,
     drain_timeout: float = 45.0,
 ) -> CloudStepResult:
@@ -322,13 +324,30 @@ async def run_cloud_step(
         recovery = await runtime.orchestrator.recover_after_restart()
         recovered_count = recovery.get("resumed", 0)
 
-        # Step 4: Process batch Telegram updates if enabled
+        # Step 4: Process incoming webhook update or batch polling updates if enabled
         if sync_telegram_enabled and runtime.telegram.enabled:
-            try:
-                telegram_processed = await runtime.telegram.sync_once(max_updates=max_tasks)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Telegram sync_once error: %s", exc)
-                step_error = f"Telegram sync error: {exc}"
+            if incoming_update:
+                try:
+                    ingest_ok = await runtime.telegram.ingest_update(
+                        incoming_update,
+                        secret_token=webhook_secret or config.telegram_webhook_secret,
+                    )
+                    if ingest_ok:
+                        telegram_processed = 1
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Telegram ingest_update error: %s", exc)
+                    step_error = f"Telegram ingest error: {exc}"
+            elif runtime.telegram.mode == "polling":
+                try:
+                    telegram_processed = await runtime.telegram.sync_once(max_updates=max_tasks)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Telegram sync_once error: %s", exc)
+                    step_error = f"Telegram sync error: {exc}"
+            else:
+                log.info(
+                    "Telegram bridge mode is '%s'; skipping polling getUpdates sync to prevent webhook conflict.",
+                    runtime.telegram.mode,
+                )
 
         # Step 5: Drain pending orchestrator tasks within bounded time
         tasks_completed = await runtime.orchestrator.drain(timeout=drain_timeout)
