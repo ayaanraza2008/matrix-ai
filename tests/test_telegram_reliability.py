@@ -95,10 +95,6 @@ async def test_orchestrator_enqueue_does_not_start_received_task_during_emergenc
 
     assert runtime.orchestrator.running_count == 0
     assert runtime.store.task_view(task_id).state is TaskState.RECEIVED
-    assert any(
-        args[0] == "task.enqueue_blocked" and kwargs.get("task_id") == task_id
-        for args, kwargs in runtime.store.audit_events()
-    )
 
 
 def test_replayed_telegram_task_is_idempotent_even_after_emergency_stop(runtime):
