@@ -97,9 +97,31 @@ async def telegram_preflight(
                 results["test_message_sent"] = True
     except httpx.TimeoutException as exc:
         raise ToolUnavailable("Telegram API did not respond before the preflight timeout.") from exc
+    except httpx.HTTPStatusError as exc:
+        # Report only the Bot API method and HTTP status. Never include the
+        # request URL (it contains the bot token) or raw response body.
+        method = exc.request.url.path.rsplit("/", 1)[-1]
+        status = exc.response.status_code
+        if status == 401:
+            hint = "Telegram rejected the bot token; verify the MATRIX_TELEGRAM_BOT_TOKEN secret."
+        elif status == 403:
+            hint = "Telegram denied the request; the bot may be blocked or lack access to the target chat."
+        elif status == 400 and method == "sendMessage":
+            hint = "Telegram rejected the target chat; verify MATRIX_TELEGRAM_CHAT_ID and send /start to the bot from that private chat."
+        elif status == 400:
+            hint = "Telegram rejected the request; verify bot configuration and webhook state."
+        elif status == 429:
+            hint = "Telegram rate-limited the request; retry after the cooldown."
+        elif status >= 500:
+            hint = "Telegram service returned a server error; retry later."
+        else:
+            hint = "Check Telegram bot configuration and network policy."
+        raise ToolUnavailable(
+            f"Telegram Bot API {method} failed with HTTP {status}. {hint}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise ToolUnavailable(
-            f"Telegram API request failed ({type(exc).__name__}); check network connectivity."
+            f"Telegram network request failed ({type(exc).__name__}); check runner network connectivity."
         ) from exc
     results["preflight"] = "ok"
     return results
