@@ -68,7 +68,7 @@ jobs:
           MATRIX_ALLOW_CLOUD_MODELS: ${{ secrets.MATRIX_ALLOW_CLOUD_MODELS || 'true' }}
           MATRIX_MODEL_PROVIDER: ${{ secrets.MATRIX_MODEL_PROVIDER || (secrets.MATRIX_GEMINI_API_KEY != '' && 'gemini') || 'none' }}
           MATRIX_MODEL_FALLBACK_PROVIDER: ${{ secrets.MATRIX_MODEL_FALLBACK_PROVIDER || 'none' }}
-          SYNC_TELEGRAM: ${{ inputs.sync_telegram != false }}
+          SYNC_TELEGRAM: ${{ github.event_name != 'workflow_dispatch' || inputs.sync_telegram != false }}
           MAX_TASKS: ${{ inputs.max_tasks || 20 }}
           DRAIN_TIMEOUT: ${{ inputs.drain_timeout || 45 }}
         run: |
