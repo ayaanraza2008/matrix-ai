@@ -164,7 +164,17 @@ class StartupTaskManager:
         result = _run([executable, "/Query", "/TN", self.task_name, "/FO", "LIST"])
         if result.returncode != 0:
             return {"supported": True, "installed": False, "detail": "MATRIX logon task is not installed."}
-        return {"supported": True, "installed": True, "detail": "MATRIX is configured to start at interactive logon."}
+        task_status = "Unknown"
+        for line in result.stdout.splitlines():
+            if line.strip().lower().startswith("status:"):
+                task_status = line.split(":", 1)[1].strip()
+                break
+        return {
+            "supported": True,
+            "installed": True,
+            "task_status": task_status,
+            "detail": f"MATRIX is configured to start at interactive logon (Status: {task_status}).",
+        }
 
     def install(self) -> dict[str, Any]:
         executable = self._require_windows()

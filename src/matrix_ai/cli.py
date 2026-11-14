@@ -110,6 +110,7 @@ async def _doctor() -> int:
             "settings": runtime.config.public_dict(),
             "remote_access": RemoteAccessManager(port=runtime.config.port).status(),
             "startup": StartupTaskManager().status(),
+            "telegram": runtime.telegram.status(),
         }
         print(json.dumps(payload, indent=2))
         return 0

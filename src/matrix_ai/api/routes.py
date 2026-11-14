@@ -38,6 +38,7 @@ from ..core.models import (
     Principal,
     Risk,
     TaskView,
+    TelegramStatusView,
     ToolExecuteRequest,
     ToolSpec,
     VisionStatusView,
@@ -290,6 +291,11 @@ async def whatsapp_webhook_receive(request: Request, runtime: RuntimeDep) -> dic
 @router.get("/health", response_model=HealthView, tags=["system"])
 async def health(runtime: RuntimeDep) -> HealthView:
     return await runtime.health()
+
+
+@router.get("/telegram/status", response_model=TelegramStatusView, tags=["telegram"])
+async def telegram_status(runtime: RuntimeDep, _caller: PrincipalDep) -> TelegramStatusView:
+    return TelegramStatusView(**runtime.telegram.status())
 
 
 @router.get("/auth/me", tags=["auth"])

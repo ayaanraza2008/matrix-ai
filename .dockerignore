@@ -1,0 +1,67 @@
+# Secrets and credentials (never bake into container images)
+.env
+.env.*
+secrets/
+credentials.json
+token.json
+owner_token.txt
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+
+# Runtime data and storage
+.matrix/
+.matrix_runtime/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backups/
+logs/
+*.log
+audit*.jsonl
+
+# VCS and repository artifacts
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Python cache and environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+
+# Tests and documentation
+tests/
+docs/
+*.md
+!README.md
+
+# Android mobile app
+android/
+
+# Frontend / node
+frontend/
+node_modules/
+
+# Local scratches
+matrix-scratch-backup/
+unused-for-this-test/
+*.txt
