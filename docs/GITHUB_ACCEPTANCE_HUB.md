@@ -1,8 +1,8 @@
 # MATRIX GitHub Acceptance Hub
 
-This is the repository-native acceptance entry point. No local clone, CMD, PowerShell, or OpenCode checkout is required to run these GitHub-hosted checks.
+This is the repository-native acceptance entry point. No local MATRIX clone, project files, PowerShell or OpenCode checkout is required to run these GitHub-hosted checks.
 
-## Run it
+## Run it from the GitHub website
 
 1. Merge the pull request that adds this workflow into `main`.
 2. Open **Actions → MATRIX Acceptance Hub**:
@@ -16,6 +16,31 @@ This is the repository-native acceptance entry point. No local clone, CMD, Power
 
 Repository secret settings:
 https://github.com/ayaanraza2008/matrix-ai/settings/secrets/actions
+
+## Run it from Windows CMD (optional)
+
+This triggers GitHub Actions directly; it does not require downloading or cloning MATRIX.
+
+Install GitHub CLI once, then authenticate in a browser:
+
+```cmd
+gh auth login
+```
+
+Run automated acceptance:
+
+```cmd
+gh workflow run acceptance.yml --repo ayaanraza2008/matrix-ai --ref main -f run_telegram_live=false
+```
+
+After adding the two Telegram secrets in GitHub Settings, run the optional live Telegram preflight:
+
+```cmd
+gh workflow run acceptance.yml --repo ayaanraza2008/matrix-ai --ref main -f run_telegram_live=true
+```
+
+Open the Actions page to see the run and download artifacts:
+https://github.com/ayaanraza2008/matrix-ai/actions
 
 ## What a green run does and does not prove
 
@@ -32,7 +57,7 @@ The report job posts the exact workflow job results to issue #73. Skipped or una
 ## Remaining owner/reviewer acceptance
 
 - **Security:** a qualified reviewer who did not author the DNS-pinning code must independently inspect the implementation and record identity (or explicit anonymity), date, decision, and findings on issue #73. Keep `MATRIX_ALLOW_WEB_FETCH=false`.
-- **Telegram:** after the one-message preflight succeeds, the complete long-polling bridge still needs live command, task delivery, restart/idempotency, unauthorized sender and emergency-stop tests.
+- **Telegram:** after the one-message preflight succeeds, the complete long-polling bridge still needs live command, task delivery, restart/idempotency, unauthorized sender and emergency-stop acceptance.
 - **Windows:** hosted CI is not the owner's target PC. Physical hardware/audio, sleep/wake, startup and restore acceptance remain separate.
 - **Tailscale:** the owner's tailnet, restrictive ACLs, an approved test device, an unauthorized test identity and revocation are required. This first workflow does not create a tailnet device or expose MATRIX publicly.
 - **Android:** physical handset acceptance and owner-controlled release signing/key custody remain separate.
