@@ -151,12 +151,14 @@ Verify webhook registration:
 matrix telegram-webhook status
 ```
 
-##### Step 4: Configure GitHub Repository Secrets
-On GitHub (`https://github.com/ayaanraza2008/matrix-ai/settings/secrets/actions`), ensure these secrets are set:
-- `MATRIX_TELEGRAM_BOT_TOKEN`: Your Telegram Bot API token.
-- `MATRIX_TELEGRAM_CHAT_ID`: Your numeric Telegram ID.
-- `MATRIX_TELEGRAM_MODE`: `webhook`
-- `MATRIX_TELEGRAM_WEBHOOK_SECRET`: `<YOUR_TELEGRAM_SECRET_TOKEN>` (matches the Cloudflare Worker secret).
+##### Step 4: Configure GitHub Repository Settings
+On GitHub (`https://github.com/ayaanraza2008/matrix-ai/settings`):
+- **Variables (`settings/variables/actions`):**
+  - `MATRIX_TELEGRAM_MODE`: `webhook`
+- **Secrets (`settings/secrets/actions` or in environment `matrix TG`):**
+  - `MATRIX_TELEGRAM_BOT_TOKEN`: Your Telegram Bot API token.
+  - `MATRIX_TELEGRAM_CHAT_ID`: Your numeric Telegram ID.
+  - `MATRIX_TELEGRAM_WEBHOOK_SECRET`: `<YOUR_TELEGRAM_SECRET_TOKEN>` (matches the Cloudflare Worker secret).
 
 ##### Step 5: Webhook Removal / Polling Fallback (If Needed)
 If you wish to return to polling mode at any time:

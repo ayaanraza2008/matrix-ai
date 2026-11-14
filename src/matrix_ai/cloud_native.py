@@ -253,6 +253,7 @@ class CloudStepResult:
     fallback_status: str
     active_tasks_remaining: int
     db_integrity: str
+    telegram_mode: str = "polling"
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -267,6 +268,7 @@ class CloudStepResult:
             f"- **Execution Time:** `{self.started_at}` → `{self.finished_at}` ({self.duration_seconds:.2f}s)",
             f"- **State Persistence:** Pulled: `{'yes' if self.state_pulled else 'fresh/none'}` | Pushed: `{'yes' if self.state_pushed else 'no'}`",
             f"- **Database Integrity:** `{self.db_integrity}`",
+            f"- **Telegram Operating Mode:** `{self.telegram_mode}`",
             f"- **Tasks Recovered on Startup:** `{self.recovered_tasks}`",
             f"- **Telegram Updates Processed:** `{self.telegram_updates_processed}`",
             f"- **Tasks Completed in Run:** `{self.tasks_completed}`",
@@ -376,6 +378,7 @@ async def run_cloud_step(
         fallback_status = fallback_health.status if fallback_health else "unconfigured"
 
         remaining_active = len(runtime.store.nonterminal_tasks())
+        tg_mode = getattr(runtime.telegram, "mode", "polling")
     finally:
         # Step 7: Clean shutdown of all services
         await runtime.shutdown()
@@ -408,6 +411,7 @@ async def run_cloud_step(
         fallback_status=fallback_status,
         active_tasks_remaining=remaining_active,
         db_integrity=db_integrity,
+        telegram_mode=tg_mode,
         error=step_error,
     )
     return result
