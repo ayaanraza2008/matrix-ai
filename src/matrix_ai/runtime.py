@@ -132,6 +132,7 @@ class MatrixRuntime:
                 config=config, orchestrator=orchestrator, store=store,
                 rate_limiter=limiter,
                 voice_manager=voice,
+                goal_supervisor=goal_supervisor,
             ),
             skills_manager=skills_manager,
         )

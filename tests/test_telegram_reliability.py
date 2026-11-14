@@ -166,3 +166,86 @@ async def test_replayed_running_task_restarts_telegram_result_reporting():
     await asyncio.sleep(0)
 
     assert reports == ["existing-task"]
+
+
+
+def test_telegram_task_index_is_scoped_and_bounded(runtime):
+    telegram_kwargs = {
+        "request": "Telegram task",
+        "user_id": "owner",
+        "kind": "chat",
+        "idempotency_scope": "telegram.update",
+        "idempotency_key": "update-telegram-1",
+    }
+    dashboard_kwargs = {
+        "request": "Dashboard task",
+        "user_id": "owner",
+        "kind": "chat",
+    }
+
+    telegram_task = runtime.orchestrator.create_task(**telegram_kwargs)
+    dashboard_task = runtime.orchestrator.create_task(**dashboard_kwargs)
+
+    assert runtime.store.is_idempotent_task("telegram.update", telegram_task)
+    assert not runtime.store.is_idempotent_task("telegram.update", dashboard_task)
+    assert not runtime.store.is_idempotent_task("other.scope", telegram_task)
+    assert telegram_task in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
+    assert dashboard_task not in runtime.store.list_idempotent_task_ids("telegram.update", limit=10)
+
+
+
+def test_active_telegram_task_recovery_is_not_limited_by_recent_terminal_history(runtime):
+    active_kwargs = {
+        "request": "Older active Telegram task",
+        "user_id": "owner",
+        "kind": "chat",
+        "idempotency_scope": "telegram.update",
+        "idempotency_key": "update-active-old",
+    }
+    active_task = runtime.orchestrator.create_task(**active_kwargs)
+
+    for index in range(105):
+        task_id = runtime.orchestrator.create_task(
+            request=f"Completed Telegram task {index}",
+            user_id="owner",
+            kind="chat",
+            idempotency_scope="telegram.update",
+            idempotency_key=f"update-terminal-{index}",
+        )
+        runtime.store.update_task(task_id, state=TaskState.FAILED.value)
+
+    recovered = runtime.store.list_nonterminal_idempotent_task_ids(
+        "telegram.update", limit=100
+    )
+
+    assert recovered == [active_task]
+
+
+
+def test_telegram_goal_creation_is_atomic_and_idempotent(runtime):
+    first_goal_id, first_task_id = runtime.store.create_goal_task(
+        owner_id="owner",
+        title="Prepare report",
+        success_criteria="Verify every number",
+        autonomy_level=2,
+        deadline_seconds=900,
+        idempotency_key="telegram-update-9001",
+    )
+    second_goal_id, second_task_id = runtime.store.create_goal_task(
+        owner_id="owner",
+        title="Prepare report",
+        success_criteria="Verify every number",
+        autonomy_level=2,
+        deadline_seconds=900,
+        idempotency_key="telegram-update-9001",
+    )
+
+    assert (second_goal_id, second_task_id) == (first_goal_id, first_task_id)
+    goal = runtime.store.get_goal(first_goal_id)
+    task = runtime.store.get_task_row(first_task_id)
+    assert goal["owner_id"] == "owner"
+    assert goal["title"] == "Prepare report"
+    assert task["goal_id"] == first_goal_id
+    assert task["kind"] == "goal"
+    assert runtime.store.get_idempotent_task_id("telegram.goal", "telegram-update-9001") == first_task_id
+    assert len(runtime.store.list_goals(owner_id="owner", limit=50)) == 1

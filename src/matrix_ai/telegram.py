@@ -23,6 +23,8 @@ from .voice.manager import MAX_AUDIO_BYTES
 log = logging.getLogger("matrix.telegram")
 
 PREFLIGHT_TIMEOUT_SECONDS = 15.0
+TELEGRAM_REPORT_RESTORE_LIMIT = 100
+TELEGRAM_REPORT_RETRY_ATTEMPTS = 4
 
 
 async def telegram_preflight(
@@ -132,11 +134,13 @@ class TelegramChatBridge:
         self, *, config: MatrixConfig, orchestrator: Orchestrator, store: Store,
         rate_limiter: RateLimiter | None = None,
         voice_manager: Any | None = None,
+        goal_supervisor: Any | None = None,
     ) -> None:
         self.config = config
         self.orchestrator = orchestrator
         self.store = store
         self.voice_manager = voice_manager
+        self.goal_supervisor = goal_supervisor
         # Share the runtime limiter so Telegram cannot bypass API task throttling.
         self.rate_limiter = rate_limiter or RateLimiter(config.rate_limit_per_minute)
         self._task: asyncio.Task | None = None
@@ -220,11 +224,82 @@ class TelegramChatBridge:
         self._offset = update_id + 1
         self.store.set_system_flag("telegram_update_offset", str(update_id))
 
+    def _restore_pending_reports(self) -> int:
+        """Reattach result watchers for recent, nonterminal Telegram-created tasks."""
+        list_task_ids = getattr(self.store, "list_nonterminal_idempotent_task_ids", None)
+        if not callable(list_task_ids):
+            return 0
+        restored = 0
+        task_ids: list[str] = []
+        for scope in ("telegram.update", "telegram.goal"):
+            try:
+                task_ids.extend(
+                    list_task_ids(scope, limit=TELEGRAM_REPORT_RESTORE_LIMIT)
+                )
+            except Exception as exc:  # noqa: BLE001 - notification recovery must not stop polling
+                self.store.audit(
+                    "telegram.report_restore_failed",
+                    actor="telegram",
+                    status="failed",
+                    detail={"scope": scope, "error": type(exc).__name__},
+                )
+        for task_id in dict.fromkeys(task_ids):
+            try:
+                view = self.store.task_view(task_id)
+            except Exception as exc:  # noqa: BLE001 - one stale task must not block others
+                self.store.audit(
+                    "telegram.report_restore_task_failed",
+                    actor="telegram",
+                    task_id=task_id,
+                    status="failed",
+                    detail={"error": type(exc).__name__},
+                )
+                continue
+            if view.state not in TERMINAL_TASK_STATES:
+                self._ensure_report_task(task_id)
+                restored += 1
+
+        if restored:
+            self.store.audit(
+                "telegram.report_watchers_restored",
+                actor="telegram",
+                status="succeeded",
+                detail={"count": restored},
+            )
+        return restored
+
+    async def _register_commands(self) -> None:
+        """Publish the supported owner-chat command menu in Telegram clients."""
+        commands = [
+            {"command": "start", "description": "Connect to MATRIX"},
+            {"command": "help", "description": "Show Telegram controls"},
+            {"command": "status", "description": "Show system and task status"},
+            {"command": "tasks", "description": "List recent Telegram tasks"},
+            {"command": "task", "description": "Inspect a task by ID"},
+            {"command": "cancel", "description": "Cancel a Telegram task by ID"},
+            {"command": "stop", "description": "Activate emergency stop"},
+            {"command": "resume", "description": "Clear emergency stop"},
+        ]
+        try:
+            await self._api("setMyCommands", {"commands": commands})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - command menu is useful but not required for polling
+            self.store.audit(
+                "telegram.command_menu_failed",
+                actor="telegram",
+                status="degraded",
+                detail={"error": type(exc).__name__},
+            )
+            log.warning("Telegram command menu could not be registered: %s", type(exc).__name__)
+
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
         try:
             self._restore_offset()
+            self._restore_pending_reports()
+            await self._register_commands()
             while True:
                 try:
                     if not announced:
@@ -310,24 +385,253 @@ class TelegramChatBridge:
         if command == "/start":
             await self._send("MATRIX is connected. Send me a task in plain language.")
             return
+        args = text.split(maxsplit=1)
+        command_args = args[1].strip() if len(args) > 1 else ""
         if command == "/help":
             await self._send(
-                "Send any task as a normal message.\n/status — system health\n"
+                "Send any task as a normal message.\n"
+                "/status — system health and active task counts\n"
+                "/tasks — recent Telegram tasks\n"
+                "/task <task-id> — inspect one of your Telegram tasks\n"
+                "/cancel <task-id> — cancel one of your Telegram tasks\n"
+                "/goal <title> | <success criteria> — start a bounded autonomous goal\n"
+                "/goals — list your recent goals\n"
+                "/goal-status <goal-id> — inspect a goal\n"
+                "/goal-pause <goal-id> / /goal-resume <goal-id> — pause or resume a goal plan\n"
+                "/goal-cancel <goal-id> — cancel a goal\n"
                 "/stop — activate emergency stop\n"
-                "Pending HIGH/CRITICAL approvals must still be confirmed in MATRIX."
+                "/resume — clear emergency stop\n"
+                "HIGH/CRITICAL approvals must still be confirmed in the MATRIX dashboard."
             )
             return
         if command == "/status":
             health = await self.orchestrator.models.status()
-            await self._send(
-                f"MATRIX model: {health.status}\nEmergency stop: "
-                f"{'ACTIVE' if self.store.emergency_stop else 'off'}"
+            active = self.store.nonterminal_tasks()
+            goals = self.store.list_goals(owner_id="owner", limit=200)
+            active_goals = sum(
+                1 for goal in goals
+                if goal.get("state") in {
+                    "queued", "planned", "running", "paused", "cancelling", "awaiting_verification"
+                }
             )
+            waiting = sum(
+                1 for task in active
+                if task["state"] in {
+                    TaskState.APPROVAL_REQUIRED.value,
+                    TaskState.WAITING_FOR_USER.value,
+                }
+            )
+            await self._send(
+                f"MATRIX Telegram: {'running' if self.running else 'starting'}\n"
+                f"Model: {health.status} ({health.provider}/{health.model})\n"
+                f"Active tasks: {len(active)}\n"
+                f"Active goals: {active_goals}\n"
+                f"Waiting for owner approval: {waiting}\n"
+                f"Emergency stop: {'ACTIVE' if self.store.emergency_stop else 'off'}"
+            )
+            return
+        if command == "/goal":
+            if self.goal_supervisor is None:
+                await self._send("Autonomous goal control is unavailable in this runtime.")
+                return
+            if not command_args:
+                await self._send("Usage: /goal <title> | <success criteria>")
+                return
+            parts = command_args.split("|", 1)
+            title = parts[0].strip()
+            criteria = parts[1].strip() if len(parts) > 1 else "Complete the goal and verify the outcome."
+            if not title or len(title) > 2000 or not criteria or len(criteria) > 2000:
+                await self._send("Goal title and success criteria must each contain 1–2000 characters.")
+                return
+            # Goal creation writes directly through Store to keep the goal/task/idempotency
+            # rows atomic. Enforce the same emergency-stop boundary before that write;
+            # otherwise /goal could bypass Orchestrator.create_task's policy check.
+            if self.store.emergency_stop:
+                await self._send("Emergency stop is active. No new goal was created. Use /resume only when it is safe to accept new work.")
+                return
+            deadline_seconds = max(1.0, min(float(self.config.task_deadline_seconds), 86400.0))
+            goal_update_key = str(update["update_id"])
+            if self.store.get_idempotent_task_id("telegram.goal", goal_update_key) is None:
+                try:
+                    self.rate_limiter.check(f"telegram:{allowed_id}")
+                except RateLimited as exc:
+                    retry_after = int(exc.detail.get("retry_after_seconds", 60))
+                    self.store.audit(
+                        "telegram.rate_limited", actor="telegram", status="blocked",
+                        detail={"retry_after_seconds": retry_after, "kind": "goal"},
+                    )
+                    await self._send(
+                        f"Goal rate limit reached. Please try again in about {retry_after} seconds."
+                    )
+                    return
+            goal_id, task_id = self.store.create_goal_task(
+                owner_id="owner",
+                title=title,
+                success_criteria=criteria,
+                autonomy_level=self.config.autonomy_level,
+                deadline_seconds=deadline_seconds,
+                idempotency_key=goal_update_key,
+            )
+            goal = self.store.get_goal(goal_id)
+            if not goal.get("task_id"):
+                self.store.attach_goal_task(goal_id, task_id)
+            task_view = self.store.task_view(task_id)
+            if task_view.state is TaskState.RECEIVED:
+                await self.orchestrator.enqueue(task_id)
+            self.store.audit(
+                "telegram.goal_created", actor="telegram", task_id=task_id,
+                status="accepted", detail={"goal_id": goal_id, "replayed": bool(goal.get("task_id"))},
+            )
+            await self._send(
+                f"Autonomous goal accepted.\nGoal ID: {goal_id}\nTask ID: {task_id}\n"
+                f"Deadline: {int(deadline_seconds)} seconds\nUse /goal-status {goal_id} to track it."
+            )
+            if task_view.state not in TERMINAL_TASK_STATES:
+                self._ensure_report_task(task_id)
+            return
+        if command == "/goals":
+            goals = self.store.list_goals(owner_id="owner", limit=5)
+            if not goals:
+                await self._send("No MATRIX goals have been recorded yet. Start one with /goal <title> | <success criteria>.")
+                return
+            lines = ["Recent MATRIX goals:"]
+            for goal in goals:
+                lines.append(
+                    f"{goal['state']} · {goal['id']} · {str(goal['title'])[:100]}"
+                )
+            await self._send("\n".join(lines))
+            return
+        if command in {"/goal-status", "/goal-pause", "/goal-resume", "/goal-cancel"}:
+            if self.goal_supervisor is None:
+                await self._send("Autonomous goal control is unavailable in this runtime.")
+                return
+            if not command_args or len(command_args) > 128 or any(ch.isspace() for ch in command_args):
+                await self._send(f"Usage: {command} <goal-id>")
+                return
+            try:
+                goal = self.store.get_goal(command_args)
+            except Exception:  # noqa: BLE001 - avoid revealing whether another owner's goal exists
+                await self._send("That goal was not found for this owner.")
+                return
+            if goal.get("owner_id") != "owner":
+                await self._send("That goal was not found for this owner.")
+                return
+            nodes = self.store.get_goal_graph(command_args)
+            if command == "/goal-pause":
+                if not nodes:
+                    await self._send("Pause is available for multi-step goal plans. This goal is not a goal graph.")
+                    return
+                try:
+                    status = await self.goal_supervisor.pause(command_args)
+                except ValueError as exc:
+                    await self._send(f"Goal could not be paused: {exc}")
+                    return
+                await self._send(f"Goal paused: {command_args}\nState: {status['state']}")
+                return
+            if command == "/goal-resume":
+                if not nodes:
+                    await self._send("Resume is available for multi-step goal plans. This goal is not a goal graph.")
+                    return
+                try:
+                    status = await self.goal_supervisor.resume(command_args)
+                except ValueError as exc:
+                    await self._send(f"Goal could not be resumed: {exc}")
+                    return
+                await self._send(f"Goal resumed: {command_args}\nState: {status['state']}")
+                return
+            if command == "/goal-cancel":
+                if nodes:
+                    status = await self.goal_supervisor.cancel(command_args)
+                    await self._send(f"Goal cancellation processed: {command_args}\nState: {status['state']}")
+                    return
+                task = goal.get("task")
+                task_id = task.get("id") if isinstance(task, dict) else None
+                if not task_id:
+                    await self._send("This goal has no active task to cancel.")
+                    return
+                task_view = self.store.task_view(task_id)
+                if task_view.state in TERMINAL_TASK_STATES:
+                    await self._send(f"Goal task is already terminal ({task_view.state.value}).")
+                    return
+                result = await self.orchestrator.cancel(task_id)
+                refreshed = self.store.get_goal(command_args)
+                await self._send(
+                    f"Goal cancellation processed: {command_args}\nTask state: {result.state.value}\n"
+                    f"Goal state: {refreshed['state']}"
+                )
+                return
+            task = goal.get("task") or {}
+            task_state = task.get("state") if isinstance(task, dict) else None
+            nodes_done = sum(1 for node in nodes if node.get("state") in {"completed", "failed", "cancelled"})
+            await self._send(
+                f"Goal: {goal['title']}\nID: {goal['id']}\nState: {goal['state']}\n"
+                f"Success criteria: {str(goal['success_criteria'])[:700]}\n"
+                f"Task state: {task_state or 'not started'}\n"
+                f"Plan nodes: {nodes_done}/{len(nodes)} terminal\n"
+                f"Result: {str(goal.get('result_summary') or 'No final result yet.')[:1000]}"
+            )
+            return
+        if command == "/tasks":
+            task_ids = (
+                self.store.list_idempotent_task_ids("telegram.update", limit=5)
+                + self.store.list_idempotent_task_ids("telegram.goal", limit=5)
+            )
+            task_ids = list(dict.fromkeys(task_ids))[:5]
+            if not task_ids:
+                await self._send("No Telegram tasks have been recorded yet.")
+                return
+            lines = ["Recent MATRIX Telegram tasks:"]
+            for task_id in task_ids:
+                view = self.store.task_view(task_id)
+                state = getattr(view.state, "value", str(view.state))
+                summary = (view.summary or view.error or view.original_request or "").replace("\n", " ")
+                lines.append(f"{state} · {task_id} · {summary[:120]}")
+            await self._send("\n".join(lines))
+            return
+        if command in {"/task", "/cancel"}:
+            if not command_args or len(command_args) > 128 or any(ch.isspace() for ch in command_args):
+                await self._send(f"Usage: {command} <task-id>")
+                return
+            is_telegram_task = (
+                self.store.is_idempotent_task("telegram.update", command_args)
+                or self.store.is_idempotent_task("telegram.goal", command_args)
+            )
+            if not is_telegram_task:
+                await self._send("That task ID does not belong to a task submitted through this Telegram chat.")
+                return
+            if command == "/cancel":
+                prior_view = self.store.task_view(command_args)
+                prior_state = getattr(prior_view.state, "value", str(prior_view.state))
+                if prior_view.state in TERMINAL_TASK_STATES:
+                    await self._send(f"Task {command_args[:12]} is already terminal ({prior_state}).")
+                    return
+                view = await self.orchestrator.cancel(command_args)
+                state = getattr(view.state, "value", str(view.state))
+                await self._send(f"Task {command_args[:12]} cancellation processed. Current state: {state}.")
+                return
+            view = self.store.task_view(command_args)
+            state = getattr(view.state, "value", str(view.state))
+            summary = view.summary or view.error or "No final result yet."
+            response = (
+                f"MATRIX task {command_args[:12]}\nState: {state}\n"
+                f"Request: {(view.original_request or '')[:300]}\n"
+                f"Result: {summary[:1800]}"
+            )
+            if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
+                response += "\nOwner approval is required in the MATRIX dashboard; Telegram cannot auto-approve."
+            await self._send(response)
             return
         if command == "/stop":
             self.store.set_emergency_stop(True, actor="telegram-owner")
             cancelled = await self.orchestrator.cancel_all()
             await self._send(f"Emergency stop activated. Cancelled tasks: {cancelled}.")
+            return
+        if command == "/resume":
+            if not self.store.emergency_stop:
+                await self._send("Emergency stop is already off.")
+                return
+            self.store.set_emergency_stop(False, actor="telegram-owner")
+            await self._send("Emergency stop cleared. New tasks may be accepted under the configured policy.")
             return
         if command.startswith("/"):
             await self._send("Unknown command. Send /help for available commands.")
@@ -496,6 +800,19 @@ class TelegramChatBridge:
         )
         return transcript[:4000]
 
+    async def _send_report(self, message: str) -> None:
+        """Retry transient Telegram delivery failures for task notifications."""
+        for attempt in range(TELEGRAM_REPORT_RETRY_ATTEMPTS):
+            try:
+                await self._send(message)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if attempt + 1 >= TELEGRAM_REPORT_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(min(2 ** attempt, 8))
+
     async def _report_task(self, task_id: str) -> None:
         # Wait for normal completion, approval, or a bounded 15-minute timeout.
         approval_notified = False
@@ -507,7 +824,7 @@ class TelegramChatBridge:
                 # after approving or denying the action in the MATRIX dashboard.
                 if view.state in {TaskState.APPROVAL_REQUIRED, TaskState.WAITING_FOR_USER}:
                     if not approval_notified:
-                        await self._send(
+                        await self._send_report(
                             f"Task {task_id} needs owner approval for a protected action. "
                             "Review and approve it in the MATRIX dashboard; Telegram cannot auto-approve."
                         )
@@ -515,10 +832,10 @@ class TelegramChatBridge:
                     continue
                 if view.state in TERMINAL_TASK_STATES:
                     result = view.summary or view.error or f"Task finished: {view.state.value}"
-                    await self._send(f"MATRIX {view.state.value}:\n{result}")
+                    await self._send_report(f"MATRIX {view.state.value}:\n{result}")
                     return
-            await self._send(
-                f"Task {task_id} is still running. Check /status or the MATRIX dashboard for details."
+            await self._send_report(
+                f"Task {task_id} is still running. Use /task {task_id} or the MATRIX dashboard for details."
             )
         except asyncio.CancelledError:
             raise
