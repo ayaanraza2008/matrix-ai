@@ -421,6 +421,12 @@ class TelegramChatBridge:
             if not title or len(title) > 2000 or not criteria or len(criteria) > 2000:
                 await self._send("Goal title and success criteria must each contain 1–2000 characters.")
                 return
+            # Goal creation writes directly through Store to keep the goal/task/idempotency
+            # rows atomic. Enforce the same emergency-stop boundary before that write;
+            # otherwise /goal could bypass Orchestrator.create_task's policy check.
+            if self.store.emergency_stop:
+                await self._send("Emergency stop is active. No new goal was created. Use /resume only when it is safe to accept new work.")
+                return
             deadline_seconds = max(1.0, min(float(self.config.task_deadline_seconds), 86400.0))
             goal_update_key = str(update["update_id"])
             if self.store.get_idempotent_task_id("telegram.goal", goal_update_key) is None:
