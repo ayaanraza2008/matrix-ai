@@ -84,6 +84,72 @@ async def test_preflight_can_send_one_test_message_to_the_owner_chat():
     assert report["test_message_sent"] is True
 
 
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        (
+            "Forbidden: bot was blocked by the user",
+            "Unblock the bot in Telegram",
+        ),
+        (
+            "Forbidden: bot can't initiate conversation with a user",
+            "send /start",
+        ),
+        (
+            "Forbidden: user is deactivated",
+            "account is deactivated",
+        ),
+        (
+            "Forbidden: bot was kicked from the supergroup chat",
+            "not a member",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_preflight_explains_known_telegram_403_causes_without_echoing_raw_body(
+    description, expected
+):
+    def forbidden_router(request: httpx.Request) -> httpx.Response:
+        if "sendMessage" in str(request.url):
+            return httpx.Response(403, json={"ok": False, "description": description})
+        return _router(request)
+
+    with pytest.raises(ToolUnavailable) as caught:
+        await telegram_preflight(
+            _config(),
+            send_test=True,
+            transport=httpx.MockTransport(forbidden_router),
+        )
+
+    message = str(caught.value)
+    assert "HTTP 403" in message
+    assert expected in message
+    assert description not in message
+    assert TOKEN not in message
+    assert CHAT_ID not in message
+
+
+@pytest.mark.asyncio
+async def test_preflight_uses_safe_generic_hint_for_unknown_telegram_403():
+    secret_detail = "Forbidden: internal diagnostic detail 12345"
+
+    def forbidden_router(request: httpx.Request) -> httpx.Response:
+        if "sendMessage" in str(request.url):
+            return httpx.Response(403, json={"ok": False, "description": secret_detail})
+        return _router(request)
+
+    with pytest.raises(ToolUnavailable) as caught:
+        await telegram_preflight(
+            _config(),
+            send_test=True,
+            transport=httpx.MockTransport(forbidden_router),
+        )
+
+    assert "Telegram denied delivery to the configured chat" in str(caught.value)
+    assert secret_detail not in str(caught.value)
+    assert TOKEN not in str(caught.value)
+
+
 @pytest.mark.asyncio
 async def test_preflight_survives_network_timeout_fail_closed(monkeypatch):
     def timeout_router(request: httpx.Request) -> httpx.Response:
