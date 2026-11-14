@@ -27,6 +27,54 @@ TELEGRAM_REPORT_RESTORE_LIMIT = 100
 TELEGRAM_REPORT_RETRY_ATTEMPTS = 4
 
 
+def _telegram_preflight_http_hint(status: int, method: str, response: httpx.Response) -> str:
+    """Return a safe, actionable hint without echoing Telegram's raw response."""
+    description = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict) and isinstance(payload.get("description"), str):
+            description = payload["description"].casefold()
+    except (ValueError, TypeError):
+        pass
+
+    if status == 401:
+        return "Telegram rejected the bot token; verify the MATRIX_TELEGRAM_BOT_TOKEN secret."
+    if status == 403 and method == "sendMessage":
+        if "bot was blocked by the user" in description:
+            return (
+                "The target Telegram user has blocked this bot. Unblock the bot in Telegram, "
+                "open its private chat, send /start, then retry the preflight."
+            )
+        if "bot can't initiate conversation with a user" in description or "bot cannot initiate conversation with a user" in description:
+            return (
+                "Telegram will not let this bot start the private conversation. Open the chat "
+                "with this exact bot account, send /start, verify the numeric private chat ID, "
+                "then retry."
+            )
+        if "user is deactivated" in description:
+            return "Telegram reports that the target user account is deactivated; verify the owner chat account."
+        if "bot was kicked" in description or "bot is not a member" in description:
+            return "The bot is not a member of the target group/channel. Add it with the required send-message permission, or configure the intended private owner chat ID."
+        if "not enough rights" in description:
+            return "The bot lacks permission to send messages in the target chat. Grant send-message permission or use the intended private owner chat."
+        return (
+            "Telegram denied delivery to the configured chat. Verify that MATRIX_TELEGRAM_CHAT_ID "
+            "belongs to the same bot's private chat, that the owner has sent /start, and that "
+            "the bot is not blocked."
+        )
+    if status == 403:
+        return "Telegram denied this bot API operation; check bot restrictions and the configured chat's permissions."
+    if status == 400 and method == "sendMessage":
+        return "Telegram rejected the target chat; verify MATRIX_TELEGRAM_CHAT_ID and send /start to the bot from that private chat."
+    if status == 400:
+        return "Telegram rejected the request; verify bot configuration and webhook state."
+    if status == 429:
+        return "Telegram rate-limited the request; retry after the cooldown."
+    if status >= 500:
+        return "Telegram service returned a server error; retry later."
+    return "Check Telegram bot configuration and network policy."
+
+
 async def telegram_preflight(
     config: MatrixConfig,
     *,
@@ -104,20 +152,7 @@ async def telegram_preflight(
         # request URL (it contains the bot token) or raw response body.
         method = exc.request.url.path.rsplit("/", 1)[-1]
         status = exc.response.status_code
-        if status == 401:
-            hint = "Telegram rejected the bot token; verify the MATRIX_TELEGRAM_BOT_TOKEN secret."
-        elif status == 403:
-            hint = "Telegram denied the request; the bot may be blocked or lack access to the target chat."
-        elif status == 400 and method == "sendMessage":
-            hint = "Telegram rejected the target chat; verify MATRIX_TELEGRAM_CHAT_ID and send /start to the bot from that private chat."
-        elif status == 400:
-            hint = "Telegram rejected the request; verify bot configuration and webhook state."
-        elif status == 429:
-            hint = "Telegram rate-limited the request; retry after the cooldown."
-        elif status >= 500:
-            hint = "Telegram service returned a server error; retry later."
-        else:
-            hint = "Check Telegram bot configuration and network policy."
+        hint = _telegram_preflight_http_hint(status, method, exc.response)
         raise ToolUnavailable(
             f"Telegram Bot API {method} failed with HTTP {status}. {hint}"
         ) from exc
