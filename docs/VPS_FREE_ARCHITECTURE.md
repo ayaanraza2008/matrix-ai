@@ -105,6 +105,8 @@ The Telegram bridge operates in three configurable modes (`MATRIX_TELEGRAM_MODE`
 For instantaneous response times from Telegram without running a VPS or personal PC:
 - Cloudflare Workers Free Tier provides **100,000 requests per day at $0 cost**.
 - The script `deploy/serverless/cloudflare_telegram_webhook_worker.js` validates Telegram's secret token, enforces fail-closed authentication, deduplicates update IDs, and fires GitHub `repository_dispatch`.
+- **Reliable Retry Guarantee (Two-Phase Dispatch):** The Worker only marks an update as dispatched **after** GitHub returns HTTP 204. If GitHub is temporarily busy or returns an error, the Worker returns HTTP 502 to Telegram without recording the update in the cache. This ensures Telegram's automated webhook retry policy is never suppressed, and commands are never silently lost.
+- **Durable Idempotency:** The worker supports optional Cloudflare KV binding (`MATRIX_WEBHOOK_KV`) for edge deduplication across worldwide data centers. The ultimate source of truth remains MATRIX's SQLite atomic idempotency table (`matrix-data` branch).
 - Execution starts in GitHub Actions runner within ~20-30 seconds of sending a message in Telegram.
 
 #### Cloudflare Worker Deployment Guide

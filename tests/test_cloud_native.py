@@ -427,20 +427,115 @@ def test_cloudflare_worker_security_contract():
     assert "Number.isInteger(payload.update_id)" in content
     assert "status: 400" in content
 
-    # 4. Replay deduplication
-    assert "recentUpdateIds" in content
+    # 4. Replay deduplication: only mark dispatched AFTER GitHub confirms HTTP 204
+    assert "recentDispatchedUpdateIds" in content
+    assert "isAlreadyDispatched" in content
+    assert "markAsDispatched" in content
     assert "already_processed" in content
 
     # 5. Strict sender & chat authentication
     assert 'chatType !== "private"' in content
     assert "status: 403" in content
 
-    # 6. GitHub dispatch status check
+    # 6. GitHub dispatch status check (returns 502 on failure and does not mark dispatched)
     assert "dispatchResp.status !== 204" in content
     assert "status: 502" in content
 
-    # 7. Zero logging of secrets or message text
+    # 7. Optional durable KV binding support
+    assert "MATRIX_WEBHOOK_KV" in content
+
+    # 8. Zero logging of secrets or message text
     assert "console.log(secret" not in content
     assert "console.log(payload" not in content
     assert "console.log(message.text" not in content
+
+
+def test_cloudflare_worker_dispatch_failure_and_retry_with_node():
+    """Verify in Node.js that dispatch failure does not suppress Telegram retries."""
+    import shutil
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js is not installed on this system")
+
+    worker_file = Path(__file__).resolve().parent.parent / "deploy" / "serverless" / "cloudflare_telegram_webhook_worker.js"
+    js_test = f"""
+import worker from '{worker_file.as_uri()}';
+import assert from 'node:assert';
+
+const kvMap = new Map();
+const fakeKv = {{
+  async get(k) {{ return kvMap.has(k) ? kvMap.get(k) : null; }},
+  async put(k, v) {{ kvMap.set(k, v); }}
+}};
+
+const env = {{
+  TELEGRAM_SECRET_TOKEN: 'sec123',
+  TELEGRAM_OWNER_ID: '999',
+  GITHUB_TOKEN: 'gh_token',
+  GITHUB_REPO: 'test/repo',
+  MATRIX_WEBHOOK_KV: fakeKv,
+}};
+
+let fetchCallCount = 0;
+let nextStatus = 502;
+
+globalThis.fetch = async (url, opts) => {{
+  fetchCallCount++;
+  if (nextStatus === 204) {{
+    return new Response(null, {{ status: 204 }});
+  }}
+  return new Response('GitHub busy', {{ status: nextStatus }});
+}};
+
+function makeReq(updateId) {{
+  return new Request('https://worker.test', {{
+    method: 'POST',
+    headers: {{
+      'Content-Type': 'application/json',
+      'X-Telegram-Bot-Api-Secret-Token': 'sec123',
+    }},
+    body: JSON.stringify({{
+      update_id: updateId,
+      message: {{
+        chat: {{ id: 999, type: 'private' }},
+        from: {{ id: 999 }},
+        text: '/status',
+      }},
+    }}),
+  }});
+}}
+
+// Attempt 1: GitHub returns 502 (simulating GitHub down)
+const res1 = await worker.fetch(makeReq(101), env);
+assert.strictEqual(res1.status, 502, 'First attempt must return 502 to Telegram');
+assert.strictEqual(fetchCallCount, 1, 'GitHub dispatch called once');
+assert.strictEqual(kvMap.has('dispatched:101'), false, 'Failed dispatch must not be cached');
+
+// Attempt 2: Telegram retries! Next status is 204
+nextStatus = 204;
+const res2 = await worker.fetch(makeReq(101), env);
+assert.strictEqual(res2.status, 200, 'Retry attempt must return 200 after GitHub 204');
+assert.strictEqual(fetchCallCount, 2, 'GitHub dispatch must be called again on retry');
+const body2 = await res2.json();
+assert.strictEqual(body2.status, 'dispatched', 'Response status should be dispatched');
+assert.strictEqual(kvMap.get('dispatched:101'), '1', 'Successful dispatch must be recorded');
+
+// Attempt 3: Duplicate delivery after success!
+const res3 = await worker.fetch(makeReq(101), env);
+assert.strictEqual(res3.status, 200, 'Duplicate delivery returns 200');
+assert.strictEqual(fetchCallCount, 2, 'GitHub dispatch must NOT be called for duplicate');
+const body3 = await res3.json();
+assert.strictEqual(body3.status, 'already_processed', 'Status should be already_processed');
+
+console.log('NODE_WORKER_TEST_OK');
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", js_test],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"Node test failed: {proc.stderr}\n{proc.stdout}"
+    assert "NODE_WORKER_TEST_OK" in proc.stdout
+
 
