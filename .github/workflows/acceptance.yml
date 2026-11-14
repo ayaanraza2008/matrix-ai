@@ -1,0 +1,237 @@
+name: MATRIX Acceptance Hub
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/acceptance.yml"
+      - "docs/GITHUB_ACCEPTANCE_HUB.md"
+  workflow_dispatch:
+    inputs:
+      run_telegram_live:
+        description: "Send one harmless Telegram preflight message to the configured private owner chat"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: matrix-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  core-validation:
+    name: Core validation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install MATRIX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run complete test suite
+        run: python -m pytest -q
+
+      - name: Lint
+        run: python -m ruff check . --exclude agency-agents
+
+      - name: Secret scan
+        run: python -m matrix_ai.security.secret_scan .
+
+      - name: CLI doctor smoke test
+        run: python -m matrix_ai doctor
+
+  security-regression:
+    name: Web-fetch security regression (not independent sign-off)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Verify DNS-pinning and default-off security controls
+        run: >-
+          python -m pytest
+          tests/test_web_fetch_security.py
+          tests/test_web_and_providers.py
+          -q
+
+  provider-regression:
+    name: Provider adapter regression (mocked; no real OAuth)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install provider test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,youtube]"
+      - name: Run provider configuration and policy tests
+        run: >-
+          python -m pytest
+          tests/test_youtube_config.py
+          tests/test_youtube_tools.py
+          -q
+
+  android-build:
+    name: Android debug/release build (not physical-device acceptance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Locate Android SDK tools
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n1)"
+          test -n "$SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
+      - name: Install Android SDK platform
+        run: sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.7"
+          cache-provider: basic
+      - name: Assemble debug and release APKs
+        run: gradle -p android assembleDebug assembleRelease
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-android-apks
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  telegram-live:
+    name: Telegram real-bot preflight (opt-in)
+    if: ${{ inputs.run_telegram_live }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install MATRIX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+      - name: Require repository secrets without printing them
+        env:
+          MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
+          MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$MATRIX_TELEGRAM_BOT_TOKEN" || { echo "::error::Add MATRIX_TELEGRAM_BOT_TOKEN in repository Actions secrets."; exit 1; }
+          test -n "$MATRIX_TELEGRAM_CHAT_ID" || { echo "::error::Add MATRIX_TELEGRAM_CHAT_ID in repository Actions secrets."; exit 1; }
+      - name: Send one harmless test message to the configured private chat
+        env:
+          MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
+          MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
+          MATRIX_HOME: ${{ runner.temp }}/matrix-telegram-acceptance
+          MATRIX_LOG_LEVEL: WARNING
+        run: matrix telegram-preflight --send-test
+
+  acceptance-report:
+    name: Publish evidence summary to issue #73
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    permissions:
+      issues: write
+    needs:
+      - core-validation
+      - security-regression
+      - provider-regression
+      - android-build
+      - telegram-live
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write run summary and issue comment
+        uses: actions/github-script@v7
+        env:
+          CORE_RESULT: ${{ needs.core-validation.result }}
+          SECURITY_RESULT: ${{ needs.security-regression.result }}
+          PROVIDER_RESULT: ${{ needs.provider-regression.result }}
+          ANDROID_RESULT: ${{ needs.android-build.result }}
+          TELEGRAM_RESULT: ${{ needs.telegram-live.result }}
+          TELEGRAM_REQUESTED: ${{ inputs.run_telegram_live }}
+        with:
+          script: |
+            const result = (value, label) => {
+              if (value === "success") return "PASS — " + label;
+              if (value === "skipped") return "NOT RUN — " + label;
+              return "FAIL — " + label + " (" + value + ")";
+            };
+            const rows = [
+              ["Windows + Ubuntu core tests", result(process.env.CORE_RESULT, "GitHub-hosted runners only; not the owner's PC")],
+              ["Web-fetch security regression", result(process.env.SECURITY_RESULT, "automated tests only; independent reviewer approval is still required")],
+              ["Provider adapter regression", result(process.env.PROVIDER_RESULT, "mocked tests only; no real OAuth authorization")],
+              ["Android APK build", result(process.env.ANDROID_RESULT, "build only; not physical handset acceptance or release signing")],
+              ["Telegram live preflight", result(process.env.TELEGRAM_RESULT, process.env.TELEGRAM_REQUESTED === "true" ? "one real preflight message only; full bridge lifecycle still needs owner validation" : "not requested; enable the workflow input and configure the two Telegram secrets")],
+            ];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "## MATRIX GitHub Acceptance Hub",
+              "",
+              `Workflow run: [#${context.runId}](${runUrl})`,
+              "",
+              "| Check | Result |",
+              "|---|---|",
+              ...rows.map(([name, value]) => `|${name}|${value}|`),
+              "",
+              "### Gates this workflow cannot certify",
+              "- Independent security review: a qualified reviewer who did not author the DNS-pinning change must record a decision.",
+              "- Windows host acceptance: the GitHub runner is not the owner's physical PC.",
+              "- Tailscale ACL/revocation: an owner-authorized tailnet and approved/unapproved device identities are required.",
+              "- Android physical acceptance and owner-controlled release signing remain separate from APK assembly.",
+              "- Real OAuth provider authorization and read-only live smoke tests require owner-approved provider credentials.",
+              "",
+              "No gate is marked PASS solely because a build or mocked test passed. Keep MATRIX_ALLOW_WEB_FETCH=false until independent security approval is recorded."
+            ].join("\n");
+            await core.summary.addHeading("MATRIX acceptance evidence");
+            await core.summary.addTable([
+              [{data:"Check",header:true},{data:"Result",header:true}],
+              ...rows.map(([name,value]) => [name,value])
+            ]);
+            await core.summary.addLink("Open this workflow run", runUrl);
+            await core.summary.write();
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 73,
+              body
+            });
