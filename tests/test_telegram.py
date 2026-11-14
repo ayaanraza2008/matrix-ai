@@ -627,6 +627,20 @@ async def test_telegram_wrong_sender_cannot_resume_emergency_stop(tmp_path):
 
 
 
+async def test_telegram_goal_creation_is_blocked_by_emergency_stop(tmp_path):
+    bridge, store, orchestrator, sent = await make_bridge(tmp_path)
+    store.emergency_stop = True
+
+    await bridge._handle_update(
+        update(text=" /goal Must not start | Emergency stop must block this")
+    )
+
+    assert not store.goals
+    assert not orchestrator.enqueued
+    assert "Emergency stop is active" in sent[0]
+    assert "No new goal was created" in sent[0]
+
+
 async def test_telegram_creates_bounded_autonomous_goal(tmp_path):
     bridge, store, orchestrator, sent = await make_bridge(tmp_path)
 
