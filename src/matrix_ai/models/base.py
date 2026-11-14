@@ -273,11 +273,112 @@ class OpenAICompatibleProvider(ModelProvider):
         return ProviderHealth(configured=True, reachable=True, status="working")
 
 
+
+class FreeLLMAPIProvider(ModelProvider):
+    """OpenAI-compatible client for the local FreeLLMAPI router."""
+
+    provider_name = "freellmapi"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.config.freellmapi_url and self.config.freellmapi_api_key)
+
+    def _guard_cloud(self) -> None:
+        # The router is local, but its upstream model requests can leave the device.
+        if not self.config.allow_cloud_models:
+            raise ModelUnavailable(
+                "FreeLLMAPI requires explicit cloud-model consent. "
+                "Set MATRIX_ALLOW_CLOUD_MODELS=true only after reviewing the data-sharing implications."
+            )
+
+    async def complete(self, messages, *, temperature=0.2, max_tokens=512, json_mode=False):
+        if not self.configured:
+            raise ModelUnavailable(
+                "FreeLLMAPI is not configured. Set MATRIX_FREELLMAPI_API_KEY and MATRIX_FREELLMAPI_URL."
+            )
+        self._guard_cloud()
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.freellmapi_api_key}",
+        }
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [message.to_dict() for message in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.config.model_request_timeout_s) as client:
+                response = await client.post(
+                    f"{self.config.freellmapi_url.rstrip('/')}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            raise ModelUnavailable(f"FreeLLMAPI is unreachable: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            raise ModelUnavailable(f"FreeLLMAPI returned HTTP {response.status_code}")
+        try:
+            data = response.json()
+            text = data["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise ModelUnavailable("FreeLLMAPI returned an unexpected payload") from exc
+        latency = (time.perf_counter() - started) * 1000
+        self.last_latency_ms = latency
+        if not isinstance(text, str) or not text.strip():
+            raise ModelUnavailable("FreeLLMAPI returned an empty completion")
+        return ModelResponse(text=text, provider="freellmapi", model=self.model, latency_ms=latency)
+
+    async def _probe(self) -> ProviderHealth:
+        if not self.configured:
+            return ProviderHealth(
+                configured=False,
+                reachable=False,
+                status="unconfigured",
+                detail="Set MATRIX_FREELLMAPI_API_KEY and MATRIX_FREELLMAPI_URL to configure FreeLLMAPI.",
+            )
+        if not self.config.allow_cloud_models:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="blocked",
+                detail="FreeLLMAPI is configured but blocked until MATRIX_ALLOW_CLOUD_MODELS=true.",
+            )
+        headers = {"Authorization": f"Bearer {self.config.freellmapi_api_key}"}
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(
+                    f"{self.config.freellmapi_url.rstrip('/')}/models",
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="unavailable",
+                detail=f"FreeLLMAPI not reachable ({type(exc).__name__})",
+            )
+        if response.status_code != 200:
+            return ProviderHealth(
+                configured=True,
+                reachable=False,
+                status="degraded",
+                detail=f"HTTP {response.status_code}",
+            )
+        return ProviderHealth(configured=True, reachable=True, status="working")
+
+
 def build_provider(config: MatrixConfig) -> ModelProvider:
     if config.model_provider == "ollama":
         return OllamaProvider(config)
     if config.model_provider == "openai":
         return OpenAICompatibleProvider(config)
+    if config.model_provider == "freellmapi":
+        return FreeLLMAPIProvider(config)
     return NoModelProvider(config)
 
 
@@ -288,6 +389,7 @@ __all__ = [
     "NoModelProvider",
     "OllamaProvider",
     "OpenAICompatibleProvider",
+    "FreeLLMAPIProvider",
     "ProviderHealth",
     "build_provider",
     "is_local_endpoint",

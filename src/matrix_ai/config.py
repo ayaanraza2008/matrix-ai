@@ -138,11 +138,13 @@ class MatrixConfig:
     max_file_bytes: int = 1_000_000
     max_listing_entries: int = 200
 
-    model_provider: str = "none"  # none | ollama | openai
+    model_provider: str = "none"  # none | ollama | openai | freellmapi
     model_name: str = "qwen2.5:0.5b-instruct-q4_K_M"
     ollama_url: str = "http://127.0.0.1:11434"
     openai_base_url: str = "http://127.0.0.1:8080/v1"
     openai_api_key: str | None = None
+    freellmapi_url: str = "http://127.0.0.1:3001/v1"
+    freellmapi_api_key: str | None = None
     allow_cloud_models: bool = False
     model_ram_budget_mb: int = 2500
     model_request_timeout_s: float = 60.0
@@ -255,8 +257,24 @@ class MatrixConfig:
             or not _is_local_host(parsed_youtube_url.hostname)
         ):
             raise ConfigError("MATRIX_YOUTUBE_AUTOMATION_URL must be loopback or private-network only")
-        if self.model_provider not in {"none", "ollama", "openai"}:
-            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai")
+        if self.model_provider not in {"none", "ollama", "openai", "freellmapi"}:
+            raise ConfigError("MATRIX_MODEL_PROVIDER must be one of: none, ollama, openai, freellmapi")
+        if self.model_provider == "freellmapi":
+            parsed_freellmapi_url = urlsplit(self.freellmapi_url)
+            freellmapi_host = parsed_freellmapi_url.hostname
+            if (
+                parsed_freellmapi_url.scheme not in {"http", "https"}
+                or not freellmapi_host
+                or parsed_freellmapi_url.username
+                or parsed_freellmapi_url.password
+                or parsed_freellmapi_url.query
+                or parsed_freellmapi_url.fragment
+            ):
+                raise ConfigError("MATRIX_FREELLMAPI_URL must be a valid HTTP(S) base URL without embedded credentials")
+            if parsed_freellmapi_url.scheme == "http" and not _is_local_host(freellmapi_host):
+                raise ConfigError("MATRIX_FREELLMAPI_URL must use HTTPS unless it points to a local/private host")
+            if not self.freellmapi_api_key:
+                raise ConfigError("MATRIX_FREELLMAPI_API_KEY is required when MATRIX_MODEL_PROVIDER=freellmapi")
         if bool(self.notification_quiet_hours_start) != bool(self.notification_quiet_hours_end):
             raise ConfigError("notification quiet hours require both start and end times")
         for label, value in (
@@ -508,6 +526,9 @@ class MatrixConfig:
             openai_base_url=_env("MATRIX_OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
             or "http://127.0.0.1:8080/v1",
             openai_api_key=_env("MATRIX_OPENAI_API_KEY"),
+            freellmapi_url=_env("MATRIX_FREELLMAPI_URL", "http://127.0.0.1:3001/v1")
+            or "http://127.0.0.1:3001/v1",
+            freellmapi_api_key=_env("MATRIX_FREELLMAPI_API_KEY"),
             allow_cloud_models=_env_bool("MATRIX_ALLOW_CLOUD_MODELS", False),
             model_ram_budget_mb=_env_int("MATRIX_MODEL_RAM_BUDGET_MB", 2500),
             model_max_concurrent_requests=_env_int("MATRIX_MODEL_MAX_CONCURRENT_REQUESTS", 1),
