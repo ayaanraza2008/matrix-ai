@@ -1,6 +1,10 @@
 name: MATRIX Acceptance Hub
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/acceptance.yml"
+      - "docs/GITHUB_ACCEPTANCE_HUB.md"
   workflow_dispatch:
     inputs:
       run_telegram_live:
@@ -165,7 +169,9 @@ jobs:
 
   acceptance-report:
     name: Publish evidence summary to issue #73
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    permissions:
+      issues: write
     needs:
       - core-validation
       - security-regression
