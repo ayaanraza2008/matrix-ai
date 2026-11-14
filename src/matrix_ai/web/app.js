@@ -417,6 +417,18 @@ function renderHealthCards() {
       sub: 'pool cap ' + ((STATE.settings && STATE.settings.agent_max_concurrent_workers) || 4) + ' workers',
       kind: (status.running_tasks || 0) > 0 ? 'ok' : '',
     },
+    {
+      label: 'Cloud Execution',
+      value: 'VPS-FREE',
+      sub: 'GitHub Actions / matrix-data',
+      kind: 'ok',
+    },
+    {
+      label: 'Model Fallback',
+      value: (STATE.settings && STATE.settings.model_fallback_provider ? STATE.settings.model_fallback_provider.toUpperCase() : 'NONE'),
+      sub: (STATE.settings && STATE.settings.gemini_configured ? 'Gemini free-tier ready' : (STATE.settings && STATE.settings.model_fallback_provider && STATE.settings.model_fallback_provider !== 'none' ? 'Fallback active' : 'Primary only')),
+      kind: (STATE.settings && STATE.settings.model_fallback_provider && STATE.settings.model_fallback_provider !== 'none') || (STATE.settings && STATE.settings.gemini_configured) ? 'ok' : '',
+    },
   ];
   cards.forEach((card) => {
     const node = el('div', 'card ' + (card.kind || ''));

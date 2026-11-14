@@ -1,0 +1,84 @@
+name: MATRIX Cloud Scheduler (VPS-Free Execution)
+
+on:
+  schedule:
+    # Every 15 minutes (supported free-tier recurring autonomous cycle)
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      sync_telegram:
+        description: "Process Telegram updates in batch"
+        type: boolean
+        default: true
+      max_tasks:
+        description: "Maximum tasks to process"
+        type: number
+        default: 20
+      drain_timeout:
+        description: "Timeout for task queue drain (seconds)"
+        type: number
+        default: 45
+  repository_dispatch:
+    types: [matrix-task, telegram-webhook, cloud-step]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matrix-cloud-execution
+  cancel-in-progress: false
+
+jobs:
+  cloud-step:
+    name: Autonomous Cloud Step
+    runs-on: ubuntu-latest
+    environment:
+      name: matrix TG
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git Author for State Persistence
+        run: |
+          git config --global user.name "matrix-ai-bot[bot]"
+          git config --global user.email "matrix-ai-bot[bot]@users.noreply.github.com"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install MATRIX AI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Autonomous Cloud Step
+        id: step
+        env:
+          MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
+          MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
+          MATRIX_GEMINI_API_KEY: ${{ secrets.MATRIX_GEMINI_API_KEY }}
+          MATRIX_ALLOW_CLOUD_MODELS: ${{ secrets.MATRIX_ALLOW_CLOUD_MODELS || 'true' }}
+          MATRIX_MODEL_PROVIDER: ${{ secrets.MATRIX_MODEL_PROVIDER || 'gemini' }}
+          MATRIX_MODEL_FALLBACK_PROVIDER: ${{ secrets.MATRIX_MODEL_FALLBACK_PROVIDER || 'none' }}
+          SYNC_TELEGRAM: ${{ inputs.sync_telegram != false }}
+          MAX_TASKS: ${{ inputs.max_tasks || 20 }}
+          DRAIN_TIMEOUT: ${{ inputs.drain_timeout || 45 }}
+        run: |
+          FLAGS="--state-branch matrix-data --pull-state --push-state --max-tasks $MAX_TASKS --drain-timeout $DRAIN_TIMEOUT --markdown"
+          if [ "$SYNC_TELEGRAM" = "false" ]; then
+            FLAGS="$FLAGS --no-sync-telegram"
+          else
+            FLAGS="$FLAGS --sync-telegram"
+          fi
+
+          echo "Running: python -m matrix_ai.cli cloud-step $FLAGS"
+          python -m matrix_ai.cli cloud-step $FLAGS | tee step_summary.md
+
+          if [ -f step_summary.md ]; then
+            cat step_summary.md >> $GITHUB_STEP_SUMMARY
+          fi
