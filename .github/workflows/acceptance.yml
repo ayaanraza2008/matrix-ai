@@ -201,6 +201,7 @@ jobs:
         env:
           MATRIX_TELEGRAM_BOT_TOKEN: ${{ secrets.MATRIX_TELEGRAM_BOT_TOKEN }}
           MATRIX_TELEGRAM_CHAT_ID: ${{ secrets.MATRIX_TELEGRAM_CHAT_ID }}
+          MATRIX_TELEGRAM_MODE: ${{ vars.MATRIX_TELEGRAM_MODE || secrets.MATRIX_TELEGRAM_MODE || 'polling' }}
           MATRIX_HOME: ${{ runner.temp }}/matrix-telegram-acceptance
           MATRIX_LOG_LEVEL: WARNING
         run: matrix telegram-preflight --send-test

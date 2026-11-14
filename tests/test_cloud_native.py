@@ -539,3 +539,146 @@ console.log('NODE_WORKER_TEST_OK');
     assert "NODE_WORKER_TEST_OK" in proc.stdout
 
 
+def test_cloud_step_result_markdown_includes_telegram_mode():
+    res = CloudStepResult(
+        started_at="2026-11-14T12:00:00Z",
+        finished_at="2026-11-14T12:00:01Z",
+        duration_seconds=1.0,
+        recovered_tasks=0,
+        telegram_updates_processed=0,
+        tasks_completed=0,
+        reports_flushed=0,
+        state_pulled=True,
+        state_pushed=True,
+        primary_provider="none",
+        primary_status="unconfigured",
+        fallback_provider="none",
+        fallback_status="unconfigured",
+        active_tasks_remaining=0,
+        db_integrity="ok",
+        telegram_mode="webhook",
+    )
+    md = res.summary_markdown()
+    assert "- **Telegram Operating Mode:** `webhook`" in md
+    assert "- **Database Integrity:** `ok`" in md
+
+
+def test_cloudflare_worker_security_rejections_with_node():
+    """Verify in Node.js that the Cloudflare Worker strictly enforces fail-closed security contracts."""
+    import shutil
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js is not installed on this system")
+
+    worker_file = Path(__file__).resolve().parent.parent / "deploy" / "serverless" / "cloudflare_telegram_webhook_worker.js"
+    js_test = f"""
+import worker from '{worker_file.as_uri()}';
+import assert from 'node:assert';
+
+const validEnv = {{
+  TELEGRAM_SECRET_TOKEN: 'correct_secret',
+  TELEGRAM_OWNER_ID: '12345',
+  GITHUB_TOKEN: 'gh_secret_token',
+  GITHUB_REPO: 'ayaanraza2008/matrix-ai',
+}};
+
+// 1. Method GET -> 405
+const reqGet = new Request('https://worker.test', {{ method: 'GET' }});
+const resGet = await worker.fetch(reqGet, validEnv);
+assert.strictEqual(resGet.status, 405, 'GET must return 405');
+
+// 2. Missing config -> 500 (fail-closed)
+const reqPost = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret' }},
+  body: JSON.stringify({{ update_id: 1 }}),
+}});
+const resNoEnv = await worker.fetch(reqPost, {{}});
+assert.strictEqual(resNoEnv.status, 500, 'Unconfigured worker must return 500');
+
+// 3. Invalid secret token header -> 401
+const reqBadSecret = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'wrong_secret', 'Content-Type': 'application/json' }},
+  body: JSON.stringify({{ update_id: 2 }}),
+}});
+const resBadSecret = await worker.fetch(reqBadSecret, validEnv);
+assert.strictEqual(resBadSecret.status, 401, 'Bad secret header must return 401');
+
+// 4. Invalid JSON payload -> 400
+const reqBadJson = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret', 'Content-Type': 'application/json' }},
+  body: 'not-valid-json',
+}});
+const resBadJson = await worker.fetch(reqBadJson, validEnv);
+assert.strictEqual(resBadJson.status, 400, 'Bad JSON must return 400');
+
+// 5. Missing or invalid update_id -> 400
+const reqNoId = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret', 'Content-Type': 'application/json' }},
+  body: JSON.stringify({{ update_id: 'not_an_int' }}),
+}});
+const resNoId = await worker.fetch(reqNoId, validEnv);
+assert.strictEqual(resNoId.status, 400, 'String update_id must return 400');
+
+// 6. Non-private chat -> 403
+const reqGroupChat = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret', 'Content-Type': 'application/json' }},
+  body: JSON.stringify({{
+    update_id: 3,
+    message: {{
+      chat: {{ id: 12345, type: 'group' }},
+      from: {{ id: 12345 }},
+      text: '/status',
+    }},
+  }}),
+}});
+const resGroupChat = await worker.fetch(reqGroupChat, validEnv);
+assert.strictEqual(resGroupChat.status, 403, 'Group chat must return 403');
+
+// 7. Mismatched sender ID -> 403
+const reqBadSender = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret', 'Content-Type': 'application/json' }},
+  body: JSON.stringify({{
+    update_id: 4,
+    message: {{
+      chat: {{ id: 12345, type: 'private' }},
+      from: {{ id: 99999 }}, // unauthorized sender
+      text: '/status',
+    }},
+  }}),
+}});
+const resBadSender = await worker.fetch(reqBadSender, validEnv);
+assert.strictEqual(resBadSender.status, 403, 'Unauthorized sender must return 403');
+
+// 8. Non-message update -> 200 ignored
+const reqChannelPost = new Request('https://worker.test', {{
+  method: 'POST',
+  headers: {{ 'X-Telegram-Bot-Api-Secret-Token': 'correct_secret', 'Content-Type': 'application/json' }},
+  body: JSON.stringify({{
+    update_id: 5,
+    channel_post: {{ text: 'channel update' }},
+  }}),
+}});
+const resChannelPost = await worker.fetch(reqChannelPost, validEnv);
+assert.strictEqual(resChannelPost.status, 200, 'Non-message update must return 200 ignored');
+const bodyChannel = await resChannelPost.json();
+assert.strictEqual(bodyChannel.status, 'ignored_non_message');
+
+console.log('NODE_WORKER_SECURITY_CONTRACT_OK');
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", js_test],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"Node test failed: {proc.stderr}\n{proc.stdout}"
+    assert "NODE_WORKER_SECURITY_CONTRACT_OK" in proc.stdout
+
+
+
