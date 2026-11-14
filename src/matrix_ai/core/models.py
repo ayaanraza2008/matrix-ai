@@ -390,6 +390,18 @@ class VisionStatusView(BaseModel):
     detail: str | None = None
 
 
+class TelegramStatusView(BaseModel):
+    configured: bool
+    enabled: bool
+    running: bool
+    polling_health: Literal["healthy", "degraded", "conflict", "auth_failed", "stopped", "disabled"]
+    last_successful_poll_at: str | None = None
+    last_processed_update_id: int | None = None
+    consecutive_failures: int = 0
+    last_error: str | None = None
+    active_watchers: int = 0
+
+
 class HealthView(BaseModel):
     status: Literal["ok", "degraded", "unavailable"]
     version: str
@@ -401,6 +413,7 @@ class HealthView(BaseModel):
     integrations_total: int
     emergency_stop: bool
     checks: dict[str, str] = Field(default_factory=dict)
+    telegram: TelegramStatusView | None = None
 
 
 class AuditEventView(BaseModel):

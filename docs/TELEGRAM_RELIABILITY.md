@@ -9,7 +9,11 @@ MATRIX's private Telegram bridge uses long polling with a durable SQLite update 
 - The watermark advances only after the update handler completes successfully. A failed update is retried on the next poll.
 - Task creation uses MATRIX's durable idempotency table with scope `telegram.update` and the Telegram update ID as the key. Replayed messages return the original task rather than creating a second task.
 - Existing idempotency is checked before the emergency-stop gate so replaying an already-created task does not create a new task or lose the original acknowledgement while the stop is active.
-- Unauthorized chats and unsupported message shapes are ignored and acknowledged, so they do not block later owner messages.
+- Unauthorized chats and unsupported message shapes are audited under `telegram.unauthorized_access` (`status="blocked"`) without exposing message text, and acknowledged so they do not block later owner messages.
+- Polling lifecycle health is tracked and exposed via `/api/telegram/status`, `GET /api/health`, and `matrix doctor` (`healthy`, `degraded`, `conflict`, `auth_failed`, `stopped`, `disabled`).
+- HTTP 409 Polling Conflicts (e.g. another instance or webhook active) are detected, audited (`telegram.polling_conflict`), and handled with bounded backoff (15–60s) rather than thrashing.
+- HTTP 401 Unauthorized errors (invalid/revoked token) are detected as terminal authentication failures, audited (`telegram.auth_failed`), and safely halt the polling loop.
+- Network and transient HTTP 5xx / 429 failures use bounded exponential backoff with jitter up to 30s.
 - After normal orchestrator restart recovery, the Telegram bridge queries the durable task table for the bounded set of currently nonterminal tasks created through the Telegram idempotency scope, then reattaches result watchers. This is not limited to the most recent messages, so older still-active work is not hidden by newer completed tasks. Stale/missing records are audited and do not prevent polling from starting.
 - Task notifications retry transient Telegram delivery failures a bounded number of times. The owner can also retrieve a recorded result later with `/task <task-id>`; `/tasks` shows the five most recent Telegram tasks.
 - `/cancel <task-id>` is limited to Telegram-submitted task IDs. `/resume` clears the emergency-stop flag but does not revive tasks cancelled by `/stop`.

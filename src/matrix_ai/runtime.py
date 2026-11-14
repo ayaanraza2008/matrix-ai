@@ -15,6 +15,7 @@ from .core.models import (
     AutonomyLevel,
     HealthView,
     Principal,
+    TelegramStatusView,
     ToolSpec,
     iso,
 )
@@ -184,6 +185,7 @@ class MatrixRuntime:
     async def health(self) -> HealthView:
         database = "ok" if self.db.integrity_check() == "ok" else "degraded"
         model = await self.models.status()
+        tg_status = self.telegram.status()
         checks = {
             "database": database,
             "model": model.status,
@@ -193,6 +195,7 @@ class MatrixRuntime:
             "addons": "available",
             "skills": f"{self.skills_manager.status()['installed_count']} installed",
             "emergency_stop": "active" if self.store.emergency_stop else "off",
+            "telegram": tg_status["polling_health"],
         }
         degraded = database != "ok" or self.store.emergency_stop or model.status in {"unavailable", "degraded"}
         return HealthView(
@@ -206,6 +209,7 @@ class MatrixRuntime:
             integrations_total=self.integrations.total_count,
             emergency_stop=self.store.emergency_stop,
             checks=checks,
+            telegram=TelegramStatusView(**tg_status),
         )
 
     # -- lifecycle --------------------------------------------------------

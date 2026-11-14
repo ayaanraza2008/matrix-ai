@@ -63,6 +63,19 @@ matrix backup
 
 **Pass:** startup is reliable without SYSTEM/admin privilege; recovery does not replay uncertain non-idempotent side effects; backup restores.
 
+## 2A. Containerized always-on Linux deployment
+
+When deploying MATRIX on an always-on Linux host (server, VPS, home lab) rather than a desktop PC:
+
+- Follow `docs/DEPLOYMENT.md` to deploy via Docker Compose (`docker compose up -d`).
+- Confirm non-root execution (`USER matrix:matrix`, `UID 10001`).
+- Verify container port is bound strictly to loopback (`127.0.0.1:8765`), never public `0.0.0.0`.
+- Verify persistent volume `/data` retains database, audit logs, and Telegram offset across container restarts (`docker compose down && docker compose up -d`).
+- Test online backup via `docker compose exec matrix python -m matrix_ai backup`.
+- Check bridge status at `/api/telegram/status` and container health check via `docker compose ps`.
+
+**Pass:** containerized daemon runs persistently, restarts safely, keeps data in volume, and runs Telegram without a desktop session.
+
 ## 3. Private Tailscale access
 
 - Install/sign in to Tailscale on the PC and only the owner's approved devices.
@@ -86,13 +99,15 @@ matrix remote-access status
 
 - Create a fresh bot using Telegram's official BotFather flow.
 - Configure the bot token and numeric private chat ID only in the local MATRIX process environment/secret store. Never put either value in source control, issue comments or ChatGPT messages.
-- Start the bridge and verify only the configured private owner chat is accepted.
+- Run `matrix telegram-preflight --send-test` to verify bot identity (`getMe`), absence of webhook conflicts, and outbound delivery.
+- Start the bridge and verify only the configured private owner chat is accepted. Check `/api/telegram/status` or `matrix doctor` for bridge status (`healthy`, `consecutive_failures: 0`).
 - Test ordinary task request/result, `/status`, `/help`, and the Telegram command menu (registered by MATRIX at startup).
 - Send a harmless task, retain its full task ID, and verify `/tasks` lists it and `/task <task-id>` reports its state/result.
 - Cancel a separate harmless long-running task with `/cancel <task-id>`; verify unrelated dashboard-created task IDs are rejected by Telegram task lookup/cancellation.
 - Verify `/stop` cancels active tasks and blocks new work; `/resume` clears the stop for new work but does not restart tasks cancelled by `/stop`.
 - Send a harmless task, restart MATRIX while it is pending, and verify both the durable update cursor and task-result notification watcher recover without creating duplicate tasks.
-- Send a message from an unauthorized account and verify it is ignored.
+- Send a message from an unauthorized account or group and verify it is ignored and audited as `telegram.unauthorized_access` (`status="blocked"`).
+- Test polling conflict (409) or temporary network failure; verify bridge backs off gracefully without crashing or thrashing.
 - Verify Telegram cannot approve HIGH/CRITICAL actions and that emergency stop still blocks new work.
 - Test bot token rotation/revocation and confirm no credential appears in logs/audit/dashboard.
 

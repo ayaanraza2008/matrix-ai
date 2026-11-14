@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -182,6 +185,10 @@ class TelegramChatBridge:
         self._offset: int | None = None
         self._client: httpx.AsyncClient | None = None
         self._report_tasks: set[asyncio.Task] = set()
+        self._last_successful_poll_at: float | None = None
+        self._consecutive_failures: int = 0
+        self._last_error: str | None = None
+        self._polling_health: str = "stopped"
 
     @property
     def enabled(self) -> bool:
@@ -190,6 +197,34 @@ class TelegramChatBridge:
     @property
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
+
+    def status(self) -> dict[str, Any]:
+        """Observability status report for the Telegram bridge (never discloses secrets)."""
+        if not self.enabled:
+            health = "disabled"
+        elif not self.running:
+            health = "stopped" if self._polling_health not in {"auth_failed", "conflict"} else self._polling_health
+        else:
+            health = self._polling_health
+
+        poll_iso: str | None = None
+        if self._last_successful_poll_at:
+            try:
+                poll_iso = datetime.fromtimestamp(self._last_successful_poll_at, UTC).isoformat()
+            except Exception:
+                poll_iso = None
+
+        return {
+            "configured": self.enabled,
+            "enabled": self.enabled,
+            "running": self.running,
+            "polling_health": health,
+            "last_successful_poll_at": poll_iso,
+            "last_processed_update_id": self._offset - 1 if self._offset is not None else None,
+            "consecutive_failures": self._consecutive_failures,
+            "last_error": self._last_error,
+            "active_watchers": len([t for t in self._report_tasks if not t.done()]),
+        }
 
     def start(self) -> None:
         if self.enabled and not self.running:
@@ -203,6 +238,8 @@ class TelegramChatBridge:
             except asyncio.CancelledError:
                 pass
         self._task = None
+        if self._polling_health not in {"auth_failed", "conflict"}:
+            self._polling_health = "stopped"
         for report in tuple(self._report_tasks):
             report.cancel()
         if self._report_tasks:
@@ -331,6 +368,8 @@ class TelegramChatBridge:
     async def _run(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=8.0))
         announced = False
+        self._polling_health = "healthy"
+        self._consecutive_failures = 0
         try:
             self._restore_offset()
             self._restore_pending_reports()
@@ -353,6 +392,11 @@ class TelegramChatBridge:
                     if self._offset is not None:
                         payload["offset"] = self._offset
                     data = await self._api("getUpdates", payload)
+                    self._last_successful_poll_at = time.time()
+                    self._consecutive_failures = 0
+                    self._last_error = None
+                    self._polling_health = "healthy"
+
                     for update in data.get("result", []):
                         update_id = update.get("update_id")
                         try:
@@ -370,13 +414,69 @@ class TelegramChatBridge:
                             break
                 except asyncio.CancelledError:
                     raise
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    if status == 401:
+                        self._polling_health = "auth_failed"
+                        self._last_error = "Telegram rejected the bot token (HTTP 401 Unauthorized); verify MATRIX_TELEGRAM_BOT_TOKEN."
+                        self.store.audit(
+                            "telegram.auth_failed",
+                            actor="telegram",
+                            status="failed",
+                            detail={"status_code": 401},
+                        )
+                        log.error("Telegram bot authentication failed (HTTP 401); stopping polling.")
+                        break
+                    elif status == 409:
+                        self._polling_health = "conflict"
+                        self._consecutive_failures += 1
+                        self._last_error = "Telegram polling conflict: another bot instance or webhook is active (HTTP 409 Conflict)."
+                        self.store.audit(
+                            "telegram.polling_conflict",
+                            actor="telegram",
+                            status="degraded",
+                            detail={"status_code": 409, "attempts": self._consecutive_failures},
+                        )
+                        log.warning("Telegram polling conflict (HTTP 409); backing off.")
+                        delay = min(15.0 + self._consecutive_failures * 5.0, 60.0)
+                        await asyncio.sleep(delay)
+                    elif status == 429:
+                        self._polling_health = "degraded"
+                        self._consecutive_failures += 1
+                        self._last_error = "Telegram API rate-limited the polling request (HTTP 429)."
+                        self.store.audit(
+                            "telegram.rate_limited",
+                            actor="telegram",
+                            status="degraded",
+                            detail={"status_code": 429, "attempts": self._consecutive_failures},
+                        )
+                        delay = min(10.0 + self._consecutive_failures * 5.0, 60.0)
+                        await asyncio.sleep(delay)
+                    else:
+                        self._polling_health = "degraded"
+                        self._consecutive_failures += 1
+                        self._last_error = f"Telegram Bot API returned HTTP {status}."
+                        self.store.audit(
+                            "telegram.bridge_retry",
+                            actor="telegram",
+                            status="degraded",
+                            detail={"status_code": status, "attempts": self._consecutive_failures},
+                        )
+                        delay = min(30.0, (2.0 ** min(self._consecutive_failures, 4))) + random.uniform(0.1, 1.0)
+                        await asyncio.sleep(delay)
                 except Exception as exc:  # noqa: BLE001 - transient network/API errors retry
+                    self._polling_health = "degraded"
+                    self._consecutive_failures += 1
+                    self._last_error = f"Telegram bridge error: {type(exc).__name__}."
                     self.store.audit(
-                        "telegram.bridge_retry", actor="telegram", status="degraded",
-                        detail={"error": type(exc).__name__},
+                        "telegram.bridge_retry",
+                        actor="telegram",
+                        status="degraded",
+                        detail={"error": type(exc).__name__, "attempts": self._consecutive_failures},
                     )
                     log.warning("Telegram bridge retrying after %s", type(exc).__name__)
-                    await asyncio.sleep(5)
+                    delay = min(30.0, (2.0 ** min(self._consecutive_failures, 4))) + random.uniform(0.1, 1.0)
+                    await asyncio.sleep(delay)
         finally:
             if self._client:
                 await self._client.aclose()
@@ -389,10 +489,23 @@ class TelegramChatBridge:
         text = (message.get("text") or "").strip()
         voice = message.get("voice")
         allowed_id = str(self.config.telegram_chat_id or "")
+
+        is_private = chat.get("type") == "private"
+        is_chat_match = str(chat.get("id")) == allowed_id
+        is_sender_match = str(sender.get("id")) == allowed_id
+
         # Require a private chat, matching chat ID, and matching sender ID.
-        if chat.get("type") != "private" or str(chat.get("id")) != allowed_id:
-            return
-        if str(sender.get("id")) != allowed_id:
+        if not is_private or not is_chat_match or not is_sender_match:
+            self.store.audit(
+                "telegram.unauthorized_access",
+                actor="telegram",
+                status="blocked",
+                detail={
+                    "chat_type": chat.get("type"),
+                    "chat_id_match": is_chat_match,
+                    "sender_id_match": is_sender_match,
+                },
+            )
             return
         if not text and isinstance(voice, dict):
             try:
@@ -456,8 +569,9 @@ class TelegramChatBridge:
                     TaskState.WAITING_FOR_USER.value,
                 }
             )
+            tg_health = self.status()["polling_health"]
             await self._send(
-                f"MATRIX Telegram: {'running' if self.running else 'starting'}\n"
+                f"MATRIX Telegram: {'running' if self.running else 'starting'} ({tg_health})\n"
                 f"Model: {health.status} ({health.provider}/{health.model})\n"
                 f"Active tasks: {len(active)}\n"
                 f"Active goals: {active_goals}\n"

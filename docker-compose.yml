@@ -1,0 +1,43 @@
+services:
+  matrix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: matrix-ai:latest
+    container_name: matrix-ai
+    restart: unless-stopped
+    # Safe defaults: web fetch and cloud models disabled by default.
+    environment:
+      - MATRIX_HOME=/data
+      - MATRIX_HOST=0.0.0.0
+      - MATRIX_PORT=8765
+      - MATRIX_ALLOW_WEB_FETCH=false
+      - MATRIX_ALLOW_CLOUD_MODELS=false
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Persistent SQLite database, audit logs, and paired device credentials
+      - matrix-data:/data
+    ports:
+      # Loopback binding only: never expose the API/dashboard directly to 0.0.0.0 on the host.
+      # For remote access, connect via Tailscale or an authenticated reverse proxy (e.g., Caddy).
+      - "127.0.0.1:8765:8765"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8765/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3000M
+        reservations:
+          memory: 512M
+    stop_grace_period: 30s
+
+volumes:
+  matrix-data:
+    driver: local
