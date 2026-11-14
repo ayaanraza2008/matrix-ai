@@ -72,6 +72,29 @@ def default_home() -> Path:
     return Path.home() / ".matrix"
 
 
+def _load_dotenv_if_present() -> None:
+    """Load key-value environment variables from local .env files if present.
+
+    Checks Path.cwd() / .env and default_home() / .env. Does NOT overwrite
+    existing environment variables already configured in os.environ.
+    """
+    candidates = (Path.cwd() / ".env", default_home() / ".env")
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                for line in candidate.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+            except OSError:
+                pass
+
+
 #: Only these applications may be launched by ID. Anything else is rejected.
 DEFAULT_ALLOWED_APPS: dict[str, str] = {
     "notepad": "notepad.exe",
@@ -514,6 +537,7 @@ class MatrixConfig:
 
     @classmethod
     def from_env(cls) -> MatrixConfig:
+        _load_dotenv_if_present()
         apps = dict(DEFAULT_ALLOWED_APPS)
         raw_apps = _env("MATRIX_ALLOWED_APPS")
         if raw_apps:

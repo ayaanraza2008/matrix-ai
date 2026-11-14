@@ -681,4 +681,33 @@ console.log('NODE_WORKER_SECURITY_CONTRACT_OK');
     assert "NODE_WORKER_SECURITY_CONTRACT_OK" in proc.stdout
 
 
+def test_load_dotenv_if_present(tmp_path: Path, monkeypatch):
+    from matrix_ai.config import MatrixConfig, _load_dotenv_if_present
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "# This is a comment\n"
+        "TEST_AUTO_DOTENV_KEY=hello_world\n"
+        "TEST_AUTO_DOTENV_QUOTED=\"quoted_val\"\n"
+        "TEST_AUTO_DOTENV_EXISTING=new_val\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TEST_AUTO_DOTENV_EXISTING", "original_val")
+    monkeypatch.delenv("TEST_AUTO_DOTENV_KEY", raising=False)
+    monkeypatch.delenv("TEST_AUTO_DOTENV_QUOTED", raising=False)
+
+    _load_dotenv_if_present()
+
+    assert os.environ["TEST_AUTO_DOTENV_KEY"] == "hello_world"
+    assert os.environ["TEST_AUTO_DOTENV_QUOTED"] == "quoted_val"
+    assert os.environ["TEST_AUTO_DOTENV_EXISTING"] == "original_val"  # not overwritten
+
+    # Verify MatrixConfig.from_env() respects loaded environment
+    cfg = MatrixConfig.from_env()
+    assert cfg is not None
+
+
+
 
