@@ -163,6 +163,18 @@ class Orchestrator:
         return task_id
 
     async def enqueue(self, task_id: str) -> None:
+        # Enforce the emergency stop at the final scheduling boundary as well as
+        # at task creation. This closes races and protects callers (such as
+        # Telegram goal creation) that persist a task before enqueueing it.
+        if self.policy.emergency_stop:
+            self.store.audit(
+                "task.enqueue_blocked",
+                actor="system",
+                task_id=task_id,
+                status="blocked",
+                detail={"reason": "emergency_stop"},
+            )
+            return
         existing = self._runners.get(task_id)
         if existing is not None and not existing.done():
             return
